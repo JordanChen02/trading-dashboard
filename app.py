@@ -34,3 +34,15 @@ if file is not None:
     # 4) Preview
     st.subheader("Preview (first 50 rows)")
     st.dataframe(df.head(50), use_container_width=True)
+
+        # === KPIs ===
+    st.subheader("Key Stats")
+
+    total_trades = len(df)
+    wins = (df["pnl"] > 0).sum()
+    win_rate = (wins / total_trades * 100) if total_trades > 0 else 0.0
+
+    c1, c2 = st.columns(2)
+    c1.metric("Total Trades", f"{total_trades}")
+    c2.metric("Win Rate", f"{win_rate:.1f}%")
+
