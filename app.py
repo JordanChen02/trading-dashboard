@@ -46,3 +46,30 @@ if file is not None:
     c1.metric("Total Trades", f"{total_trades}")
     c2.metric("Win Rate", f"{win_rate:.1f}%")
 
+    # === More KPIs ===
+    profits = df.loc[df["pnl"] > 0, "pnl"]
+    losses  = df.loc[df["pnl"] < 0, "pnl"]
+
+    profit_sum = float(profits.sum())
+    loss_sum   = float(losses.sum())  # negative number or 0
+
+    profit_factor = (profit_sum / abs(loss_sum)) if loss_sum != 0 else float("inf")
+    expectancy    = float(df["pnl"].mean()) if len(df) else 0.0
+    avg_win       = float(profits.mean()) if len(profits) else 0.0
+    avg_loss      = float(losses.mean())  if len(losses)  else 0.0  # will be negative if any losses
+
+    # Max Drawdown (absolute and %)
+    equity = df["pnl"].cumsum()
+    roll_peak = equity.cummax()
+    dd = equity - roll_peak                      # <= 0
+    max_dd_abs = float(dd.min())                 # most negative
+    max_dd_pct = float(((equity / roll_peak) - 1.0).min() * 100) if (roll_peak > 0).any() else 0.0
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Profit Factor", "∞" if profit_factor == float("inf") else f"{profit_factor:.2f}")
+    c2.metric("Expectancy (per trade)", f"${expectancy:,.2f}")
+    c3.metric("Max Drawdown", f"${max_dd_abs:,.2f}  ({max_dd_pct:.1f}%)")
+
+    c4, c5 = st.columns(2)
+    c4.metric("Avg Win", f"${avg_win:,.2f}")
+    c5.metric("Avg Loss", f"${avg_loss:,.2f}")
