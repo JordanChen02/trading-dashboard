@@ -37,3 +37,10 @@ This schema defines the minimum columns required by the app. Extra columns are a
 4. **side** ∈ {long, short} (case-insensitive).
 5. **qty > 0**, **prices > 0**.
 6. **fees ≥ 0**.
+
+## Supported Inputs
+- Native schema (1 row per trade) — **preferred**.
+- TradingView strategy tester CSV (2 rows per trade). We infer:
+  - `side` from the Signal text if no explicit column.
+  - `fees` default to 0 (TV doesn’t include commissions).
+  - keep optional TV fields (run_up, drawdown, cum_pnl) in notes for now.

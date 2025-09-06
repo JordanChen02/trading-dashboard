@@ -1,5 +1,7 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
+import plotly.express as px
 
 # 👇 our modules
 from src.io import load_trades, validate
@@ -9,7 +11,7 @@ st.set_page_config(page_title="Trading Dashboard — MVP", layout="wide")
 st.title("Trading Dashboard — MVP")
 st.caption("Upload a CSV of trades and preview it below.")
 
-# Upload
+# --- Upload ---
 file = st.file_uploader("Upload CSV", type=["csv"])
 
 if file is not None:
@@ -28,48 +30,108 @@ if file is not None:
             st.write(f"{i}. {msg}")
         st.stop()
 
-    # 3) Derive PnL
+    # 3) Derive PnL (expects a 'pnl' column after this)
     df = add_pnl(df)
 
     # 4) Preview
     st.subheader("Preview (first 50 rows)")
     st.dataframe(df.head(50), use_container_width=True)
 
-        # === KPIs ===
+    # --- Controls ---
     st.subheader("Key Stats")
 
+    # Breakeven handling for win-rate
+    be_policy = st.radio(
+        "Breakeven trades (PnL = 0) should…",
+        ["be excluded from win-rate", "count as losses", "count as wins"],
+        help="This only affects win-rate. Totals and sums still include breakeven PnL."
+    )
+
+    # Starting equity for equity curve + Max DD%
+    start_equity = st.number_input(
+        "Starting equity ($)", min_value=0.0, value=5000.0, step=100.0,
+        help="Used to anchor the equity curve and compute Max Drawdown %."
+    )
+
+    # --- Win-rate components depending on breakeven policy ---
+    is_win = df["pnl"] > 0
+    is_loss = df["pnl"] < 0
+    is_be = df["pnl"] == 0
+
     total_trades = len(df)
-    wins = (df["pnl"] > 0).sum()
-    win_rate = (wins / total_trades * 100) if total_trades > 0 else 0.0
 
-    c1, c2 = st.columns(2)
-    c1.metric("Total Trades", f"{total_trades}")
-    c2.metric("Win Rate", f"{win_rate:.1f}%")
+    if be_policy == "be excluded from win-rate":
+        denom = (is_win | is_loss).sum()  # exclude 0 PnL
+        wins = is_win.sum()
+        win_rate = (wins / denom * 100.0) if denom > 0 else 0.0
+    elif be_policy == "count as losses":
+        wins = is_win.sum()
+        win_rate = (wins / total_trades * 100.0) if total_trades > 0 else 0.0
+    else:  # "count as wins"
+        wins = (is_win | is_be).sum()
+        win_rate = (wins / total_trades * 100.0) if total_trades > 0 else 0.0
 
-    # === More KPIs ===
+    # --- Basic KPIs ---
     profits = df.loc[df["pnl"] > 0, "pnl"]
     losses  = df.loc[df["pnl"] < 0, "pnl"]
 
-    profit_sum = float(profits.sum())
-    loss_sum   = float(losses.sum())  # negative number or 0
+    profit_sum = float(profits.sum())                # ≥ 0
+    loss_sum   = float(losses.sum())                 # ≤ 0 or 0
 
     profit_factor = (profit_sum / abs(loss_sum)) if loss_sum != 0 else float("inf")
-    expectancy    = float(df["pnl"].mean()) if len(df) else 0.0
     avg_win       = float(profits.mean()) if len(profits) else 0.0
-    avg_loss      = float(losses.mean())  if len(losses)  else 0.0  # will be negative if any losses
+    avg_loss      = float(losses.mean())  if len(losses)  else 0.0  # negative if any losses
 
-    # Max Drawdown (absolute and %)
-    equity = df["pnl"].cumsum()
-    roll_peak = equity.cummax()
-    dd = equity - roll_peak                      # <= 0
-    max_dd_abs = float(dd.min())                 # most negative
-    max_dd_pct = float(((equity / roll_peak) - 1.0).min() * 100) if (roll_peak > 0).any() else 0.0
+    # Expectancy per trade (uses avg_loss as negative)
+    win_rate_frac  = (win_rate / 100.0)
+    loss_rate_frac = 1.0 - win_rate_frac
+    expectancy     = win_rate_frac * avg_win + loss_rate_frac * avg_loss
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Profit Factor", "∞" if profit_factor == float("inf") else f"{profit_factor:.2f}")
-    c2.metric("Expectancy (per trade)", f"${expectancy:,.2f}")
-    c3.metric("Max Drawdown", f"${max_dd_abs:,.2f}  ({max_dd_pct:.1f}%)")
+    # --- Equity curve + Drawdown from starting equity ---
+    df = df.copy().reset_index(drop=True)
+    df["trade_no"] = np.arange(1, len(df) + 1)
+    df["cum_pnl"] = df["pnl"].cumsum()
+    df["equity"] = start_equity + df["cum_pnl"]
+    df["equity_peak"] = df["equity"].cummax()
+    df["dd_abs"] = df["equity"] - df["equity_peak"]  # ≤ 0
+    df["dd_pct"] = np.where(df["equity_peak"] > 0, (df["equity"] / df["equity_peak"]) - 1.0, 0.0)
 
-    c4, c5 = st.columns(2)
-    c4.metric("Avg Win", f"${avg_win:,.2f}")
-    c5.metric("Avg Loss", f"${avg_loss:,.2f}")
+    max_dd_abs = float(df["dd_abs"].min())            # most negative dollar drawdown
+    max_dd_pct = float(df["dd_pct"].min()) * 100.0    # most negative percent drawdown
+
+    # --- Current balance & Net PnL ---
+    current_balance = float(df["equity"].iloc[-1]) if len(df) else start_equity
+    net_pnl         = float(df["cum_pnl"].iloc[-1]) if len(df) else 0.0
+
+    # --- KPI Layout ---
+    kc1, kc2, kc3, kc4 = st.columns(4)
+    kc1.metric("Total Trades", f"{total_trades}")
+    kc2.metric("Win Rate", f"{win_rate:.1f}%")
+    kc3.metric("Profit Factor", "∞" if profit_factor == float("inf") else f"{profit_factor:.2f}")
+    kc4.metric("Expectancy (per trade)", f"${expectancy:,.2f}")
+
+    kc5, kc6, kc7, kc8, kc9 = st.columns(5)
+    kc5.metric("Avg Win", f"${avg_win:,.2f}")
+    kc6.metric("Avg Loss", f"${avg_loss:,.2f}")
+    kc7.metric("Max Drawdown", f"${max_dd_abs:,.2f} ({max_dd_pct:.1f}%)")
+    kc8.metric("Current Balance", f"${current_balance:,.2f}")
+    kc9.metric("Net PnL", f"${net_pnl:,.2f}")
+
+
+    # --- Equity chart ---
+    st.subheader("Equity Curve")
+
+    fig = px.line(
+        df,
+        x="trade_no",
+        y="equity",
+        title="Equity Curve",
+        labels={"trade_no": "Trade #", "equity": "Equity ($)"},
+    )
+    # Force y-axis to start at your starting equity; add 5% headroom for readability
+    fig.update_yaxes(range=[start_equity, df["equity"].max() * 1.05])
+
+    st.plotly_chart(fig, use_container_width=True)
+
+else:
+    st.info("Upload a CSV to get started (try `data/sample_tv_trades.csv`).")
