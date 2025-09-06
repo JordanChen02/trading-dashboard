@@ -1,0 +1,1 @@
+-e "__pycache__/\n*.pyc\nvenv/\n.vscode/\n.streamlit/\n.DS_Store" 
