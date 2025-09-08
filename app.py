@@ -304,6 +304,164 @@ with tab_overview:
     with c4:
         st.metric("Trade Count", f"{total_v}")
 
+    st.divider()
+
+    st.subheader("Charts")
+
+    left, right = st.columns([3, 2], gap="large")
+
+    # ===================== CHART HELPERS (assets, sides, volume & pnl windows) [timeframe-aware] =====================
+    # We already computed df_view and _date_col above for the Overview cards.
+    _dt_view = pd.to_datetime(df_view[_date_col], errors="coerce") if (_date_col is not None and _date_col in df_view.columns) else None
+
+    # 1) Distribution by asset (symbol) and side (long/short)
+    _symbol_dist = (
+        df_view["symbol"].value_counts(normalize=True).sort_values(ascending=False)
+        if "symbol" in df_view.columns else pd.Series(dtype=float)
+    )
+    _side_dist = (
+        df_view["side"].str.lower().value_counts(normalize=True).reindex(["long", "short"]).fillna(0.0)
+        if "side" in df_view.columns else pd.Series(dtype=float)
+    )
+
+    # 2) Dollar notional per trade (try qty*price, else 'notional', else |PnL|)
+    _qty_cols   = [c for c in ["qty","quantity","size","contracts","amount"] if c in df_view.columns]
+    _price_cols = [c for c in ["price","entry_price","avg_entry_price"] if c in df_view.columns]
+    if _qty_cols and _price_cols:
+        _notional = (pd.to_numeric(df_view[_qty_cols[0]], errors="coerce").fillna(0) *
+                    pd.to_numeric(df_view[_price_cols[0]], errors="coerce").fillna(0)).abs()
+    elif "notional" in df_view.columns:
+        _notional = pd.to_numeric(df_view["notional"], errors="coerce").fillna(0).abs()
+    else:
+        _notional = pd.to_numeric(df_view["pnl"], errors="coerce").fillna(0).abs()  # fallback
+
+    # 3) Windows for “last 20 trades” (by row order) in the selected timeframe
+    _last20_view = df_view.tail(20).copy()
+    _last20_notional = _notional.tail(20).reset_index(drop=True)
+    _last20_pnl = pd.to_numeric(_last20_view["pnl"], errors="coerce").fillna(0).reset_index(drop=True)
+
+    # 4) Volume per DAY (from last ~20 trades) in the selected timeframe
+    if _dt_view is not None:
+        _last20_days = _dt_view.tail(20).dt.date
+        _vol_per_day = (
+            pd.DataFrame({"day": _last20_days, "vol": _last20_notional})
+            .groupby("day", as_index=False)["vol"].sum()
+            .sort_values("day")
+        )
+    else:
+        _vol_per_day = pd.DataFrame(
+            {"day": [f"T-{i}" for i in range(len(_last20_notional),0,-1)][::-1],
+            "vol": _last20_notional}
+        )
+
+
+    # --- Left card: Equity Curve (smaller, minimal title) ---
+    with left:
+        with st.container():
+            st.markdown("#### Equity Curve")
+            # Recompute equity series on the timeframe view (fresh numbering + cum sums)
+            dfv = df_view.copy().reset_index(drop=True)
+            dfv["trade_no"] = np.arange(1, len(dfv) + 1)
+            dfv["cum_pnl"] = pd.to_numeric(dfv["pnl"], errors="coerce").fillna(0).cumsum()
+            dfv["equity"] = start_equity + dfv["cum_pnl"]
+            dfv["equity_peak"] = dfv["equity"].cummax()
+    
+            fig = px.line(
+                dfv,
+                x="trade_no",
+                y="equity",
+                title=None,
+                labels={"trade_no": "Trade #", "equity": "Equity ($)"},
+            )
+            ymax = max(start_equity, float(dfv["equity"].max()) * 1.05)
+            fig.update_yaxes(range=[start_equity, ymax])
+            fig.update_layout(height=320, margin=dict(l=10, r=10, t=10, b=10))
+            st.plotly_chart(fig, use_container_width=True)
+
+
+    # --- Right column: Wheel charts + Bars ---
+    with right:
+        # Top row: two "wheel" charts (asset distribution, long vs short)
+        w1, w2 = st.columns(2)
+        with w1:
+            st.markdown("#### Assets")
+            if not _symbol_dist.empty:
+                fig_sym = px.pie(
+                    values=_symbol_dist.values,
+                    names=_symbol_dist.index,
+                    hole=0.55,
+                )
+                fig_sym.update_traces(textinfo="label+percent")  # <— add this
+                fig_sym.update_layout(
+                    height=220,
+                    margin=dict(l=10, r=10, t=10, b=10),
+                    showlegend=True,
+                    legend=dict(orientation="v", y=0.5, x=1.05)  # vertical, right side
+                )
+
+                st.plotly_chart(fig_sym, use_container_width=True)
+            else:
+                st.caption("No symbol column found.")
+
+        with w2:
+            st.markdown("#### Long vs Short")
+            if not _side_dist.empty:
+                fig_side = px.pie(
+                    values=_side_dist.values,
+                    names=_side_dist.index.str.capitalize(),
+                    hole=0.55,
+                    color=_side_dist.index.str.capitalize(),
+                    color_discrete_map={"Long": "#2E86C1", "Short": "#E57373"},  # blue / subtle red
+                )
+                fig_side.update_traces(textinfo="label+percent")
+                fig_side.update_layout(
+                    height=220,
+                    margin=dict(l=10, r=10, t=10, b=10),
+                    showlegend=True,
+                    legend=dict(orientation="v", y=0.5, x=1.05)
+                )
+
+                st.plotly_chart(fig_side, use_container_width=True)
+            else:
+                st.caption("No side column found.")
+
+        st.divider()
+
+        # Middle card: Dollar Volume per Day (from last ~20 trades)
+        with st.container():
+            st.markdown("#### Volume per Day (last ~20 trades)")
+            fig_vol = px.bar(
+                _vol_per_day,
+                x=_vol_per_day.columns[0],  # day
+                y="vol",
+            )
+            fig_vol.update_layout(height=220, margin=dict(l=10, r=10, t=10, b=10))
+            fig_vol.update_yaxes(tickprefix="$", separatethousands=True)
+            st.plotly_chart(fig_vol, use_container_width=True)
+
+        st.divider()
+
+        # Bottom card: PnL per trade (last 20 trades) with green/red around zero
+        with st.container():
+            st.markdown("#### PnL (last 20 trades)")
+            _pnl_df = pd.DataFrame({
+                "n": range(1, len(_last20_pnl)+1),
+                "pnl": _last20_pnl,
+                "sign": np.where(_last20_pnl >= 0, "Win", "Loss"),
+            })
+            fig_pnl = px.bar(
+                _pnl_df,
+                x="n",
+                y="pnl",
+                color="sign",
+                color_discrete_map={"Win": "#26a269", "Loss": "#e05252"},  # green/red
+            )
+            # zero line + compact styling
+            fig_pnl.add_hline(y=0, line_width=1, line_dash="dot", opacity=0.6)
+            fig_pnl.update_layout(height=220, margin=dict(l=10, r=10, t=10, b=10), showlegend=False)
+            fig_pnl.update_yaxes(tickprefix="$", separatethousands=True)
+            st.plotly_chart(fig_pnl, use_container_width=True)
+
 
 with tab_perf:
     st.subheader("Performance KPIs")
@@ -408,158 +566,3 @@ with tab_perf:
     else:
         st.caption("No `side` column found for per-side breakdown.")
 
-st.subheader("Charts")
-
-left, right = st.columns([3, 2], gap="large")
-
-# ===================== CHART HELPERS (assets, sides, volume & pnl windows) [timeframe-aware] =====================
-# We already computed df_view and _date_col above for the Overview cards.
-_dt_view = pd.to_datetime(df_view[_date_col], errors="coerce") if (_date_col is not None and _date_col in df_view.columns) else None
-
-# 1) Distribution by asset (symbol) and side (long/short)
-_symbol_dist = (
-    df_view["symbol"].value_counts(normalize=True).sort_values(ascending=False)
-    if "symbol" in df_view.columns else pd.Series(dtype=float)
-)
-_side_dist = (
-    df_view["side"].str.lower().value_counts(normalize=True).reindex(["long", "short"]).fillna(0.0)
-    if "side" in df_view.columns else pd.Series(dtype=float)
-)
-
-# 2) Dollar notional per trade (try qty*price, else 'notional', else |PnL|)
-_qty_cols   = [c for c in ["qty","quantity","size","contracts","amount"] if c in df_view.columns]
-_price_cols = [c for c in ["price","entry_price","avg_entry_price"] if c in df_view.columns]
-if _qty_cols and _price_cols:
-    _notional = (pd.to_numeric(df_view[_qty_cols[0]], errors="coerce").fillna(0) *
-                 pd.to_numeric(df_view[_price_cols[0]], errors="coerce").fillna(0)).abs()
-elif "notional" in df_view.columns:
-    _notional = pd.to_numeric(df_view["notional"], errors="coerce").fillna(0).abs()
-else:
-    _notional = pd.to_numeric(df_view["pnl"], errors="coerce").fillna(0).abs()  # fallback
-
-# 3) Windows for “last 20 trades” (by row order) in the selected timeframe
-_last20_view = df_view.tail(20).copy()
-_last20_notional = _notional.tail(20).reset_index(drop=True)
-_last20_pnl = pd.to_numeric(_last20_view["pnl"], errors="coerce").fillna(0).reset_index(drop=True)
-
-# 4) Volume per DAY (from last ~20 trades) in the selected timeframe
-if _dt_view is not None:
-    _last20_days = _dt_view.tail(20).dt.date
-    _vol_per_day = (
-        pd.DataFrame({"day": _last20_days, "vol": _last20_notional})
-        .groupby("day", as_index=False)["vol"].sum()
-        .sort_values("day")
-    )
-else:
-    _vol_per_day = pd.DataFrame(
-        {"day": [f"T-{i}" for i in range(len(_last20_notional),0,-1)][::-1],
-         "vol": _last20_notional}
-    )
-
-
-# --- Left card: Equity Curve (smaller, minimal title) ---
-with left:
-    with st.container():
-        st.markdown("#### Equity Curve")
-        # Recompute equity series on the timeframe view (fresh numbering + cum sums)
-        dfv = df_view.copy().reset_index(drop=True)
-        dfv["trade_no"] = np.arange(1, len(dfv) + 1)
-        dfv["cum_pnl"] = pd.to_numeric(dfv["pnl"], errors="coerce").fillna(0).cumsum()
-        dfv["equity"] = start_equity + dfv["cum_pnl"]
-        dfv["equity_peak"] = dfv["equity"].cummax()
-
-        fig = px.line(
-            dfv,
-            x="trade_no",
-            y="equity",
-            title=None,
-            labels={"trade_no": "Trade #", "equity": "Equity ($)"},
-        )
-        ymax = max(start_equity, float(dfv["equity"].max()) * 1.05)
-        fig.update_yaxes(range=[start_equity, ymax])
-        fig.update_layout(height=320, margin=dict(l=10, r=10, t=10, b=10))
-        st.plotly_chart(fig, use_container_width=True)
-
-
-# --- Right column: Wheel charts + Bars ---
-with right:
-    # Top row: two "wheel" charts (asset distribution, long vs short)
-    w1, w2 = st.columns(2)
-    with w1:
-        st.markdown("#### Assets")
-        if not _symbol_dist.empty:
-            fig_sym = px.pie(
-                values=_symbol_dist.values,
-                names=_symbol_dist.index,
-                hole=0.55,
-            )
-            fig_sym.update_traces(textinfo="label+percent")  # <— add this
-            fig_sym.update_layout(
-                height=220,
-                margin=dict(l=10, r=10, t=10, b=10),
-                showlegend=True,
-                legend=dict(orientation="v", y=0.5, x=1.05)  # vertical, right side
-            )
-
-            st.plotly_chart(fig_sym, use_container_width=True)
-        else:
-            st.caption("No symbol column found.")
-
-    with w2:
-        st.markdown("#### Long vs Short")
-        if not _side_dist.empty:
-            fig_side = px.pie(
-                values=_side_dist.values,
-                names=_side_dist.index.str.capitalize(),
-                hole=0.55,
-                color=_side_dist.index.str.capitalize(),
-                color_discrete_map={"Long": "#2E86C1", "Short": "#E57373"},  # blue / subtle red
-            )
-            fig_side.update_traces(textinfo="label+percent")
-            fig_side.update_layout(
-                height=220,
-                margin=dict(l=10, r=10, t=10, b=10),
-                showlegend=True,
-                legend=dict(orientation="v", y=0.5, x=1.05)
-            )
-
-            st.plotly_chart(fig_side, use_container_width=True)
-        else:
-            st.caption("No side column found.")
-
-    st.divider()
-
-    # Middle card: Dollar Volume per Day (from last ~20 trades)
-    with st.container():
-        st.markdown("#### Volume per Day (last ~20 trades)")
-        fig_vol = px.bar(
-            _vol_per_day,
-            x=_vol_per_day.columns[0],  # day
-            y="vol",
-        )
-        fig_vol.update_layout(height=220, margin=dict(l=10, r=10, t=10, b=10))
-        fig_vol.update_yaxes(tickprefix="$", separatethousands=True)
-        st.plotly_chart(fig_vol, use_container_width=True)
-
-    st.divider()
-
-    # Bottom card: PnL per trade (last 20 trades) with green/red around zero
-    with st.container():
-        st.markdown("#### PnL (last 20 trades)")
-        _pnl_df = pd.DataFrame({
-            "n": range(1, len(_last20_pnl)+1),
-            "pnl": _last20_pnl,
-            "sign": np.where(_last20_pnl >= 0, "Win", "Loss"),
-        })
-        fig_pnl = px.bar(
-            _pnl_df,
-            x="n",
-            y="pnl",
-            color="sign",
-            color_discrete_map={"Win": "#26a269", "Loss": "#e05252"},  # green/red
-        )
-        # zero line + compact styling
-        fig_pnl.add_hline(y=0, line_width=1, line_dash="dot", opacity=0.6)
-        fig_pnl.update_layout(height=220, margin=dict(l=10, r=10, t=10, b=10), showlegend=False)
-        fig_pnl.update_yaxes(tickprefix="$", separatethousands=True)
-        st.plotly_chart(fig_pnl, use_container_width=True)
