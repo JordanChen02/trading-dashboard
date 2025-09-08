@@ -203,6 +203,12 @@ max_dd_pct = float(df["dd_pct"].min()) * 100.0    # most negative percent drawdo
 current_balance = float(df["equity"].iloc[-1]) if len(df) else start_equity
 net_pnl         = float(df["cum_pnl"].iloc[-1]) if len(df) else 0.0
 
+# ===================== TABS =====================
+tab_overview, tab_perf = st.tabs(["Overview", "Performance"])
+
+# Leave your existing Overview + Charts as-is for now (outside tabs).
+# We'll migrate them into tab_overview in a later micro-step so it's easy.
+
 # ===================== OVERVIEW KPI CARDS (Timeframe-aware) =====================
 # Try to detect a date column once so we can filter by timeframe
 _possible_date_cols = ["date", "Date", "timestamp", "Timestamp", "time", "Time", "datetime", "Datetime", "entry_time", "exit_time"]
@@ -269,24 +275,35 @@ if _date_col is not None and total_v > 0:
         _daily_wr_display = f"{_daily_wr_v:.1f}%"
 
 # --- Render the four Overview cards for the selected timeframe ---
-st.subheader("Overview")
-c1, c2, c3, c4 = st.columns(4)
-with c1:
-    st.metric("Win Rate", f"{win_rate_v*100:.1f}%")
-with c2:
-    st.metric("Daily Win Rate", _daily_wr_display)
-with c3:
-    st.metric("Avg Win / Avg Loss", "∞" if avg_win_loss_ratio_v == float("inf") else f"{avg_win_loss_ratio_v:.2f}")
-with c4:
-    st.metric("Trade Count", f"{total_v}")
-
-# ===================== TABS =====================
-tab_overview, tab_perf = st.tabs(["Overview", "Performance"])
-
-# Leave your existing Overview + Charts as-is for now (outside tabs).
-# We'll migrate them into tab_overview in a later micro-step so it's easy.
 with tab_overview:
-    st.caption("Using selected timeframe above. We'll move the Overview & Charts here next.")
+    # ===================== CHARTS (card layout) =====================
+    # tiny filter icon button (Material icon if supported; emoji fallback otherwise)
+    _, btn_col = st.columns([8, 1], gap="small")
+    with btn_col:
+        clicked = False
+        try:
+            # Streamlit ≥ ~1.32 supports the `icon` kwarg and Material shortcodes
+            clicked = st.button("Filters", key="filters_btn", icon=":material/filter_list:", use_container_width=True)
+        except TypeError:
+            # Older Streamlit: no `icon` kwarg → use emoji label instead
+            clicked = st.button("🔎 Filters", key="filters_btn", use_container_width=True)
+
+        if clicked:
+            # For now, just nudge the user; later we can open a popover
+            st.toast("Filters are in the left sidebar.")
+            st.session_state["_filters_prompted"] = True
+
+    st.subheader("Overview")
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.metric("Win Rate", f"{win_rate_v*100:.1f}%")
+    with c2:
+        st.metric("Daily Win Rate", _daily_wr_display)
+    with c3:
+        st.metric("Avg Win / Avg Loss", "∞" if avg_win_loss_ratio_v == float("inf") else f"{avg_win_loss_ratio_v:.2f}")
+    with c4:
+        st.metric("Trade Count", f"{total_v}")
+
 
 with tab_perf:
     st.subheader("Performance KPIs")
@@ -390,25 +407,6 @@ with tab_perf:
         st.dataframe(side_tbl, use_container_width=True)
     else:
         st.caption("No `side` column found for per-side breakdown.")
-
-# ===================== CHARTS (card layout) =====================
-# tiny filter icon button (Material icon if supported; emoji fallback otherwise)
-_, btn_col = st.columns([8, 1], gap="small")
-with btn_col:
-    clicked = False
-    try:
-        # Streamlit ≥ ~1.32 supports the `icon` kwarg and Material shortcodes
-        clicked = st.button("Filters", key="filters_btn", icon=":material/filter_list:", use_container_width=True)
-    except TypeError:
-        # Older Streamlit: no `icon` kwarg → use emoji label instead
-        clicked = st.button("🔎 Filters", key="filters_btn", use_container_width=True)
-
-    if clicked:
-        # For now, just nudge the user; later we can open a popover
-        st.toast("Filters are in the left sidebar.")
-        st.session_state["_filters_prompted"] = True
-
-
 
 st.subheader("Charts")
 
