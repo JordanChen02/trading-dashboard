@@ -203,54 +203,82 @@ max_dd_pct = float(df["dd_pct"].min()) * 100.0    # most negative percent drawdo
 current_balance = float(df["equity"].iloc[-1]) if len(df) else start_equity
 net_pnl         = float(df["cum_pnl"].iloc[-1]) if len(df) else 0.0
 
-# ===================== OVERVIEW KPI CARDS =====================
-# Daily Win Rate (days with net positive PnL / total trading days), if a date-like column exists
-_daily_wr_display = "—%"  # default placeholder
+# ===================== OVERVIEW KPI CARDS (Timeframe-aware) =====================
+# Try to detect a date column once so we can filter by timeframe
 _possible_date_cols = ["date", "Date", "timestamp", "Timestamp", "time", "Time", "datetime", "Datetime", "entry_time", "exit_time"]
 _date_col = next((c for c in _possible_date_cols if c in df.columns), None)
-try:
-    if _date_col is not None:
-        _d = pd.to_datetime(df[_date_col], errors="coerce")
-        _tmp = df.copy()
-        _tmp["_day"] = _d.dt.date
-        _daily_pnl = _tmp.groupby("_day")["pnl"].sum()
-        if len(_daily_pnl) > 0:
-            _daily_wr = float((_daily_pnl > 0).mean() * 100.0)
-            _daily_wr_display = f"{_daily_wr:.1f}%"
-except Exception:
-    # keep placeholder if conversion fails
-    pass
+_dt_full = pd.to_datetime(df[_date_col], errors="coerce") if _date_col is not None else None
 
-# Avg Win / Avg Loss ratio (absolute, avoids negative sign on losses)
-avg_win_loss_ratio = (abs(avg_win / avg_loss) if avg_loss != 0 else float("inf"))
+# --- Timeframe selector (like the screenshot) ---
+tf = st.radio(
+    "Range",
+    ["All", "This Week", "This Month", "This Year"],
+    horizontal=True,
+)
 
+# --- Build a view DataFrame (df_view) based on the selected timeframe ---
+df_view = df
+if _dt_full is not None and len(df) > 0:
+    today = pd.Timestamp.today().normalize()
+    if tf == "This Week":
+        # start of week (Mon=0). Adjust if you prefer Sun start: use .weekday() -> (weekday+1)%7
+        start = today - pd.Timedelta(days=today.weekday())
+        mask = _dt_full >= start
+        df_view = df[mask]
+    elif tf == "This Month":
+        start = today.replace(day=1)
+        mask = _dt_full >= start
+        df_view = df[mask]
+    elif tf == "This Year":
+        start = today.replace(month=1, day=1)
+        mask = _dt_full >= start
+        df_view = df[mask]
+# else: keep df_view = df (All)
+
+# --- Recompute KPI ingredients for the view ---
+pnl_v = pd.to_numeric(df_view["pnl"], errors="coerce").fillna(0.0)
+wins_mask_v   = pnl_v > 0
+losses_mask_v = pnl_v < 0
+bes_mask_v    = pnl_v == 0
+
+wins_v   = int(wins_mask_v.sum())
+losses_v = int(losses_mask_v.sum())
+total_v  = int(len(df_view))
+
+# Win-rate depends on your breakeven policy
+if be_policy == "be excluded from win-rate":
+    denom = wins_v + losses_v
+    win_rate_v = wins_v / denom if denom > 0 else 0.0
+elif be_policy == "count as losses":
+    win_rate_v = wins_v / total_v if total_v > 0 else 0.0
+else:  # "count as wins"
+    win_rate_v = (wins_v + int(bes_mask_v.sum())) / total_v if total_v > 0 else 0.0
+
+avg_win_v  = pnl_v[wins_mask_v].mean()  if wins_v   > 0 else 0.0
+avg_loss_v = pnl_v[losses_mask_v].mean() if losses_v > 0 else 0.0  # negative if any losses
+avg_win_loss_ratio_v = (abs(avg_win_v / avg_loss_v) if avg_loss_v != 0 else float("inf"))
+
+# Daily Win Rate inside the selected timeframe (if a date column exists)
+_daily_wr_display = "—%"
+if _date_col is not None and total_v > 0:
+    _d_view = pd.to_datetime(df_view[_date_col], errors="coerce")
+    _tmpv = pd.DataFrame({"pnl": pnl_v, "_day": _d_view.dt.date})
+    _daily_pnl_v = _tmpv.groupby("_day")["pnl"].sum()
+    if len(_daily_pnl_v) > 0:
+        _daily_wr_v = float((_daily_pnl_v > 0).mean() * 100.0)
+        _daily_wr_display = f"{_daily_wr_v:.1f}%"
+
+# --- Render the four Overview cards for the selected timeframe ---
 st.subheader("Overview")
 c1, c2, c3, c4 = st.columns(4)
 with c1:
-    st.metric("Win Rate", f"{win_rate:.1f}%")
+    st.metric("Win Rate", f"{win_rate_v*100:.1f}%")
 with c2:
     st.metric("Daily Win Rate", _daily_wr_display)
 with c3:
-    st.metric("Avg Win / Avg Loss", "∞" if avg_win_loss_ratio == float("inf") else f"{avg_win_loss_ratio:.2f}")
+    st.metric("Avg Win / Avg Loss", "∞" if avg_win_loss_ratio_v == float("inf") else f"{avg_win_loss_ratio_v:.2f}")
 with c4:
-    st.metric("Trade Count", f"{total_trades}")
-
-
-# --- MORE KPIs (details) ---
-with st.expander("More KPIs (details)", expanded=False):
-    kc1, kc2, kc3, kc4 = st.columns(4)
-    kc1.metric("Total Trades", f"{total_trades}")
-    kc2.metric("Win Rate", f"{win_rate:.1f}%")
-    kc3.metric("Profit Factor", "∞" if profit_factor == float("inf") else f"{profit_factor:.2f}")
-    kc4.metric("Expectancy (per trade)", f"${expectancy:,.2f}")
-
-    kd1, kd2, kd3, kd4, kd5 = st.columns(5)
-    kd1.metric("Avg Win", f"${avg_win:,.2f}")
-    kd2.metric("Avg Loss", f"${avg_loss:,.2f}")
-    kd3.metric("Max Drawdown", f"${max_dd_abs:,.2f} ({max_dd_pct:.1f}%)")
-    kd4.metric("Current Balance", f"${current_balance:,.2f}")
-    kd5.metric("Net PnL", f"${net_pnl:,.2f}")
-
+    st.metric("Trade Count", f"{total_v}")
 
 
 # ===================== CHARTS (card layout) =====================
@@ -349,8 +377,9 @@ with right:
             fig_sym = px.pie(
                 values=_symbol_dist.values,
                 names=_symbol_dist.index,
-                hole=0.55,  # donut look
+                hole=0.55,
             )
+            fig_sym.update_traces(textinfo="label+percent")  # <— add this
             fig_sym.update_layout(height=220, margin=dict(l=10, r=10, t=10, b=10), showlegend=False)
             st.plotly_chart(fig_sym, use_container_width=True)
         else:
@@ -364,6 +393,7 @@ with right:
                 names=_side_dist.index.str.capitalize(),
                 hole=0.55,
             )
+            fig_side.update_traces(textinfo="label+percent")  # <— and this
             fig_side.update_layout(height=220, margin=dict(l=10, r=10, t=10, b=10), showlegend=False)
             st.plotly_chart(fig_side, use_container_width=True)
         else:
@@ -380,6 +410,7 @@ with right:
             y="vol",
         )
         fig_vol.update_layout(height=220, margin=dict(l=10, r=10, t=10, b=10))
+        fig_vol.update_yaxes(tickprefix="$", separatethousands=True)
         st.plotly_chart(fig_vol, use_container_width=True)
 
     st.divider()
@@ -402,4 +433,5 @@ with right:
         # zero line + compact styling
         fig_pnl.add_hline(y=0, line_width=1, line_dash="dot", opacity=0.6)
         fig_pnl.update_layout(height=220, margin=dict(l=10, r=10, t=10, b=10), showlegend=False)
+        fig_pnl.update_yaxes(tickprefix="$", separatethousands=True)
         st.plotly_chart(fig_pnl, use_container_width=True)
