@@ -562,6 +562,27 @@ with tab_perf:
 
     st.divider()
 
+    # -------- Export filtered trades --------
+    st.markdown("#### Export")
+    _export_df = df_view.copy()
+    # Optional: reorder common columns if present
+    _preferred_cols = [c for c in ["datetime","date","timestamp","symbol","side","qty","price","pnl","commission","fees","note"] if c in _export_df.columns]
+    _export_df = _export_df[_preferred_cols + [c for c in _export_df.columns if c not in _preferred_cols]]
+
+    _fname_tf = tf.lower().replace(" ", "_")  # all / this_week / this_month / this_year
+    _fname = f"trades_filtered_{_fname_tf}.csv"
+
+    _csv = _export_df.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        label="⬇️ Download filtered trades (CSV)",
+        data=_csv,
+        file_name=_fname,
+        mime="text/csv",
+        use_container_width=True,
+    )
+
+    st.divider()
+
     # -------- Per-Symbol / Per-Side breakdown (timeframe-aware) --------
     st.subheader("Breakdown")
 
