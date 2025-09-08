@@ -251,17 +251,54 @@ with st.expander("More KPIs (details)", expanded=False):
     kd4.metric("Current Balance", f"${current_balance:,.2f}")
     kd5.metric("Net PnL", f"${net_pnl:,.2f}")
 
-# ===================== CHART =====================
-st.subheader("Equity Curve")
-fig = px.line(
-    df,
-    x="trade_no",
-    y="equity",
-    title="Equity Curve",
-    labels={"trade_no": "Trade #", "equity": "Equity ($)"},
-)
-# Force y-axis to start at your starting equity; add 5% headroom for readability
-ymax = max(start_equity, float(df["equity"].max()) * 1.05)
-fig.update_yaxes(range=[start_equity, ymax])
 
-st.plotly_chart(fig, use_container_width=True)
+
+# ===================== CHARTS (card layout) =====================
+# tiny filter icon button (Material icon if supported; emoji fallback otherwise)
+_, btn_col = st.columns([8, 1], gap="small")
+with btn_col:
+    clicked = False
+    try:
+        # Streamlit ≥ ~1.32 supports the `icon` kwarg and Material shortcodes
+        clicked = st.button("Filters", key="filters_btn", icon=":material/filter_list:", use_container_width=True)
+    except TypeError:
+        # Older Streamlit: no `icon` kwarg → use emoji label instead
+        clicked = st.button("🔎 Filters", key="filters_btn", use_container_width=True)
+
+    if clicked:
+        # For now, just nudge the user; later we can open a popover
+        st.toast("Filters are in the left sidebar.")
+        st.session_state["_filters_prompted"] = True
+
+
+
+st.subheader("Charts")
+
+left, right = st.columns([3, 2], gap="large")
+
+# --- Left card: Equity Curve (smaller, minimal title) ---
+with left:
+    with st.container():
+        st.markdown("#### Equity Curve")
+        fig = px.line(
+            df,
+            x="trade_no",
+            y="equity",
+            title=None,  # keep it minimal like your reference
+            labels={"trade_no": "Trade #", "equity": "Equity ($)"},
+        )
+        ymax = max(start_equity, float(df["equity"].max()) * 1.05)
+        fig.update_yaxes(range=[start_equity, ymax])
+        fig.update_layout(height=320, margin=dict(l=10, r=10, t=10, b=10))
+        st.plotly_chart(fig, use_container_width=True)
+
+# --- Right card: placeholders for upcoming charts (Phase 2) ---
+with right:
+    with st.container():
+        st.markdown("#### Upcoming: Trade Volume (last 20 days)")
+        st.caption("We’ll add a dollar-volume bar chart here in Phase 2.")
+    st.divider()
+    with st.container():
+        st.markdown("#### Upcoming: PnL (last 20 trades)")
+        st.caption("Green for wins, red for losses under zero line (Phase 2).")
+
