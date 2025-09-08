@@ -63,6 +63,7 @@ with st.sidebar:
         selected_id = ids[names.index(selected_name)]
         st.session_state.selected_journal = selected_id
 
+
 # ===================== MAIN: Upload OR Journal Fallback =====================
 file = st.file_uploader("Upload CSV", type=["csv"])
 
@@ -107,6 +108,29 @@ df = add_pnl(df)
 
 st.subheader("Preview (first 50 rows)")
 st.dataframe(df.head(50), use_container_width=True)
+
+# ===================== FILTERS (render after df exists) =====================
+# Recreate the sidebar expander now that df is available
+with st.sidebar.expander("Filters", expanded=True):
+    symbols = sorted(df["symbol"].dropna().unique().tolist()) if "symbol" in df.columns else []
+    sides   = sorted(df["side"].dropna().unique().tolist())   if "side"   in df.columns else []
+
+    sel_symbols = st.multiselect("Symbol", symbols, default=symbols if symbols else [])
+    sel_sides   = st.multiselect("Side",   sides,   default=sides   if sides   else [])
+
+# Apply filters
+df_filtered = df.copy()
+if "symbol" in df_filtered.columns and sel_symbols:
+    df_filtered = df_filtered[df_filtered["symbol"].isin(sel_symbols)]
+if "side" in df_filtered.columns and sel_sides:
+    df_filtered = df_filtered[df_filtered["side"].isin(sel_sides)]
+
+if df_filtered.empty:
+    st.info("No rows match the current filters. Adjust filters in the sidebar.")
+    st.stop()
+
+# From here on, keep your existing code but make it operate on the filtered data:
+df = df_filtered
 
 # ===================== CONTROLS + KPIs =====================
 st.subheader("Key Stats")
@@ -198,5 +222,7 @@ fig = px.line(
     labels={"trade_no": "Trade #", "equity": "Equity ($)"},
 )
 # Force y-axis to start at your starting equity; add 5% headroom for readability
-fig.update_yaxes(range=[start_equity, df["equity"].max() * 1.05])
+ymax = max(start_equity, float(df["equity"].max()) * 1.05)
+fig.update_yaxes(range=[start_equity, ymax])
+
 st.plotly_chart(fig, use_container_width=True)
