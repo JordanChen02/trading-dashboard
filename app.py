@@ -30,6 +30,11 @@ from src.metrics import add_pnl
 # ===================== SIDEBAR: Journals (UI only) =====================
 ensure_journal_store()
 with st.sidebar:
+    # --- Navigation (static for now) ---
+    st.markdown("## Navigation")
+    nav = st.radio("Go to:", ["Dashboard", "Journal", "Accounts"], index=0, label_visibility="collapsed")
+    st.divider()
+
     st.header("Journals")
 
     # Load registry
@@ -133,7 +138,7 @@ if df_filtered.empty:
 df = df_filtered
 
 # ===================== CONTROLS + KPIs =====================
-st.subheader("Key Stats")
+st.subheader("Controls")
 
 # Breakeven handling for win-rate
 be_policy = st.radio(
@@ -198,19 +203,53 @@ max_dd_pct = float(df["dd_pct"].min()) * 100.0    # most negative percent drawdo
 current_balance = float(df["equity"].iloc[-1]) if len(df) else start_equity
 net_pnl         = float(df["cum_pnl"].iloc[-1]) if len(df) else 0.0
 
-# --- KPI Layout ---
-kc1, kc2, kc3, kc4 = st.columns(4)
-kc1.metric("Total Trades", f"{total_trades}")
-kc2.metric("Win Rate", f"{win_rate:.1f}%")
-kc3.metric("Profit Factor", "∞" if profit_factor == float("inf") else f"{profit_factor:.2f}")
-kc4.metric("Expectancy (per trade)", f"${expectancy:,.2f}")
+# ===================== OVERVIEW KPI CARDS =====================
+# Daily Win Rate (days with net positive PnL / total trading days), if a date-like column exists
+_daily_wr_display = "—%"  # default placeholder
+_possible_date_cols = ["date", "Date", "timestamp", "Timestamp", "time", "Time", "datetime", "Datetime", "entry_time", "exit_time"]
+_date_col = next((c for c in _possible_date_cols if c in df.columns), None)
+try:
+    if _date_col is not None:
+        _d = pd.to_datetime(df[_date_col], errors="coerce")
+        _tmp = df.copy()
+        _tmp["_day"] = _d.dt.date
+        _daily_pnl = _tmp.groupby("_day")["pnl"].sum()
+        if len(_daily_pnl) > 0:
+            _daily_wr = float((_daily_pnl > 0).mean() * 100.0)
+            _daily_wr_display = f"{_daily_wr:.1f}%"
+except Exception:
+    # keep placeholder if conversion fails
+    pass
 
-kc5, kc6, kc7, kc8, kc9 = st.columns(5)
-kc5.metric("Avg Win", f"${avg_win:,.2f}")
-kc6.metric("Avg Loss", f"${avg_loss:,.2f}")
-kc7.metric("Max Drawdown", f"${max_dd_abs:,.2f} ({max_dd_pct:.1f}%)")
-kc8.metric("Current Balance", f"${current_balance:,.2f}")
-kc9.metric("Net PnL", f"${net_pnl:,.2f}")
+# Avg Win / Avg Loss ratio (absolute, avoids negative sign on losses)
+avg_win_loss_ratio = (abs(avg_win / avg_loss) if avg_loss != 0 else float("inf"))
+
+st.subheader("Overview")
+c1, c2, c3, c4 = st.columns(4)
+with c1:
+    st.metric("Win Rate", f"{win_rate:.1f}%")
+with c2:
+    st.metric("Daily Win Rate", _daily_wr_display)
+with c3:
+    st.metric("Avg Win / Avg Loss", "∞" if avg_win_loss_ratio == float("inf") else f"{avg_win_loss_ratio:.2f}")
+with c4:
+    st.metric("Trade Count", f"{total_trades}")
+
+
+# --- MORE KPIs (details) ---
+with st.expander("More KPIs (details)", expanded=False):
+    kc1, kc2, kc3, kc4 = st.columns(4)
+    kc1.metric("Total Trades", f"{total_trades}")
+    kc2.metric("Win Rate", f"{win_rate:.1f}%")
+    kc3.metric("Profit Factor", "∞" if profit_factor == float("inf") else f"{profit_factor:.2f}")
+    kc4.metric("Expectancy (per trade)", f"${expectancy:,.2f}")
+
+    kd1, kd2, kd3, kd4, kd5 = st.columns(5)
+    kd1.metric("Avg Win", f"${avg_win:,.2f}")
+    kd2.metric("Avg Loss", f"${avg_loss:,.2f}")
+    kd3.metric("Max Drawdown", f"${max_dd_abs:,.2f} ({max_dd_pct:.1f}%)")
+    kd4.metric("Current Balance", f"${current_balance:,.2f}")
+    kd5.metric("Net PnL", f"${net_pnl:,.2f}")
 
 # ===================== CHART =====================
 st.subheader("Equity Curve")
