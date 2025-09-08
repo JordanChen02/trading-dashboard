@@ -524,11 +524,41 @@ with tab_perf:
     k6.metric("Largest Loss", f"${largest_loss:,.2f}")
     k7.metric("Win/Loss (count)", "∞" if wl_count_ratio == float("inf") else f"{wl_count_ratio:.2f}")
     k8.metric("Commission Paid", f"${commission_paid:,.2f}")
-    
+
     k9, k10, k11 = st.columns(3)
     k9.metric("Max Drawdown % (Range)", f"{max_dd_pct_tf:.2f}%")
     k10.metric("Current Balance (Range)", f"${current_balance_tf:,.2f}")
     k11.metric("Expectancy / Trade", f"${expectancy_v:,.2f}")
+
+    st.divider()
+
+    # -------- Daily Net PnL (timeframe-aware) --------
+    st.markdown("#### Daily Net PnL")
+    if _date_col is not None and _date_col in df_view.columns and len(df_view) > 0:
+        _d = pd.to_datetime(df_view[_date_col], errors="coerce")
+        _daily = (
+            pd.DataFrame({
+                "day": _d.dt.date,
+                "pnl": pd.to_numeric(df_view["pnl"], errors="coerce").fillna(0.0),
+            })
+            .groupby("day", as_index=False)["pnl"].sum()
+            .sort_values("day")
+        )
+
+        fig_daily = px.bar(
+            _daily,
+            x="day",
+            y="pnl",
+            title=None,
+            labels={"day": "Day", "pnl": "Net PnL ($)"},
+        )
+        # zero line + compact styling
+        fig_daily.add_hline(y=0, line_width=1, line_dash="dot", opacity=0.6)
+        fig_daily.update_layout(height=220, margin=dict(l=10, r=10, t=10, b=10), showlegend=False)
+        fig_daily.update_yaxes(tickprefix="$", separatethousands=True)
+        st.plotly_chart(fig_daily, use_container_width=True)
+    else:
+        st.caption("No date/timestamp column found — Daily Net PnL is unavailable for this dataset.")
 
     st.divider()
 
