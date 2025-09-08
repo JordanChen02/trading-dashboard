@@ -1,31 +1,31 @@
+# app.py (top of file)
 import streamlit as st
+# (other imports are fine above or below — imports don’t matter)
+
+st.set_page_config(
+    page_title="Trading Dashboard — MVP",
+    page_icon="📊",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+# ONLY AFTER page_config:
+st.title("Trading Dashboard — MVP")
+st.caption("Source → Validate → Enrich → Analyze → Visualize")
+st.caption("Upload a CSV of trades and preview it below.")
+st.divider()
+
 import pandas as pd
 import numpy as np
 import plotly.express as px
 from pathlib import Path
 from src.utils import ensure_journal_store, load_journal_index, create_journal, DATA_DIR
 
-# Page configuration
-st.set_page_config(
-    page_title="Trading Dashboard",
-    page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-# App header
-st.title("Trading Dashboard — MVP")
-st.caption("Source → Validate → Enrich → Analyze → Visualize")
-st.divider()
-
-
 # 👇 our modules
 from src.io import load_trades, validate
 from src.metrics import add_pnl
 
-st.set_page_config(page_title="Trading Dashboard — MVP", layout="wide")
-st.title("Trading Dashboard — MVP")
-st.caption("Upload a CSV of trades and preview it below.")
+
 
 # ===================== SIDEBAR: Journals (UI only) =====================
 ensure_journal_store()
