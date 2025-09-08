@@ -280,6 +280,116 @@ with c3:
 with c4:
     st.metric("Trade Count", f"{total_v}")
 
+# ===================== TABS =====================
+tab_overview, tab_perf = st.tabs(["Overview", "Performance"])
+
+# Leave your existing Overview + Charts as-is for now (outside tabs).
+# We'll migrate them into tab_overview in a later micro-step so it's easy.
+with tab_overview:
+    st.caption("Using selected timeframe above. We'll move the Overview & Charts here next.")
+
+with tab_perf:
+    st.subheader("Performance KPIs")
+
+    # --- Prepare series on df_view (timeframe-aware) ---
+    pnl_tf = pd.to_numeric(df_view["pnl"], errors="coerce").fillna(0.0)
+    wins_m = pnl_tf > 0
+    loss_m = pnl_tf < 0
+    be_m   = pnl_tf == 0
+
+    gross_profit = float(pnl_tf[wins_m].sum())
+    gross_loss   = float(pnl_tf[loss_m].sum())   # negative or 0
+    net_profit   = float(pnl_tf.sum())
+
+    largest_win  = float(pnl_tf[wins_m].max()) if wins_m.any() else 0.0
+    largest_loss = float(pnl_tf[loss_m].min()) if loss_m.any() else 0.0  # most negative
+
+    win_count    = int(wins_m.sum())
+    loss_count   = int(loss_m.sum())
+    be_count     = int(be_m.sum())
+    total_count  = int(len(pnl_tf))
+
+    # Win/Loss count ratio (avoid div by zero)
+    wl_count_ratio = (win_count / loss_count) if loss_count > 0 else float("inf")
+
+    # Profit Factor in timeframe
+    pf_tf = (gross_profit / abs(gross_loss)) if gross_loss != 0 else float("inf")
+
+    # Commission (if present)
+    _fee_cols = [c for c in ["commission","fee","fees","commissions"] if c in df_view.columns]
+    commission_paid = float(pd.to_numeric(df_view[_fee_cols[0]], errors="coerce").fillna(0.0).sum()) if _fee_cols else 0.0
+
+    # --- KPI row ---
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Gross Profit", f"${gross_profit:,.2f}")
+    k2.metric("Gross Loss", f"${gross_loss:,.2f}")
+    k3.metric("Net Profit", f"${net_profit:,.2f}")
+    k4.metric("Profit Factor", "∞" if pf_tf == float("inf") else f"{pf_tf:.2f}")
+
+    k5, k6, k7, k8 = st.columns(4)
+    k5.metric("Largest Win", f"${largest_win:,.2f}")
+    k6.metric("Largest Loss", f"${largest_loss:,.2f}")
+    k7.metric("Win/Loss (count)", "∞" if wl_count_ratio == float("inf") else f"{wl_count_ratio:.2f}")
+    k8.metric("Commission Paid", f"${commission_paid:,.2f}")
+
+    st.divider()
+
+    # -------- Per-Symbol / Per-Side breakdown (timeframe-aware) --------
+    st.subheader("Breakdown")
+
+    def _group_metrics(group_df: pd.DataFrame) -> pd.Series:
+        _p = pd.to_numeric(group_df["pnl"], errors="coerce").fillna(0.0)
+        _wins = (_p > 0)
+        _loss = (_p < 0)
+        _be   = (_p == 0)
+        _w = int(_wins.sum()); _l = int(_loss.sum()); _b = int(_be.sum())
+        _tot = int(len(_p))
+
+        # win-rate with your breakeven policy
+        if be_policy == "be excluded from win-rate":
+            denom = _w + _l
+            wr = (_w / denom) * 100.0 if denom > 0 else 0.0
+        elif be_policy == "count as losses":
+            wr = (_w / _tot) * 100.0 if _tot > 0 else 0.0
+        else:  # count as wins
+            wr = ((_w + _b) / _tot) * 100.0 if _tot > 0 else 0.0
+
+        gp = float(_p[_wins].sum())
+        gl = float(_p[_loss].sum())
+        pf = (gp / abs(gl)) if gl != 0 else float("inf")
+        avg_w = float(_p[_wins].mean()) if _w > 0 else 0.0
+        avg_l = float(_p[_loss].mean()) if _l > 0 else 0.0
+        aw_al = (abs(avg_w / avg_l) if avg_l != 0 else float("inf"))
+
+        return pd.Series({
+            "Trades": _tot,
+            "Win Rate %": round(wr, 1),
+            "PF": (float("inf") if pf == float("inf") else round(pf, 2)),
+            "Net PnL": round(float(_p.sum()), 2),
+            "Avg Win/Loss": ("∞" if aw_al == float("inf") else round(aw_al, 2)),
+        })
+
+    # Per-Symbol
+    if "symbol" in df_view.columns:
+        sym_tbl = df_view.groupby("symbol", dropna=True).apply(_group_metrics).reset_index().sort_values("Net PnL", ascending=False)
+        st.markdown("**Per Symbol**")
+        st.dataframe(sym_tbl, use_container_width=True)
+    else:
+        st.caption("No `symbol` column found for per-symbol breakdown.")
+
+    st.divider()
+
+    # Per-Side
+    if "side" in df_view.columns:
+        # normalize to lower for grouping, then capitalize label
+        side_tbl = df_view.assign(_side=df_view["side"].str.lower()).groupby("_side", dropna=True).apply(_group_metrics).reset_index()
+        side_tbl["_side"] = side_tbl["_side"].str.capitalize()
+        side_tbl = side_tbl.rename(columns={"_side": "Side"}).sort_values("Net PnL", ascending=False)
+        # custom color hint (blue for Long, soft red for Short) – for future bar charts
+        st.markdown("**Per Side**")
+        st.dataframe(side_tbl, use_container_width=True)
+    else:
+        st.caption("No `side` column found for per-side breakdown.")
 
 # ===================== CHARTS (card layout) =====================
 # tiny filter icon button (Material icon if supported; emoji fallback otherwise)
