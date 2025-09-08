@@ -206,9 +206,6 @@ net_pnl         = float(df["cum_pnl"].iloc[-1]) if len(df) else 0.0
 # ===================== TABS =====================
 tab_overview, tab_perf = st.tabs(["Overview", "Performance"])
 
-# Leave your existing Overview + Charts as-is for now (outside tabs).
-# We'll migrate them into tab_overview in a later micro-step so it's easy.
-
 # ===================== OVERVIEW KPI CARDS (Timeframe-aware) =====================
 # Try to detect a date column once so we can filter by timeframe
 _possible_date_cols = ["date", "Date", "timestamp", "Timestamp", "time", "Time", "datetime", "Datetime", "entry_time", "exit_time"]
@@ -276,6 +273,7 @@ if _date_col is not None and total_v > 0:
 
 # --- Render the four Overview cards for the selected timeframe ---
 with tab_overview:
+    st.divider()
     # ===================== CHARTS (card layout) =====================
     # tiny filter icon button (Material icon if supported; emoji fallback otherwise)
     _, btn_col = st.columns([8, 1], gap="small")
@@ -465,6 +463,8 @@ with tab_overview:
 
 with tab_perf:
     st.subheader("Performance KPIs")
+    st.caption(f"Using Range: **{tf}**")
+
 
     # --- Prepare series on df_view (timeframe-aware) ---
     pnl_tf = pd.to_numeric(df_view["pnl"], errors="coerce").fillna(0.0)
