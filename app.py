@@ -380,7 +380,13 @@ with right:
                 hole=0.55,
             )
             fig_sym.update_traces(textinfo="label+percent")  # <— add this
-            fig_sym.update_layout(height=220, margin=dict(l=10, r=10, t=10, b=10), showlegend=False)
+            fig_sym.update_layout(
+                height=220,
+                margin=dict(l=10, r=10, t=10, b=10),
+                showlegend=True,
+                legend=dict(orientation="v", y=0.5, x=1.05)  # vertical, right side
+            )
+
             st.plotly_chart(fig_sym, use_container_width=True)
         else:
             st.caption("No symbol column found.")
@@ -392,9 +398,17 @@ with right:
                 values=_side_dist.values,
                 names=_side_dist.index.str.capitalize(),
                 hole=0.55,
+                color=_side_dist.index.str.capitalize(),
+                color_discrete_map={"Long": "#2E86C1", "Short": "#E57373"},  # blue / subtle red
             )
-            fig_side.update_traces(textinfo="label+percent")  # <— and this
-            fig_side.update_layout(height=220, margin=dict(l=10, r=10, t=10, b=10), showlegend=False)
+            fig_side.update_traces(textinfo="label+percent")
+            fig_side.update_layout(
+                height=220,
+                margin=dict(l=10, r=10, t=10, b=10),
+                showlegend=True,
+                legend=dict(orientation="v", y=0.5, x=1.05)
+            )
+
             st.plotly_chart(fig_side, use_container_width=True)
         else:
             st.caption("No side column found.")
