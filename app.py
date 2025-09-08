@@ -304,68 +304,74 @@ st.subheader("Charts")
 
 left, right = st.columns([3, 2], gap="large")
 
-# ===================== CHART HELPERS (assets, sides, volume & pnl windows) =====================
-# Detect a date-like column we can use for daily grouping
-_possible_date_cols = ["date", "Date", "timestamp", "Timestamp", "time", "Time", "datetime", "Datetime", "entry_time", "exit_time"]
-_date_col = next((c for c in _possible_date_cols if c in df.columns), None)
-_dt = pd.to_datetime(df[_date_col], errors="coerce") if _date_col is not None else None
+# ===================== CHART HELPERS (assets, sides, volume & pnl windows) [timeframe-aware] =====================
+# We already computed df_view and _date_col above for the Overview cards.
+_dt_view = pd.to_datetime(df_view[_date_col], errors="coerce") if (_date_col is not None and _date_col in df_view.columns) else None
 
 # 1) Distribution by asset (symbol) and side (long/short)
 _symbol_dist = (
-    df["symbol"].value_counts(normalize=True).sort_values(ascending=False)
-    if "symbol" in df.columns else pd.Series(dtype=float)
+    df_view["symbol"].value_counts(normalize=True).sort_values(ascending=False)
+    if "symbol" in df_view.columns else pd.Series(dtype=float)
 )
 _side_dist = (
-    df["side"].str.lower().value_counts(normalize=True).reindex(["long", "short"]).fillna(0.0)
-    if "side" in df.columns else pd.Series(dtype=float)
+    df_view["side"].str.lower().value_counts(normalize=True).reindex(["long", "short"]).fillna(0.0)
+    if "side" in df_view.columns else pd.Series(dtype=float)
 )
 
-# 2) Dollar notional per trade (best-effort):
-# Try common field names; otherwise fall back to abs(PnL) as a rough proxy
-_qty_cols   = [c for c in ["qty","quantity","size","contracts","amount"] if c in df.columns]
-_price_cols = [c for c in ["price","entry_price","avg_entry_price"] if c in df.columns]
+# 2) Dollar notional per trade (try qty*price, else 'notional', else |PnL|)
+_qty_cols   = [c for c in ["qty","quantity","size","contracts","amount"] if c in df_view.columns]
+_price_cols = [c for c in ["price","entry_price","avg_entry_price"] if c in df_view.columns]
 if _qty_cols and _price_cols:
-    _notional = (pd.to_numeric(df[_qty_cols[0]], errors="coerce").fillna(0) *
-                 pd.to_numeric(df[_price_cols[0]], errors="coerce").fillna(0)).abs()
-elif "notional" in df.columns:
-    _notional = pd.to_numeric(df["notional"], errors="coerce").fillna(0).abs()
+    _notional = (pd.to_numeric(df_view[_qty_cols[0]], errors="coerce").fillna(0) *
+                 pd.to_numeric(df_view[_price_cols[0]], errors="coerce").fillna(0)).abs()
+elif "notional" in df_view.columns:
+    _notional = pd.to_numeric(df_view["notional"], errors="coerce").fillna(0).abs()
 else:
-    _notional = df["pnl"].abs()  # fallback
+    _notional = pd.to_numeric(df_view["pnl"], errors="coerce").fillna(0).abs()  # fallback
 
-# 3) Windows for “last 20 trades” (by row order)
-_last20 = df.tail(20).copy()
+# 3) Windows for “last 20 trades” (by row order) in the selected timeframe
+_last20_view = df_view.tail(20).copy()
 _last20_notional = _notional.tail(20).reset_index(drop=True)
-_last20_pnl = pd.to_numeric(_last20["pnl"], errors="coerce").fillna(0).reset_index(drop=True)
+_last20_pnl = pd.to_numeric(_last20_view["pnl"], errors="coerce").fillna(0).reset_index(drop=True)
 
-# 4) Volume per DAY (from last 20 trades)
-if _dt is not None:
-    _last20_days = _dt.tail(20).dt.date
+# 4) Volume per DAY (from last ~20 trades) in the selected timeframe
+if _dt_view is not None:
+    _last20_days = _dt_view.tail(20).dt.date
     _vol_per_day = (
         pd.DataFrame({"day": _last20_days, "vol": _last20_notional})
         .groupby("day", as_index=False)["vol"].sum()
         .sort_values("day")
     )
 else:
-    # No date column → make a simple index label instead
-    _vol_per_day = pd.DataFrame({"day": [f"T-{i}" for i in range(len(_last20_notional),0,-1)][::-1],
-                                 "vol": _last20_notional})
+    _vol_per_day = pd.DataFrame(
+        {"day": [f"T-{i}" for i in range(len(_last20_notional),0,-1)][::-1],
+         "vol": _last20_notional}
+    )
 
 
 # --- Left card: Equity Curve (smaller, minimal title) ---
 with left:
     with st.container():
         st.markdown("#### Equity Curve")
+        # Recompute equity series on the timeframe view (fresh numbering + cum sums)
+        dfv = df_view.copy().reset_index(drop=True)
+        dfv["trade_no"] = np.arange(1, len(dfv) + 1)
+        dfv["cum_pnl"] = pd.to_numeric(dfv["pnl"], errors="coerce").fillna(0).cumsum()
+        dfv["equity"] = start_equity + dfv["cum_pnl"]
+        dfv["equity_peak"] = dfv["equity"].cummax()
+
         fig = px.line(
-            df,
+            dfv,
             x="trade_no",
             y="equity",
-            title=None,  # keep it minimal like your reference
+            title=None,
             labels={"trade_no": "Trade #", "equity": "Equity ($)"},
         )
-        ymax = max(start_equity, float(df["equity"].max()) * 1.05)
+        ymax = max(start_equity, float(dfv["equity"].max()) * 1.05)
         fig.update_yaxes(range=[start_equity, ymax])
         fig.update_layout(height=320, margin=dict(l=10, r=10, t=10, b=10))
         st.plotly_chart(fig, use_container_width=True)
+
 
 # --- Right column: Wheel charts + Bars ---
 with right:
