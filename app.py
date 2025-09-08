@@ -493,6 +493,24 @@ with tab_perf:
     # Commission (if present)
     _fee_cols = [c for c in ["commission","fee","fees","commissions"] if c in df_view.columns]
     commission_paid = float(pd.to_numeric(df_view[_fee_cols[0]], errors="coerce").fillna(0.0).sum()) if _fee_cols else 0.0
+    commission_paid = float(pd.to_numeric(df_view[_fee_cols[0]], errors="coerce").fillna(0.0).sum()) if _fee_cols else 0.0
+
+    # --- Timeframe-aware risk KPIs ---
+    # Equity over df_view so DD and balance match the selected Range
+    dfv_perf = df_view.copy().reset_index(drop=True)
+    dfv_perf["trade_no"] = np.arange(1, len(dfv_perf) + 1)
+    dfv_perf["cum_pnl"]  = pd.to_numeric(dfv_perf["pnl"], errors="coerce").fillna(0).cumsum()
+    dfv_perf["equity"]   = start_equity + dfv_perf["cum_pnl"]
+    dfv_perf["peak"]     = dfv_perf["equity"].cummax()
+
+    max_dd_abs_tf = float((dfv_perf["equity"] - dfv_perf["peak"]).min()) if len(dfv_perf) else 0.0  # ≤ 0
+    max_dd_pct_tf = float(((dfv_perf["equity"] / dfv_perf["peak"]) - 1.0).min() * 100.0) if len(dfv_perf) and (dfv_perf["peak"] > 0).any() else 0.0
+    current_balance_tf = float(dfv_perf["equity"].iloc[-1]) if len(dfv_perf) else start_equity
+
+    # Expectancy per trade within the selected Range (reuse win_rate_v / avg_win_v / avg_loss_v from Overview calc)
+    win_rate_frac_v  = float(win_rate_v)  # win_rate_v is already in [0..1]
+    loss_rate_frac_v = 1.0 - win_rate_frac_v
+    expectancy_v     = (win_rate_frac_v * float(avg_win_v)) + (loss_rate_frac_v * float(avg_loss_v))
 
     # --- KPI row ---
     k1, k2, k3, k4 = st.columns(4)
@@ -506,6 +524,11 @@ with tab_perf:
     k6.metric("Largest Loss", f"${largest_loss:,.2f}")
     k7.metric("Win/Loss (count)", "∞" if wl_count_ratio == float("inf") else f"{wl_count_ratio:.2f}")
     k8.metric("Commission Paid", f"${commission_paid:,.2f}")
+    
+    k9, k10, k11 = st.columns(3)
+    k9.metric("Max Drawdown % (Range)", f"{max_dd_pct_tf:.2f}%")
+    k10.metric("Current Balance (Range)", f"${current_balance_tf:,.2f}")
+    k11.metric("Expectancy / Trade", f"${expectancy_v:,.2f}")
 
     st.divider()
 
