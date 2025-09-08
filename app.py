@@ -93,6 +93,7 @@ if df is None:
     st.stop()
 
 st.caption(f"Data source: **{source_label}**")
+st.toast(f"✅ Loaded {len(df)} trades from {source_label}")
 
 # ===================== PIPELINE: Validate → PnL → Preview =====================
 issues = validate(df)
