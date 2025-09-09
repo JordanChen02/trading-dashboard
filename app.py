@@ -731,6 +731,23 @@ with tab_perf:
     if len(_dfu) > 0:
         # Extra fields for hover
         _dfu["dd_abs"] = _dfu["equity"] - _dfu["peak"]  # drawdown in $ (≤ 0)
+        # === Risk Summary chips (Range-aware) ===
+        _max_dd_pct_chip = float(_dfu["dd_pct"].min())                  # most negative % in Range
+        _current_dd_pct_chip = float(_dfu["dd_pct"].iloc[-1])           # last % in Range
+
+        # Recovered? → has drawdown returned to ~0 after the worst point?
+        _idx_min_chip = int(_dfu["dd_pct"].idxmin())
+        _recovered_chip = (_dfu.loc[_idx_min_chip + 1:, "dd_pct"] >= -1e-9).any()  # tolerate tiny float error
+
+        # Render small summary row
+        c_max, c_cur, c_rec = st.columns(3)
+        with c_max:
+            st.caption(f"**Max DD**: { _max_dd_pct_chip:.2f}%")
+        with c_cur:
+            st.caption(f"**Current DD**: { _current_dd_pct_chip:.2f}%")
+        with c_rec:
+            st.caption(f"**Recovered**: {'Yes ✅' if _recovered_chip else 'No ❌'}")
+
         if _date_col is not None and _date_col in df_view.columns:
             _dfu["_date"] = pd.to_datetime(df_view[_date_col], errors="coerce").dt.strftime("%Y-%m-%d")
         else:
