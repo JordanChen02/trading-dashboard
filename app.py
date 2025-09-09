@@ -286,6 +286,35 @@ if _date_col is not None and total_v > 0:
         _daily_wr_v = float((_daily_pnl_v > 0).mean() * 100.0)
         _daily_wr_display = f"{_daily_wr_v:.1f}%"
 
+# --- Helper: render active filters banner ---
+def render_active_filters(key_suffix: str = ""):
+    cal_sel = st.session_state.get("_cal_filter")
+    left, mid, right = st.columns([3, 5, 2])
+
+    # Range chip (always present)
+    with left:
+        st.caption(f"Range: **{tf}**")
+
+    # Calendar filter status (optional)
+    with mid:
+        if cal_sel:
+            mode, payload = cal_sel
+            if mode == "day":
+                st.caption(f"Calendar filter: **{payload}**")  # YYYY-MM-DD
+            else:
+                ws, we = payload
+                st.caption(f"Calendar filter: **{ws} → {we}**")
+        else:
+            st.caption("Calendar filter: **none**")
+
+    # Clear button (only useful if a filter exists)
+    with right:
+        if cal_sel:
+            if st.button("Clear", key=f"clear_cal_filter_{key_suffix}", use_container_width=True):
+                st.session_state._cal_filter = None
+                st.toast("Calendar filter cleared")
+                st.rerun()
+
 # --- Render the four Overview cards for the selected timeframe ---
 with tab_overview:
     st.divider()
