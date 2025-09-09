@@ -111,6 +111,10 @@ if issues:
 
 df = add_pnl(df)
 
+# In-session notes store: maps original df index -> note text
+if "_trade_notes" not in st.session_state:            # if key not present in the dict
+    st.session_state["_trade_notes"] = {}             # {} creates an empty dictionary
+
 st.subheader("Preview (first 50 rows)")
 st.dataframe(df.head(50), use_container_width=True)
 
@@ -314,6 +318,19 @@ def render_active_filters(key_suffix: str = ""):
                 st.session_state._cal_filter = None
                 st.toast("Calendar filter cleared")
                 st.rerun()
+
+# Apply in-session notes to df/df_view so the 'note' column reflects saved edits
+_notes_map = st.session_state.get("_trade_notes", {})           # .get returns {} if missing
+if len(_notes_map) > 0:
+    # Make sure a 'note' column exists
+    if "note" not in df.columns:
+        df["note"] = ""
+    # Update by original index keys
+    for _idx, _txt in _notes_map.items():                       # .items() iterates (key, value)
+        if _idx in df.index:                                    # guard against stale indices
+            df.at[_idx, "note"] = _txt                          # .at is fast scalar setter
+    # Recompute df_view from df with the same mask (cheap & safe)
+    df_view = df.loc[df_view.index]
 
 # --- Render the four Overview cards for the selected timeframe ---
 with tab_overview:
@@ -645,12 +662,70 @@ with tab_perf:
 
     _csv = _export_df.to_csv(index=False).encode("utf-8")
     st.download_button(
-        label="⬇️ Download filtered trades (CSV)",
+        label="⤓ Download filtered trades (CSV)",
         data=_csv,
         file_name=_fname,
         mime="text/csv",
         use_container_width=True,
     )
+# -------- Notes (per trade) — Journal QoL --------
+st.markdown("#### Notes (per trade)")
+if len(df_view) == 0:
+    st.caption("No rows to annotate.")
+else:
+    # Build human-friendly chooser; preserve original indices
+    _dv = df_view.copy()
+    # Make a compact label: [index] YYYY-MM-DD · SYMBOL · side · $PnL
+    _date_lbl = None
+    if _date_col is not None and _date_col in _dv.columns:
+        _date_lbl = pd.to_datetime(_dv[_date_col], errors="coerce").dt.strftime("%Y-%m-%d")
+    else:
+        _date_lbl = pd.Series(["—"] * len(_dv), index=_dv.index)
+
+    _sym_lbl  = _dv["symbol"].astype(str) if "symbol" in _dv.columns else pd.Series(["—"] * len(_dv), index=_dv.index)
+    _side_lbl = _dv["side"].astype(str)   if "side"   in _dv.columns else pd.Series(["—"] * len(_dv), index=_dv.index)
+    _pnl_lbl  = pd.to_numeric(_dv["pnl"], errors="coerce").fillna(0.0)
+
+    _options = []
+    for _i in _dv.index:  # original index label
+        _label = f"[{_i}] {_date_lbl.loc[_i]} · {_sym_lbl.loc[_i]} · {_side_lbl.loc[_i]} · ${_pnl_lbl.loc[_i]:,.0f}"
+        _options.append((_label, _i))      # tuple: (label shown, value stored)
+
+    # Selectbox expects a flat list; we keep a parallel list of values
+    _labels = [t[0] for t in _options]
+    _values = [t[1] for t in _options]
+
+    _sel = st.selectbox(
+        "Pick a trade to annotate",
+        options=list(range(len(_labels))),
+        format_func=lambda k: _labels[k],
+        key="note_sel_idx",
+    )
+    _sel_index = _values[_sel]  # original df index
+
+    # Prefill from session or existing df note
+    _prefill = st.session_state["_trade_notes"].get(_sel_index, "")
+    if _prefill == "" and "note" in df.columns:
+        _prefill = str(df.loc[_sel_index, "note"]) if pd.notna(df.loc[_sel_index, "note"]) else ""
+
+    _note_txt = st.text_area(
+        "Note",
+        value=_prefill,
+        height=100,
+        placeholder="What did you see or learn on this trade? Execution, context, emotions, setup quality…"
+    )
+
+    cols = st.columns([1,1,6])
+    with cols[0]:
+        if st.button("💾 Save note", use_container_width=True):
+            st.session_state["_trade_notes"][_sel_index] = _note_txt
+            st.toast(f"Note saved for trade index [{_sel_index}]")
+            st.rerun()
+    with cols[1]:
+        if st.button("🗑️ Clear note", use_container_width=True):
+            st.session_state["_trade_notes"].pop(_sel_index, None)   # remove if exists
+            st.toast(f"Note cleared for [{_sel_index}]")
+            st.rerun()
 
     st.divider()
 
@@ -697,6 +772,8 @@ with tab_perf:
     else:
         st.caption("No `symbol` column found for per-symbol breakdown.")
 
+
+
     st.divider()
 
     # Per-Side
@@ -710,6 +787,89 @@ with tab_perf:
         st.dataframe(side_tbl, use_container_width=True)
     else:
         st.caption("No `side` column found for per-side breakdown.")
+
+    # -------- One-click Summary Report (Markdown) --------
+    st.divider()
+    st.markdown("#### Summary Report (current Range)")
+
+    # Gather quick stats from df_view
+    _p = pd.to_numeric(df_view["pnl"], errors="coerce").fillna(0.0)
+    _total = int(len(_p))
+    _wr = ( (_p > 0).mean() * 100.0 ) if _total > 0 else 0.0
+    _gp = float(_p[_p > 0].sum()); _gl = float(_p[_p < 0].sum()); _np = float(_p.sum())
+    _pf = ( _gp / abs(_gl) ) if _gl != 0 else float("inf")
+
+    _best = float(_p.max()) if _total > 0 else 0.0
+    _worst = float(_p.min()) if _total > 0 else 0.0
+
+    # Time-aware drawdown for this Range (reusing approach from Performance risk KPIs)
+    _eq = start_equity + _p.cumsum()
+    _peak = _eq.cummax()
+    _dd_pct_series = np.where(_peak > 0, (_eq / _peak) - 1.0, 0.0) * 100.0
+    _max_dd_pct_report = float(_dd_pct_series.min()) if _total > 0 else 0.0
+
+    # Top symbols by Net PnL (if symbol column present)
+    _top_sym_lines = []
+    if "symbol" in df_view.columns:
+        _by_sym = (
+            df_view.assign(_p=_p)
+                .groupby("symbol", dropna=True)["_p"]
+                .sum()
+                .sort_values(ascending=False)
+                .head(3)
+        )
+        for s, v in _by_sym.items():
+            _top_sym_lines.append(f"- {s}: ${v:,.0f}")
+    else:
+        _top_sym_lines.append("- (no symbol column)")
+
+    # Last 3 notes (if any and if note column exists)
+    _note_lines = []
+    if "note" in df_view.columns:
+        _notes_nonempty = df_view.loc[df_view["note"].astype(str).str.strip() != ""]
+        if len(_notes_nonempty) > 0:
+            # take last 3 by original index order
+            _last_notes = _notes_nonempty.tail(3)[["note"]].astype(str)["note"].tolist()
+            for n in _last_notes:
+                _note_lines.append(f"- {n[:200]}")  # truncate long lines
+        else:
+            _note_lines.append("- (no notes in current Range)")
+    else:
+        _note_lines.append("- (no note column)")
+
+    # Build markdown
+    _report_md = f"""# Trading Summary — {tf}
+
+    **Range:** {tf}  
+    **Trades:** {_total}  
+    **Win Rate:** {_wr:.1f}%  
+    **Net Profit:** ${_np:,.0f}  
+    **Profit Factor:** {"∞" if _pf == float("inf") else f"{_pf:.2f}"}  
+    **Max Drawdown (Range):** {_max_dd_pct_report:.2f}%
+
+    ## Top Symbols
+    {chr(10).join(_top_sym_lines)}
+
+    ## Best / Worst Trade
+    - Best: ${_best:,.0f}  
+    - Worst: ${_worst:,.0f}
+
+    ## Recent Notes
+    {chr(10).join(_note_lines)}
+    """
+
+    st.code(_report_md, language="markdown")  # shows the markdown text (read-only)
+
+    # Download button
+    from datetime import datetime as _dt
+    _fname_rep = f"summary_{tf.lower().replace(' ','_')}_{_dt.now().strftime('%Y%m%d_%H%M%S')}.md"
+    st.download_button(
+        "⬇️ Download Summary (Markdown)",
+        data=_report_md.encode("utf-8"),
+        file_name=_fname_rep,
+        mime="text/markdown",
+        use_container_width=True
+    )
 
     # -------- Underwater (Drawdown %) [timeframe-aware] --------
     st.divider()
