@@ -20,6 +20,7 @@ import numpy as np
 import plotly.express as px
 from pathlib import Path
 from src.utils import ensure_journal_store, load_journal_index, create_journal, DATA_DIR
+import json  # read/write sidecar metadata for notes/tags
 
 # 👇 our modules
 from src.io import load_trades, validate
@@ -117,6 +118,45 @@ if "_trade_notes" not in st.session_state:            # if key not present in th
 # In-session tags store: maps original df index -> tag (e.g., "A+", "A", "B", "C")
 if "_trade_tags" not in st.session_state:
     st.session_state["_trade_tags"] = {}
+
+# Determine journal meta sidecar path (if current source is a journal) and load it once
+_journal_meta_path = None
+sel_id = st.session_state.get("selected_journal")
+if isinstance(source_label, str) and source_label.startswith("journal:") and sel_id:
+    idx = load_journal_index()
+    _rec = next((j for j in idx.get("journals", []) if j["id"] == sel_id), None)
+    if _rec:
+        _journal_meta_path = Path(_rec["path"]).with_suffix(".meta.json")  # e.g., trades.csv -> trades.meta.json
+        st.session_state["_journal_meta_path"] = str(_journal_meta_path)
+
+        # Load once per run if present; guard with a flag
+        if _journal_meta_path.exists() and not st.session_state.get("_meta_loaded"):
+            try:
+                with open(_journal_meta_path, "r", encoding="utf-8") as f:
+                    _meta = json.load(f)  # { "notes": {idx: "..."}, "tags": {idx: "A"} }
+                # merge into session stores; keys may come back as strings → cast to int
+                st.session_state["_trade_notes"].update({int(k): v for k, v in _meta.get("notes", {}).items()})
+                st.session_state["_trade_tags"].update({int(k): v for k, v in _meta.get("tags", {}).items()})
+                st.session_state["_meta_loaded"] = True
+                st.toast("Loaded journal notes/tags from disk")
+            except Exception as e:
+                st.warning(f"Couldn't read journal metadata: {e}")
+
+def _persist_journal_meta():
+    """Write session notes/tags to sidecar JSON if a journal is selected."""
+    _mp = st.session_state.get("_journal_meta_path")
+    if not _mp:
+        return  # uploads (non-journal) won't persist
+    try:
+        payload = {
+            "notes": st.session_state.get("_trade_notes", {}),
+            "tags":  st.session_state.get("_trade_tags", {}),
+        }
+        with open(_mp, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+        st.toast("Journal notes/tags saved")
+    except Exception as e:
+        st.warning(f"Couldn't save journal metadata: {e}")
 
 st.subheader("Preview (first 50 rows)")
 st.dataframe(df.head(50), use_container_width=True)
@@ -732,13 +772,16 @@ else:
     with cols[0]:
         if st.button("💾 Save note", use_container_width=True):
             st.session_state["_trade_notes"][_sel_index] = _note_txt
+            _persist_journal_meta()  # ⬅️ persist to sidecar if journal
             st.toast(f"Note saved for trade index [{_sel_index}]")
             st.rerun()
     with cols[1]:
         if st.button("🗑️ Clear note", use_container_width=True):
-            st.session_state["_trade_notes"].pop(_sel_index, None)   # remove if exists
+            st.session_state["_trade_notes"].pop(_sel_index, None)
+            _persist_journal_meta()  # ⬅️ persist after clearing
             st.toast(f"Note cleared for [{_sel_index}]")
             st.rerun()
+
 
     st.markdown("#### Quick Tags")
     _tag_options = ["A+", "A", "B", "C"]
@@ -762,6 +805,7 @@ else:
                 if "tag" not in df.columns:
                     df["tag"] = ""
                 df.at[_sel_index, "tag"] = _tag_choice
+            _persist_journal_meta()  # ⬅️ persist
             st.toast(f"Tag saved for trade index [{_sel_index}]")
             st.rerun()
 
@@ -770,8 +814,10 @@ else:
             st.session_state["_trade_tags"].pop(_sel_index, None)
             if "tag" in df.columns:
                 df.at[_sel_index, "tag"] = ""
+            _persist_journal_meta()  # ⬅️ persist
             st.toast(f"Tag cleared for [{_sel_index}]")
             st.rerun()
+
 
     st.divider()
 
