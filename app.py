@@ -655,6 +655,38 @@ with tab_perf:
     else:
         st.caption("No `side` column found for per-side breakdown.")
 
+    # -------- Underwater (Drawdown %) [timeframe-aware] --------
+    st.divider()
+    st.markdown("#### Underwater (Drawdown %)")
+
+    # Build equity from df_view so this respects Range + Calendar filter
+    _p = pd.to_numeric(df_view["pnl"], errors="coerce").fillna(0.0)
+    _dfu = df_view.copy().reset_index(drop=True)
+    _dfu["trade_no"] = np.arange(1, len(_dfu) + 1)
+    _dfu["cum_pnl"]  = _p.cumsum()
+    _dfu["equity"]   = start_equity + _dfu["cum_pnl"]
+    _dfu["peak"]     = _dfu["equity"].cummax()
+    _dfu["dd_pct"]   = np.where(_dfu["peak"] > 0, (_dfu["equity"] / _dfu["peak"]) - 1.0, 0.0) * 100.0  # ≤ 0
+
+    if len(_dfu) > 0:
+        fig_dd = px.area(
+            _dfu,
+            x="trade_no",
+            y="dd_pct",
+            title=None,
+            labels={"trade_no": "Trade #", "dd_pct": "Drawdown (%)"},
+        )
+        # Style: always show negative region, zero line for reference
+        min_dd = float(_dfu["dd_pct"].min()) if len(_dfu) else 0.0
+        y_floor = min(-1.0, min_dd * 1.10)  # add 10% headroom below min
+        fig_dd.update_yaxes(range=[y_floor, 0], ticksuffix="%", separatethousands=True)
+        fig_dd.add_hline(y=0, line_width=1, line_dash="dot", opacity=0.6)
+        fig_dd.update_layout(height=220, margin=dict(l=10, r=10, t=10, b=10), showlegend=False)
+        st.plotly_chart(fig_dd, use_container_width=True)
+    else:
+        st.caption("No rows available in the current Range to compute drawdown.")
+
+
 with tab_calendar:
     import calendar as _cal
     import plotly.graph_objects as go
