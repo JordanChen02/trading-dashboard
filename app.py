@@ -539,7 +539,6 @@ with tab_perf:
     # Commission (if present)
     _fee_cols = [c for c in ["commission","fee","fees","commissions"] if c in df_view.columns]
     commission_paid = float(pd.to_numeric(df_view[_fee_cols[0]], errors="coerce").fillna(0.0).sum()) if _fee_cols else 0.0
-    commission_paid = float(pd.to_numeric(df_view[_fee_cols[0]], errors="coerce").fillna(0.0).sum()) if _fee_cols else 0.0
 
     # --- Timeframe-aware risk KPIs ---
     # Equity over df_view so DD and balance match the selected Range
@@ -762,6 +761,13 @@ with tab_perf:
         fig_dd.update_yaxes(range=[y_floor, 0], ticksuffix="%", separatethousands=True)
         fig_dd.add_hline(y=0, line_width=1, line_dash="dot", opacity=0.6)
         fig_dd.update_layout(height=220, margin=dict(l=10, r=10, t=10, b=10))
+        # UI toggle: persistent Max DD label vs hover-only
+        _show_persistent = st.checkbox(
+            "Show Max DD label",
+            value=True,
+            key="uw_show_maxdd_label"
+        )
+
         # --- Mark the Max Drawdown point (dot + label) ---
         # 1) Find the index (row) where dd_pct is the smallest (most negative)
         _idx_min = int(_dfu["dd_pct"].idxmin())  # e.g., 37
@@ -787,15 +793,25 @@ with tab_perf:
         )
 
         # 4) Add a small label near the dot
-        fig_dd.add_annotation(
-            x=_x_trade, y=_y_ddpct,
-            text=f"Max DD { _y_ddpct:.2f}% (${'{:,.0f}'.format(_dd_abs_v)})",
-            showarrow=True, arrowhead=2,
-            ax=0, ay=-40,            # shift label upward; tweak if needed
-            bgcolor="rgba(16,22,33,0.7)",  # matches dark theme
-            bordercolor="#2a3444",
-            font=dict(size=11, color="#e5e7eb")
-        )
+        if _show_persistent:
+            fig_dd.add_annotation(
+                x=_x_trade, y=_y_ddpct,
+                text=f"Max DD { _y_ddpct:.2f}% (${'{:,.0f}'.format(_dd_abs_v)})",
+                showarrow=True, arrowhead=2,
+                ax=0, ay=-40,
+                bgcolor="rgba(16,22,33,0.7)",
+                bordercolor="#2a3444",
+                font=dict(size=11, color="#e5e7eb")
+            )
+            # Vertical reference line at the Max DD trade #
+            fig_dd.add_vline(
+                x=_x_trade,
+                line_width=1,
+                line_dash="dash",
+                line_color="#ef4444",
+                opacity=0.6
+            )
+
 
         st.plotly_chart(fig_dd, use_container_width=True)
 
