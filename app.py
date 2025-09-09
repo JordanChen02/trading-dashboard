@@ -257,7 +257,8 @@ loss_rate_frac = 1.0 - win_rate_frac
 expectancy     = win_rate_frac * avg_win + loss_rate_frac * avg_loss
 
 # --- Equity curve + Drawdown from starting equity ---
-df = df.copy().reset_index(drop=True)
+df_ec = df.copy().reset_index(drop=True)
+# use df_ec to compute trade_no, equity, peaks, etc.
 df["trade_no"] = np.arange(1, len(df) + 1)
 df["cum_pnl"] = df["pnl"].cumsum()
 df["equity"] = start_equity + df["cum_pnl"]
@@ -743,14 +744,13 @@ with tab_perf:
         mime="text/csv",
         use_container_width=True,
     )
-# -------- Notes (per trade) — Journal QoL --------
+    # -------- Notes (per trade) — Journal QoL --------
 st.markdown("#### Notes (per trade)")
 if len(df_view) == 0:
     st.caption("No rows to annotate.")
 else:
     # Build human-friendly chooser; preserve original indices
     _dv = df_view.copy()
-    # Make a compact label: [index] YYYY-MM-DD · SYMBOL · side · $PnL
     _date_lbl = None
     if _date_col is not None and _date_col in _dv.columns:
         _date_lbl = pd.to_datetime(_dv[_date_col], errors="coerce").dt.strftime("%Y-%m-%d")
@@ -764,9 +764,8 @@ else:
     _options = []
     for _i in _dv.index:  # original index label
         _label = f"[{_i}] {_date_lbl.loc[_i]} · {_sym_lbl.loc[_i]} · {_side_lbl.loc[_i]} · ${_pnl_lbl.loc[_i]:,.0f}"
-        _options.append((_label, _i))      # tuple: (label shown, value stored)
+        _options.append((_label, _i))
 
-    # Selectbox expects a flat list; we keep a parallel list of values
     _labels = [t[0] for t in _options]
     _values = [t[1] for t in _options]
 
@@ -776,9 +775,8 @@ else:
         format_func=lambda k: _labels[k],
         key="note_sel_idx",
     )
-    _sel_index = _values[_sel]  # original df index
+    _sel_index = _values[_sel]
 
-    # Prefill from session or existing df note
     _prefill = st.session_state["_trade_notes"].get(_sel_index, "")
     if _prefill == "" and "note" in df.columns:
         _prefill = str(df.loc[_sel_index, "note"]) if pd.notna(df.loc[_sel_index, "note"]) else ""
@@ -794,20 +792,21 @@ else:
     with cols[0]:
         if st.button("💾 Save note", use_container_width=True):
             st.session_state["_trade_notes"][_sel_index] = _note_txt
-            _persist_journal_meta()  # ⬅️ persist to sidecar if journal
+            _persist_journal_meta()  # persist for journals
             st.toast(f"Note saved for trade index [{_sel_index}]")
             st.rerun()
     with cols[1]:
         if st.button("🗑️ Clear note", use_container_width=True):
             st.session_state["_trade_notes"].pop(_sel_index, None)
-            _persist_journal_meta()  # ⬅️ persist after clearing
+            _persist_journal_meta()  # persist for journals
             st.toast(f"Note cleared for [{_sel_index}]")
             st.rerun()
 
-
     st.markdown("#### Quick Tags")
     _tag_options = ["A+", "A", "B", "C"]
-    _current_tag = st.session_state["_trade_tags"].get(_sel_index, df.loc[_sel_index, "tag"] if "tag" in df.columns else "")
+    _current_tag = st.session_state["_trade_tags"].get(
+        _sel_index, df.loc[_sel_index, "tag"] if "tag" in df.columns else ""
+    )
     _tag_choice = st.radio(
         "Select a tag for this trade",
         options=_tag_options + ["(clear)"],
@@ -827,414 +826,358 @@ else:
                 if "tag" not in df.columns:
                     df["tag"] = ""
                 df.at[_sel_index, "tag"] = _tag_choice
-            _persist_journal_meta()  # ⬅️ persist
+            _persist_journal_meta()  # persist for journals
             st.toast(f"Tag saved for trade index [{_sel_index}]")
             st.rerun()
-
     with tcols[1]:
         if st.button("🗑️ Clear tag", use_container_width=True):
             st.session_state["_trade_tags"].pop(_sel_index, None)
             if "tag" in df.columns:
                 df.at[_sel_index, "tag"] = ""
-            _persist_journal_meta()  # ⬅️ persist
+            _persist_journal_meta()  # persist for journals
             st.toast(f"Tag cleared for [{_sel_index}]")
             st.rerun()
 
+# ======= BELOW ARE SIBLINGS OF NOTES (dedented one level), STILL INSIDE with tab_perf: =======
 
-    st.divider()
+st.divider()
+st.subheader("Breakdown")
 
-    # -------- Per-Symbol / Per-Side breakdown (timeframe-aware) --------
-    st.subheader("Breakdown")
+def _group_metrics(group_df: pd.DataFrame) -> pd.Series:
+    _p = pd.to_numeric(group_df["pnl"], errors="coerce").fillna(0.0)
+    _wins = (_p > 0)
+    _loss = (_p < 0)
+    _be   = (_p == 0)
+    _w = int(_wins.sum()); _l = int(_loss.sum()); _b = int(_be.sum())
+    _tot = int(len(_p))
 
-    def _group_metrics(group_df: pd.DataFrame) -> pd.Series:
-        _p = pd.to_numeric(group_df["pnl"], errors="coerce").fillna(0.0)
-        _wins = (_p > 0)
-        _loss = (_p < 0)
-        _be   = (_p == 0)
-        _w = int(_wins.sum()); _l = int(_loss.sum()); _b = int(_be.sum())
-        _tot = int(len(_p))
+    # win-rate with your breakeven policy
+    if be_policy == "be excluded from win-rate":
+        denom = _w + _l
+        wr = (_w / denom) * 100.0 if denom > 0 else 0.0
+    elif be_policy == "count as losses":
+        wr = (_w / _tot) * 100.0 if _tot > 0 else 0.0
+    else:  # count as wins
+        wr = ((_w + _b) / _tot) * 100.0 if _tot > 0 else 0.0
 
-        # win-rate with your breakeven policy
-        if be_policy == "be excluded from win-rate":
-            denom = _w + _l
-            wr = (_w / denom) * 100.0 if denom > 0 else 0.0
-        elif be_policy == "count as losses":
-            wr = (_w / _tot) * 100.0 if _tot > 0 else 0.0
-        else:  # count as wins
-            wr = ((_w + _b) / _tot) * 100.0 if _tot > 0 else 0.0
+    gp = float(_p[_wins].sum())
+    gl = float(_p[_loss].sum())
+    pf = (gp / abs(gl)) if gl != 0 else float("inf")
+    avg_w = float(_p[_wins].mean()) if _w > 0 else 0.0
+    avg_l = float(_p[_loss].mean()) if _l > 0 else 0.0
+    aw_al = (abs(avg_w / avg_l) if avg_l != 0 else float("inf"))
 
-        gp = float(_p[_wins].sum())
-        gl = float(_p[_loss].sum())
-        pf = (gp / abs(gl)) if gl != 0 else float("inf")
-        avg_w = float(_p[_wins].mean()) if _w > 0 else 0.0
-        avg_l = float(_p[_loss].mean()) if _l > 0 else 0.0
-        aw_al = (abs(avg_w / avg_l) if avg_l != 0 else float("inf"))
+    return pd.Series({
+        "Trades": _tot,
+        "Win Rate %": round(wr, 1),
+        "PF": (float("inf") if pf == float("inf") else round(pf, 2)),
+        "Net PnL": round(float(_p.sum()), 2),
+        "Avg Win/Loss": ("∞" if aw_al == float("inf") else round(aw_al, 2)),
+    })
 
-        return pd.Series({
-            "Trades": _tot,
-            "Win Rate %": round(wr, 1),
-            "PF": (float("inf") if pf == float("inf") else round(pf, 2)),
-            "Net PnL": round(float(_p.sum()), 2),
-            "Avg Win/Loss": ("∞" if aw_al == float("inf") else round(aw_al, 2)),
-        })
+# Per-Symbol
+if "symbol" in df_view.columns:
+    sym_tbl = df_view.groupby("symbol", dropna=True).apply(_group_metrics).reset_index().sort_values("Net PnL", ascending=False)
+    st.markdown("**Per Symbol**")
+    st.dataframe(sym_tbl, use_container_width=True)
+else:
+    st.caption("No `symbol` column found for per-symbol breakdown.")
 
-    # Per-Symbol
-    if "symbol" in df_view.columns:
-        sym_tbl = df_view.groupby("symbol", dropna=True).apply(_group_metrics).reset_index().sort_values("Net PnL", ascending=False)
-        st.markdown("**Per Symbol**")
-        st.dataframe(sym_tbl, use_container_width=True)
-    else:
-        st.caption("No `symbol` column found for per-symbol breakdown.")
+st.divider()
 
+# Per-Side
+if "side" in df_view.columns:
+    side_tbl = df_view.assign(_side=df_view["side"].str.lower()).groupby("_side", dropna=True).apply(_group_metrics).reset_index()
+    side_tbl["_side"] = side_tbl["_side"].str.capitalize()
+    side_tbl = side_tbl.rename(columns={"_side": "Side"}).sort_values("Net PnL", ascending=False)
+    st.markdown("**Per Side**")
+    st.dataframe(side_tbl, use_container_width=True)
+else:
+    st.caption("No `side` column found for per-side breakdown.")
 
+# -------- One-click Summary Report (Markdown + JSON) --------
+st.divider()
+st.markdown("#### Summary Report (current Range)")
 
-    st.divider()
+# Gather quick stats from df_view
+_p = pd.to_numeric(df_view["pnl"], errors="coerce").fillna(0.0)
+_total = int(len(_p))
+_wr = ( (_p > 0).mean() * 100.0 ) if _total > 0 else 0.0
+_gp = float(_p[_p > 0].sum()); _gl = float(_p[_p < 0].sum()); _np = float(_p.sum())
+_pf = ( _gp / abs(_gl) ) if _gl != 0 else float("inf")
 
-    # Per-Side
-    if "side" in df_view.columns:
-        # normalize to lower for grouping, then capitalize label
-        side_tbl = df_view.assign(_side=df_view["side"].str.lower()).groupby("_side", dropna=True).apply(_group_metrics).reset_index()
-        side_tbl["_side"] = side_tbl["_side"].str.capitalize()
-        side_tbl = side_tbl.rename(columns={"_side": "Side"}).sort_values("Net PnL", ascending=False)
-        # custom color hint (blue for Long, soft red for Short) – for future bar charts
-        st.markdown("**Per Side**")
-        st.dataframe(side_tbl, use_container_width=True)
-    else:
-        st.caption("No `side` column found for per-side breakdown.")
+_best = float(_p.max()) if _total > 0 else 0.0
+_worst = float(_p.min()) if _total > 0 else 0.0
 
-    # -------- One-click Summary Report (Markdown) --------
-    st.divider()
-    st.markdown("#### Summary Report (current Range)")
+# Time-aware drawdown for this Range (reusing approach from Performance risk KPIs)
+_eq = start_equity + _p.cumsum()
+_peak = _eq.cummax()
+_dd_pct_series = np.where(_peak > 0, (_eq / _peak) - 1.0, 0.0) * 100.0
+_max_dd_pct_report = float(_dd_pct_series.min()) if _total > 0 else 0.0
 
-    # Gather quick stats from df_view
-    _p = pd.to_numeric(df_view["pnl"], errors="coerce").fillna(0.0)
-    _total = int(len(_p))
-    _wr = ( (_p > 0).mean() * 100.0 ) if _total > 0 else 0.0
-    _gp = float(_p[_p > 0].sum()); _gl = float(_p[_p < 0].sum()); _np = float(_p.sum())
-    _pf = ( _gp / abs(_gl) ) if _gl != 0 else float("inf")
-
-    _best = float(_p.max()) if _total > 0 else 0.0
-    _worst = float(_p.min()) if _total > 0 else 0.0
-
-    # Time-aware drawdown for this Range (reusing approach from Performance risk KPIs)
-    _eq = start_equity + _p.cumsum()
-    _peak = _eq.cummax()
-    _dd_pct_series = np.where(_peak > 0, (_eq / _peak) - 1.0, 0.0) * 100.0
-    _max_dd_pct_report = float(_dd_pct_series.min()) if _total > 0 else 0.0
-
-    # Top symbols by Net PnL (if symbol column present)
-    _top_sym_lines = []
-    if "symbol" in df_view.columns:
-        _by_sym = (
-            df_view.assign(_p=_p)
-                .groupby("symbol", dropna=True)["_p"]
-                .sum()
-                .sort_values(ascending=False)
-                .head(3)
-        )
-        for s, v in _by_sym.items():
-            _top_sym_lines.append(f"- {s}: ${v:,.0f}")
-    else:
-        _top_sym_lines.append("- (no symbol column)")
-
-    # Last 3 notes (if any and if note column exists)
-    _note_lines = []
-    if "note" in df_view.columns:
-        _notes_nonempty = df_view.loc[df_view["note"].astype(str).str.strip() != ""]
-        if len(_notes_nonempty) > 0:
-            # take last 3 by original index order
-            _last_notes = _notes_nonempty.tail(3)[["note"]].astype(str)["note"].tolist()
-            for n in _last_notes:
-                _note_lines.append(f"- {n[:200]}")  # truncate long lines
-        else:
-            _note_lines.append("- (no notes in current Range)")
-    else:
-        _note_lines.append("- (no note column)")
-
-    # Tag mix (if any tags present)
-    _tag_lines = []
-    if "tag" in df_view.columns:
-        _tag_counts = (
-            df_view["tag"].astype(str).str.strip()
-            .replace("", np.nan)
-            .dropna()
-            .value_counts()
-            .reindex(["A+","A","B","C"])
-            .fillna(0)
-            .astype(int)
-        )
-        if _tag_counts.sum() > 0:
-            for tg, ct in _tag_counts.items():
-                _tag_lines.append(f"- {tg}: {ct}")
-        else:
-            _tag_lines.append("- (no tags in current Range)")
-    else:
-        _tag_lines.append("- (no tag column)")
-
-
-    # Build markdown
-    _report_md = f"""# Trading Summary — {tf}
-
-    **Range:** {tf}  
-    **Trades:** {_total}  
-    **Win Rate:** {_wr:.1f}%  
-    **Net Profit:** ${_np:,.0f}  
-    **Profit Factor:** {"∞" if _pf == float("inf") else f"{_pf:.2f}"}  
-    **Max Drawdown (Range):** {_max_dd_pct_report:.2f}%
-
-    ## Top Symbols
-    {chr(10).join(_top_sym_lines)}
-
-    ## Best / Worst Trade
-    - Best: ${_best:,.0f}  
-    - Worst: ${_worst:,.0f}
-
-    ## Tag Mix
-    {chr(10).join(_tag_lines)}
-
-    ## Recent Notes
-    {chr(10).join(_note_lines)}
-    """
-
-    st.code(_report_md, language="markdown")  # shows the markdown text (read-only)
-
-    # Download button
-    from datetime import datetime as _dt
-    _fname_rep = f"summary_{tf.lower().replace(' ','_')}_{_dt.now().strftime('%Y%m%d_%H%M%S')}.md"
-    st.download_button(
-        "⬇️ Download Summary (Markdown)",
-        data=_report_md.encode("utf-8"),
-        file_name=_fname_rep,
-        mime="text/markdown",
-        use_container_width=True
+# Top symbols by Net PnL (if symbol column present)
+_top_sym_lines = []
+if "symbol" in df_view.columns:
+    _by_sym = (
+        df_view.assign(_p=_p)
+            .groupby("symbol", dropna=True)["_p"]
+            .sum()
+            .sort_values(ascending=False)
+            .head(3)
     )
+    for s, v in _by_sym.items():
+        _top_sym_lines.append(f"- {s}: ${v:,.0f}")
+else:
+    _top_sym_lines.append("- (no symbol column)")
 
-    # ---- JSON Summary (machine-readable) ----
-    # Reuse the stats already computed above in this block:
-    #   _total, _wr, _gp, _gl, _np, _pf, _best, _worst, _max_dd_pct_report,
-    #   _top_sym_lines, _tag_lines, _note_lines, tf
+# Last 3 notes (if any and if note column exists)
+_note_lines = []
+if "note" in df_view.columns:
+    _notes_nonempty = df_view.loc[df_view["note"].astype(str).str.strip() != ""]
+    if len(_notes_nonempty) > 0:
+        _last_notes = _notes_nonempty.tail(3)[["note"]].astype(str)["note"].tolist()
+        for n in _last_notes:
+            _note_lines.append(f"- {n[:200]}")
+    else:
+        _note_lines.append("- (no notes in current Range)")
+else:
+    _note_lines.append("- (no note column)")
 
-    # Convert "Top Symbols" and "Tag Mix" lines back into structured lists/dicts
-    # Examples of lines we produced:
-    #   _top_sym_lines: ["- NQ: $1,250", "- ES: $900", ...]
-    #   _tag_lines:     ["- A+: 3", "- A: 2", "- B: 0", "- C: 1"]
-    def _parse_money(s: str) -> float:
-        s = s.replace("$", "").replace(",", "").strip()
+# Tag mix (if any tags present)
+_tag_lines = []
+if "tag" in df_view.columns:
+    _tag_counts = (
+        df_view["tag"].astype(str).str.strip()
+        .replace("", np.nan)
+        .dropna()
+        .value_counts()
+        .reindex(["A+","A","B","C"])
+        .fillna(0)
+        .astype(int)
+    )
+    if _tag_counts.sum() > 0:
+        for tg, ct in _tag_counts.items():
+            _tag_lines.append(f"- {tg}: {ct}")
+    else:
+        _tag_lines.append("- (no tags in current Range)")
+else:
+    _tag_lines.append("- (no tag column)")
+
+# Build markdown
+_report_md = f"""# Trading Summary — {tf}
+
+**Range:** {tf}  
+**Trades:** {_total}  
+**Win Rate:** {_wr:.1f}%  
+**Net Profit:** ${_np:,.0f}  
+**Profit Factor:** {"∞" if _pf == float("inf") else f"{_pf:.2f}"}  
+**Max Drawdown (Range):** {_max_dd_pct_report:.2f}%
+
+## Top Symbols
+{chr(10).join(_top_sym_lines)}
+
+## Best / Worst Trade
+- Best: ${_best:,.0f}  
+- Worst: ${_worst:,.0f}
+
+## Tag Mix
+{chr(10).join(_tag_lines)}
+
+## Recent Notes
+{chr(10).join(_note_lines)}
+"""
+
+st.code(_report_md, language="markdown")
+
+from datetime import datetime as _dt
+_fname_rep = f"summary_{tf.lower().replace(' ','_')}_{_dt.now().strftime('%Y%m%d_%H%M%S')}.md"
+st.download_button(
+    "⬇️ Download Summary (Markdown)",
+    data=_report_md.encode("utf-8"),
+    file_name=_fname_rep,
+    mime="text/markdown",
+    use_container_width=True
+)
+
+# ---- JSON Summary (machine-readable) ----
+def _parse_money(s: str) -> float:
+    s = s.replace("$", "").replace(",", "").strip()
+    try:
+        return float(s)
+    except Exception:
+        return 0.0
+
+_top_symbols_json = []
+for line in _top_sym_lines:
+    line = line.strip().lstrip("-").strip()
+    if ": " in line:
+        sym, val = line.split(": ", 1)
+        _top_symbols_json.append({"symbol": sym, "net_pnl": _parse_money(val)})
+
+_tag_mix_json = {}
+for line in _tag_lines:
+    line = line.strip().lstrip("-").strip()
+    if ": " in line:
+        tg, ct = line.split(": ", 1)
         try:
-            return float(s)
+            _tag_mix_json[tg] = int(ct)
         except Exception:
-            return 0.0
+            pass
 
-    _top_symbols_json = []
-    for line in _top_sym_lines:
-        line = line.strip().lstrip("-").strip()
-        if ": " in line:
-            sym, val = line.split(": ", 1)
-            _top_symbols_json.append({"symbol": sym, "net_pnl": _parse_money(val)})
+_json_payload = {
+    "range": tf,
+    "generated_at": _dt.now().isoformat(timespec="seconds"),
+    "trades": {
+        "count": _total,
+        "win_rate_pct": round(_wr, 2),
+        "gross_profit": round(_gp, 2),
+        "gross_loss": round(_gl, 2),
+        "net_profit": round(_np, 2),
+        "profit_factor": (None if _pf == float("inf") else round(_pf, 4)),
+        "best_trade": round(_best, 2),
+        "worst_trade": round(_worst, 2)
+    },
+    "risk": {
+        "max_drawdown_pct": round(_max_dd_pct_report, 2)
+    },
+    "top_symbols": _top_symbols_json,
+    "tag_mix": _tag_mix_json,
+    "recent_notes": [n.lstrip("- ").strip() for n in _note_lines]
+}
 
-    _tag_mix_json = {}
-    for line in _tag_lines:
-        line = line.strip().lstrip("-").strip()
-        if ": " in line:
-            tg, ct = line.split(": ", 1)
-            try:
-                _tag_mix_json[tg] = int(ct)
-            except Exception:
-                pass
+st.code(json.dumps(_json_payload, ensure_ascii=False, indent=2), language="json")
 
-    # Build the JSON payload (a plain Python dict)
-    _json_payload = {
-        "range": tf,
-        "generated_at": _dt.now().isoformat(timespec="seconds"),
-        "trades": {
-            "count": _total,
-            "win_rate_pct": round(_wr, 2),
-            "gross_profit": round(_gp, 2),
-            "gross_loss": round(_gl, 2),
-            "net_profit": round(_np, 2),
-            "profit_factor": (None if _pf == float("inf") else round(_pf, 4)),
-            "best_trade": round(_best, 2),
-            "worst_trade": round(_worst, 2)
-        },
-        "risk": {
-            "max_drawdown_pct": round(_max_dd_pct_report, 2)
-        },
-        "top_symbols": _top_symbols_json,   # list of {symbol, net_pnl}
-        "tag_mix": _tag_mix_json,           # dict: {"A+": 3, "A": 2, ...}
-        "recent_notes": [n.lstrip("- ").strip() for n in _note_lines]  # list of strings
-    }
+_fname_json = f"summary_{tf.lower().replace(' ','_')}_{_dt.now().strftime('%Y%m%d_%H%M%S')}.json"
+st.download_button(
+    "⬇️ Download Summary (JSON)",
+    data=json.dumps(_json_payload, ensure_ascii=False, indent=2).encode("utf-8"),
+    file_name=_fname_json,
+    mime="application/json",
+    use_container_width=True
+)
 
-    # Show preview (pretty-printed)
-    st.code(json.dumps(_json_payload, ensure_ascii=False, indent=2), language="json")
+# -------- Underwater (Drawdown %) [timeframe-aware] --------
+st.divider()
+st.markdown("#### Underwater (Drawdown %)")
 
-    # Download JSON button
-    _fname_json = f"summary_{tf.lower().replace(' ','_')}_{_dt.now().strftime('%Y%m%d_%H%M%S')}.json"
-    st.download_button(
-        "⬇️ Download Summary (JSON)",
-        data=json.dumps(_json_payload, ensure_ascii=False, indent=2).encode("utf-8"),
-        file_name=_fname_json,
-        mime="application/json",
-        use_container_width=True
+# Build equity from df_view so this respects Range + Calendar filter
+_p = pd.to_numeric(df_view["pnl"], errors="coerce").fillna(0.0)
+_dfu = df_view.copy().reset_index(drop=True)
+_dfu["trade_no"] = np.arange(1, len(_dfu) + 1)
+_dfu["cum_pnl"]  = _p.cumsum()
+_dfu["equity"]   = start_equity + _dfu["cum_pnl"]
+_dfu["peak"]     = _dfu["equity"].cummax()
+_dfu["dd_pct"]   = np.where(_dfu["peak"] > 0, (_dfu["equity"] / _dfu["peak"]) - 1.0, 0.0) * 100.0  # ≤ 0
+
+# Current DD badge (uses last row)
+_current_dd_pct = float(_dfu["dd_pct"].iloc[-1])  # last drawdown % (negative or 0)
+_current_dd_abs = float((_dfu["equity"] - _dfu["peak"]).iloc[-1])  # last DD in $ (≤ 0)
+st.caption(f"Current DD: **{_current_dd_pct:.2f}%**  (${_current_dd_abs:,.0f})")
+
+if len(_dfu) > 0:
+    # Extra fields for hover
+    _dfu["dd_abs"] = _dfu["equity"] - _dfu["peak"]  # drawdown in $ (≤ 0)
+    if _date_col is not None and _date_col in df_view.columns:
+        _dfu["_date"] = pd.to_datetime(df_view[_date_col], errors="coerce").dt.strftime("%Y-%m-%d")
+    else:
+        _dfu["_date"] = ""
+
+    # Range-aware chips
+    _max_dd_pct_chip = float(_dfu["dd_pct"].min())
+    _current_dd_pct_chip = float(_dfu["dd_pct"].iloc[-1])
+
+    _idx_min_chip = int(_dfu["dd_pct"].idxmin())
+    _recovered_chip = (_dfu.loc[_idx_min_chip + 1:, "dd_pct"] >= -1e-9).any()
+
+    c_max, c_cur, c_rec = st.columns(3)
+    with c_max: st.caption(f"**Max DD**: { _max_dd_pct_chip:.2f}%")
+    with c_cur: st.caption(f"**Current DD**: { _current_dd_pct_chip:.2f}%")
+    with c_rec: st.caption(f"**Recovered**: {'Yes ✅' if _recovered_chip else 'No ❌'}")
+
+    fig_dd = px.area(
+        _dfu,
+        x="trade_no",
+        y="dd_pct",
+        title=None,
+        labels={"trade_no": "Trade #", "dd_pct": "Drawdown (%)"},
+        custom_data=["dd_abs", "equity", "peak", "_date"]
+    )
+    fig_dd.update_traces(
+        hovertemplate=(
+            "Trade #%{x}<br>"
+            "Date: %{customdata[3]}<br>"
+            "Drawdown: %{y:.2f}%<br>"
+            "DD ($): $%{customdata[0]:,.0f}<br>"
+            "Equity: $%{customdata[1]:,.0f}<br>"
+            "Peak: $%{customdata[2]:,.0f}<extra></extra>"
+        ),
+        showlegend=False
+    )
+    min_dd = float(_dfu["dd_pct"].min()) if len(_dfu) else 0.0
+    y_floor = min(-1.0, min_dd * 1.10)
+    fig_dd.update_yaxes(range=[y_floor, 0], ticksuffix="%", separatethousands=True)
+    fig_dd.add_hline(y=0, line_width=1, line_dash="dot", opacity=0.6)
+    fig_dd.update_layout(height=220, margin=dict(l=10, r=10, t=10, b=10))
+
+    _show_vline = st.checkbox("Show Max DD vertical line", value=True, key="uw_show_maxdd_vline")
+    _show_persistent = st.checkbox("Show Max DD label", value=True, key="uw_show_maxdd_label")
+
+    _idx_min = int(_dfu["dd_pct"].idxmin())
+    _x_trade = int(_dfu.loc[_idx_min, "trade_no"])
+    _y_ddpct = float(_dfu.loc[_idx_min, "dd_pct"])
+    _dd_abs_v = float(_dfu.loc[_idx_min, "dd_abs"])
+    _date_str = str(_dfu.loc[_idx_min, "_date"]) if "_date" in _dfu.columns else ""
+
+    _pre_slice = _dfu.loc[:_idx_min]
+    _peak_idx  = int(_pre_slice["equity"].idxmax())
+    _since_peak_trades = int(_x_trade - int(_dfu.loc[_peak_idx, "trade_no"]))
+
+    _recover_slice = _dfu.loc[_idx_min + 1:, "dd_pct"]
+    _recovered_mask = _recover_slice >= -1e-9
+    _recover_idx = _recovered_mask.index[_recovered_mask.argmax()] if _recovered_mask.any() else None
+    if _recover_idx is not None:
+        _trades_to_recover = int(_dfu.loc[_recover_idx, "trade_no"] - _x_trade)
+        _recover_msg = f"Recovered from Max DD in **{_trades_to_recover} trades**."
+    else:
+        _recover_msg = "Not yet recovered from Max DD."
+
+    fig_dd.add_scatter(
+        x=[_x_trade], y=[_y_ddpct],
+        mode="markers",
+        marker=dict(size=8, color="#ef4444"),
+        name="Max DD",
+        hovertemplate=(
+            "Trade #%{x}<br>"
+            "Date: " + (_date_str if _date_str else "%{x}") + "<br>"
+            "Drawdown: %{y:.2f}%<br>"
+            f"Since peak: {_since_peak_trades} trades"
+            "<extra>Max DD point</extra>"
+        )
     )
 
-    # -------- Underwater (Drawdown %) [timeframe-aware] --------
-    st.divider()
-    st.markdown("#### Underwater (Drawdown %)")
-
-    # Build equity from df_view so this respects Range + Calendar filter
-    _p = pd.to_numeric(df_view["pnl"], errors="coerce").fillna(0.0)
-    _dfu = df_view.copy().reset_index(drop=True)
-    _dfu["trade_no"] = np.arange(1, len(_dfu) + 1)
-    _dfu["cum_pnl"]  = _p.cumsum()
-    _dfu["equity"]   = start_equity + _dfu["cum_pnl"]
-    _dfu["peak"]     = _dfu["equity"].cummax()
-    _dfu["dd_pct"]   = np.where(_dfu["peak"] > 0, (_dfu["equity"] / _dfu["peak"]) - 1.0, 0.0) * 100.0  # ≤ 0
-    # Current DD badge (uses last row)
-    _current_dd_pct = float(_dfu["dd_pct"].iloc[-1])  # last drawdown % (negative or 0)
-    _current_dd_abs = float((_dfu["equity"] - _dfu["peak"]).iloc[-1])  # last DD in $ (≤ 0)
-    st.caption(f"Current DD: **{_current_dd_pct:.2f}%**  (${_current_dd_abs:,.0f})")
-
-    if len(_dfu) > 0:
-        # Extra fields for hover
-        _dfu["dd_abs"] = _dfu["equity"] - _dfu["peak"]  # drawdown in $ (≤ 0)
-        # === Risk Summary chips (Range-aware) ===
-        _max_dd_pct_chip = float(_dfu["dd_pct"].min())                  # most negative % in Range
-        _current_dd_pct_chip = float(_dfu["dd_pct"].iloc[-1])           # last % in Range
-
-        # Recovered? → has drawdown returned to ~0 after the worst point?
-        _idx_min_chip = int(_dfu["dd_pct"].idxmin())
-        _recovered_chip = (_dfu.loc[_idx_min_chip + 1:, "dd_pct"] >= -1e-9).any()  # tolerate tiny float error
-
-        # Render small summary row
-        c_max, c_cur, c_rec = st.columns(3)
-        with c_max:
-            st.caption(f"**Max DD**: { _max_dd_pct_chip:.2f}%")
-        with c_cur:
-            st.caption(f"**Current DD**: { _current_dd_pct_chip:.2f}%")
-        with c_rec:
-            st.caption(f"**Recovered**: {'Yes ✅' if _recovered_chip else 'No ❌'}")
-
-        if _date_col is not None and _date_col in df_view.columns:
-            _dfu["_date"] = pd.to_datetime(df_view[_date_col], errors="coerce").dt.strftime("%Y-%m-%d")
-        else:
-            _dfu["_date"] = ""
-
-        # Build the area chart and attach extra fields for tooltip
-        fig_dd = px.area(
-            _dfu,
-            x="trade_no",
-            y="dd_pct",
-            title=None,
-            labels={"trade_no": "Trade #", "dd_pct": "Drawdown (%)"},
-            custom_data=["dd_abs", "equity", "peak", "_date"]  # fields sent to hovertemplate
+    if _show_persistent:
+        fig_dd.add_annotation(
+            x=_x_trade, y=_y_ddpct,
+            text=f"Max DD { _y_ddpct:.2f}% (${'{:,.0f}'.format(_dd_abs_v)})",
+            showarrow=True, arrowhead=2,
+            ax=0, ay=-40,
+            bgcolor="rgba(16,22,33,0.7)",
+            bordercolor="#2a3444",
+            font=dict(size=11, color="#e5e7eb")
+        )
+    if _show_vline:
+        fig_dd.add_vline(
+            x=_x_trade,
+            line_width=1,
+            line_dash="dash",
+            line_color="#ef4444",
+            opacity=0.6
         )
 
-        # Rich hover tooltip (no legend box)
-        fig_dd.update_traces(
-            hovertemplate=(
-                "Trade #%{x}<br>"
-                "Date: %{customdata[3]}<br>"
-                "Drawdown: %{y:.2f}%<br>"
-                "DD ($): $%{customdata[0]:,.0f}<br>"
-                "Equity: $%{customdata[1]:,.0f}<br>"
-                "Peak: $%{customdata[2]:,.0f}<extra></extra>"
-            ),
-            showlegend=False
-        )
-
-        # Style: always show negative region, zero line for reference
-        min_dd = float(_dfu["dd_pct"].min()) if len(_dfu) else 0.0
-        y_floor = min(-1.0, min_dd * 1.10)  # add 10% headroom below min
-        fig_dd.update_yaxes(range=[y_floor, 0], ticksuffix="%", separatethousands=True)
-        fig_dd.add_hline(y=0, line_width=1, line_dash="dot", opacity=0.6)
-        fig_dd.update_layout(height=220, margin=dict(l=10, r=10, t=10, b=10))
-
-        # UI toggle: show/hide the vertical line at Max DD
-        _show_vline = st.checkbox(
-            "Show Max DD vertical line",
-            value=True,
-            key="uw_show_maxdd_vline"
-        )
-        
-        # UI toggle: persistent Max DD label vs hover-only
-        _show_persistent = st.checkbox(
-            "Show Max DD label",
-            value=True,
-            key="uw_show_maxdd_label"
-        )
-
-        # --- Mark the Max Drawdown point (dot + label) ---
-        # 1) Find the index (row) where dd_pct is the smallest (most negative)
-        _idx_min = int(_dfu["dd_pct"].idxmin())  # e.g., 37
-
-        # 2) Pull out values at that index for plotting/label
-        _x_trade = int(_dfu.loc[_idx_min, "trade_no"])     # x-axis
-        _y_ddpct = float(_dfu.loc[_idx_min, "dd_pct"])     # y-axis (percent, ≤ 0)
-        _dd_abs_v = float(_dfu.loc[_idx_min, "dd_abs"])    # drawdown in $ (≤ 0)
-        _date_str = str(_dfu.loc[_idx_min, "_date"]) if "_date" in _dfu.columns else ""
-
-        # Trades since the last equity peak → to reach Max DD
-        _pre_slice = _dfu.loc[:_idx_min]                            # rows up to the Max DD row (inclusive)
-        _peak_idx  = int(_pre_slice["equity"].idxmax())             # index of highest equity before/at Max DD
-        _since_peak_trades = int(_x_trade - int(_dfu.loc[_peak_idx, "trade_no"]))
-
-        # Compute trades needed to recover from Max DD (back to 0% drawdown)
-        # We look for first index AFTER _idx_min where dd_pct is ~0 (allow tiny float error).
-        _recover_slice = _dfu.loc[_idx_min + 1:, "dd_pct"]
-        # boolean mask using tolerance (>= -1e-9 ≈ zero or positive)
-        _recovered_mask = _recover_slice >= -1e-9
-        _recover_idx = _recovered_mask.index[_recovered_mask.argmax()] if _recovered_mask.any() else None
-
-        if _recover_idx is not None:
-            _trades_to_recover = int(_dfu.loc[_recover_idx, "trade_no"] - _x_trade)
-            _recover_msg = f"Recovered from Max DD in **{_trades_to_recover} trades**."
-        else:
-            _recover_msg = "Not yet recovered from Max DD."
-
-        # 3) Add a red dot at the max drawdown location
-        fig_dd.add_scatter(
-            x=[_x_trade], y=[_y_ddpct],
-            mode="markers",
-            marker=dict(size=8, color="#ef4444"),  # red dot
-            name="Max DD",
-            hovertemplate=(
-                "Trade #%{x}<br>"
-                "Date: " + (_date_str if _date_str else "%{x}") + "<br>"
-                "Drawdown: %{y:.2f}%<br>"
-                f"Since peak: {_since_peak_trades} trades"
-                "<extra>Max DD point</extra>"
-            )
-        )
-
-        # 4) Add a small label near the dot
-        if _show_persistent:
-            fig_dd.add_annotation(
-                x=_x_trade, y=_y_ddpct,
-                text=f"Max DD { _y_ddpct:.2f}% (${'{:,.0f}'.format(_dd_abs_v)})",
-                showarrow=True, arrowhead=2,
-                ax=0, ay=-40,
-                bgcolor="rgba(16,22,33,0.7)",
-                bordercolor="#2a3444",
-                font=dict(size=11, color="#e5e7eb")
-            )
-        # Vertical reference line at the Max DD trade (optional)
-        if _show_vline:
-            fig_dd.add_vline(
-                x=_x_trade,
-                line_width=1,
-                line_dash="dash",
-                line_color="#ef4444",
-                opacity=0.6
-            )
-
-
-
-        st.plotly_chart(fig_dd, use_container_width=True)
-
-        st.caption(_recover_msg)
-
-    else:
-        st.caption("No rows available in the current Range to compute drawdown.")
+    st.plotly_chart(fig_dd, use_container_width=True)
+    st.caption(_recover_msg)
+else:
+    st.caption("No rows available in the current Range to compute drawdown.")
 
 
 with tab_calendar:
