@@ -762,6 +762,41 @@ with tab_perf:
         fig_dd.update_yaxes(range=[y_floor, 0], ticksuffix="%", separatethousands=True)
         fig_dd.add_hline(y=0, line_width=1, line_dash="dot", opacity=0.6)
         fig_dd.update_layout(height=220, margin=dict(l=10, r=10, t=10, b=10))
+        # --- Mark the Max Drawdown point (dot + label) ---
+        # 1) Find the index (row) where dd_pct is the smallest (most negative)
+        _idx_min = int(_dfu["dd_pct"].idxmin())  # e.g., 37
+
+        # 2) Pull out values at that index for plotting/label
+        _x_trade = int(_dfu.loc[_idx_min, "trade_no"])     # x-axis
+        _y_ddpct = float(_dfu.loc[_idx_min, "dd_pct"])     # y-axis (percent, ≤ 0)
+        _dd_abs_v = float(_dfu.loc[_idx_min, "dd_abs"])    # drawdown in $ (≤ 0)
+        _date_str = str(_dfu.loc[_idx_min, "_date"]) if "_date" in _dfu.columns else ""
+
+        # 3) Add a red dot at the max drawdown location
+        fig_dd.add_scatter(
+            x=[_x_trade], y=[_y_ddpct],
+            mode="markers",
+            marker=dict(size=8, color="#ef4444"),  # red dot
+            name="Max DD",
+            hovertemplate=(
+                "Trade #%{x}<br>"
+                "Date: " + (_date_str if _date_str else "%{x}") + "<br>"
+                "Drawdown: %{y:.2f}%<br>"
+                "<extra>Max DD point</extra>"
+            )
+        )
+
+        # 4) Add a small label near the dot
+        fig_dd.add_annotation(
+            x=_x_trade, y=_y_ddpct,
+            text=f"Max DD { _y_ddpct:.2f}% (${'{:,.0f}'.format(_dd_abs_v)})",
+            showarrow=True, arrowhead=2,
+            ax=0, ay=-40,            # shift label upward; tweak if needed
+            bgcolor="rgba(16,22,33,0.7)",  # matches dark theme
+            bordercolor="#2a3444",
+            font=dict(size=11, color="#e5e7eb")
+        )
+
         st.plotly_chart(fig_dd, use_container_width=True)
 
     else:
