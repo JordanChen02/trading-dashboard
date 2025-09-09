@@ -317,6 +317,7 @@ def render_active_filters(key_suffix: str = ""):
 
 # --- Render the four Overview cards for the selected timeframe ---
 with tab_overview:
+    render_active_filters("ov")
     st.divider()
     # ===================== CHARTS (card layout) =====================
     # tiny filter icon button (Material icon if supported; emoji fallback otherwise)
@@ -506,6 +507,7 @@ with tab_overview:
 
 
 with tab_perf:
+    render_active_filters("perf")
     st.subheader("Performance KPIs")
     st.caption(f"Using Range: **{tf}**")
 
@@ -573,6 +575,32 @@ with tab_perf:
     k9.metric("Max Drawdown % (Range)", f"{max_dd_pct_tf:.2f}%")
     k10.metric("Current Balance (Range)", f"${current_balance_tf:,.2f}")
     k11.metric("Expectancy / Trade", f"${expectancy_v:,.2f}")
+    # --- Additional Risk KPIs (timeframe-aware) ---
+    _p_tf = pd.to_numeric(df_view["pnl"], errors="coerce").fillna(0.0)
+    _eq = start_equity + _p_tf.cumsum()
+    _peak = _eq.cummax()
+    _dd_abs_series = _eq - _peak  # ≤ 0 in $
+    _dd_pct_series = np.where(_peak > 0, (_eq / _peak) - 1.0, 0.0)
+
+    def _longest_run(mask: np.ndarray) -> int:
+        longest = cur = 0
+        for v in mask:
+            if v:
+                cur += 1
+                if cur > longest:
+                    longest = cur
+            else:
+                cur = 0
+        return int(longest)
+
+    _max_dd_abs_usd = float(_dd_abs_series.min()) if len(_dd_abs_series) else 0.0  # negative or 0
+    _max_dd_duration_trades = _longest_run(_dd_pct_series < 0) if len(_dd_pct_series) else 0
+    _longest_losing_streak = _longest_run(_p_tf.values < 0) if len(_p_tf) else 0
+
+    r1, r2, r3 = st.columns(3)
+    r1.metric("Max DD ($)", f"${_max_dd_abs_usd:,.0f}")
+    r2.metric("Max DD Duration", f"{_max_dd_duration_trades} trades")
+    r3.metric("Longest Losing Streak", f"{_longest_losing_streak} trades")
 
     st.divider()
 
