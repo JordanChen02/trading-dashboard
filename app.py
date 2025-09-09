@@ -726,20 +726,44 @@ with tab_perf:
     _dfu["dd_pct"]   = np.where(_dfu["peak"] > 0, (_dfu["equity"] / _dfu["peak"]) - 1.0, 0.0) * 100.0  # ≤ 0
 
     if len(_dfu) > 0:
+        # Extra fields for hover
+        _dfu["dd_abs"] = _dfu["equity"] - _dfu["peak"]  # drawdown in $ (≤ 0)
+        if _date_col is not None and _date_col in df_view.columns:
+            _dfu["_date"] = pd.to_datetime(df_view[_date_col], errors="coerce").dt.strftime("%Y-%m-%d")
+        else:
+            _dfu["_date"] = ""
+
+        # Build the area chart and attach extra fields for tooltip
         fig_dd = px.area(
             _dfu,
             x="trade_no",
             y="dd_pct",
             title=None,
             labels={"trade_no": "Trade #", "dd_pct": "Drawdown (%)"},
+            custom_data=["dd_abs", "equity", "peak", "_date"]  # fields sent to hovertemplate
         )
+
+        # Rich hover tooltip (no legend box)
+        fig_dd.update_traces(
+            hovertemplate=(
+                "Trade #%{x}<br>"
+                "Date: %{customdata[3]}<br>"
+                "Drawdown: %{y:.2f}%<br>"
+                "DD ($): $%{customdata[0]:,.0f}<br>"
+                "Equity: $%{customdata[1]:,.0f}<br>"
+                "Peak: $%{customdata[2]:,.0f}<extra></extra>"
+            ),
+            showlegend=False
+        )
+
         # Style: always show negative region, zero line for reference
         min_dd = float(_dfu["dd_pct"].min()) if len(_dfu) else 0.0
         y_floor = min(-1.0, min_dd * 1.10)  # add 10% headroom below min
         fig_dd.update_yaxes(range=[y_floor, 0], ticksuffix="%", separatethousands=True)
         fig_dd.add_hline(y=0, line_width=1, line_dash="dot", opacity=0.6)
-        fig_dd.update_layout(height=220, margin=dict(l=10, r=10, t=10, b=10), showlegend=False)
+        fig_dd.update_layout(height=220, margin=dict(l=10, r=10, t=10, b=10))
         st.plotly_chart(fig_dd, use_container_width=True)
+
     else:
         st.caption("No rows available in the current Range to compute drawdown.")
 
