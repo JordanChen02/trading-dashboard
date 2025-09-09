@@ -765,6 +765,14 @@ with tab_perf:
         fig_dd.update_yaxes(range=[y_floor, 0], ticksuffix="%", separatethousands=True)
         fig_dd.add_hline(y=0, line_width=1, line_dash="dot", opacity=0.6)
         fig_dd.update_layout(height=220, margin=dict(l=10, r=10, t=10, b=10))
+
+        # UI toggle: show/hide the vertical line at Max DD
+        _show_vline = st.checkbox(
+            "Show Max DD vertical line",
+            value=True,
+            key="uw_show_maxdd_vline"
+        )
+        
         # UI toggle: persistent Max DD label vs hover-only
         _show_persistent = st.checkbox(
             "Show Max DD label",
@@ -781,6 +789,11 @@ with tab_perf:
         _y_ddpct = float(_dfu.loc[_idx_min, "dd_pct"])     # y-axis (percent, ≤ 0)
         _dd_abs_v = float(_dfu.loc[_idx_min, "dd_abs"])    # drawdown in $ (≤ 0)
         _date_str = str(_dfu.loc[_idx_min, "_date"]) if "_date" in _dfu.columns else ""
+
+        # Trades since the last equity peak → to reach Max DD
+        _pre_slice = _dfu.loc[:_idx_min]                            # rows up to the Max DD row (inclusive)
+        _peak_idx  = int(_pre_slice["equity"].idxmax())             # index of highest equity before/at Max DD
+        _since_peak_trades = int(_x_trade - int(_dfu.loc[_peak_idx, "trade_no"]))
 
         # Compute trades needed to recover from Max DD (back to 0% drawdown)
         # We look for first index AFTER _idx_min where dd_pct is ~0 (allow tiny float error).
@@ -805,6 +818,7 @@ with tab_perf:
                 "Trade #%{x}<br>"
                 "Date: " + (_date_str if _date_str else "%{x}") + "<br>"
                 "Drawdown: %{y:.2f}%<br>"
+                f"Since peak: {_since_peak_trades} trades"
                 "<extra>Max DD point</extra>"
             )
         )
@@ -820,7 +834,8 @@ with tab_perf:
                 bordercolor="#2a3444",
                 font=dict(size=11, color="#e5e7eb")
             )
-            # Vertical reference line at the Max DD trade #
+        # Vertical reference line at the Max DD trade (optional)
+        if _show_vline:
             fig_dd.add_vline(
                 x=_x_trade,
                 line_width=1,
@@ -828,6 +843,7 @@ with tab_perf:
                 line_color="#ef4444",
                 opacity=0.6
             )
+
 
 
         st.plotly_chart(fig_dd, use_container_width=True)
