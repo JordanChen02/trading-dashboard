@@ -1009,6 +1009,74 @@ else:
         use_container_width=True
     )
 
+    # ---- JSON Summary (machine-readable) ----
+    # Reuse the stats already computed above in this block:
+    #   _total, _wr, _gp, _gl, _np, _pf, _best, _worst, _max_dd_pct_report,
+    #   _top_sym_lines, _tag_lines, _note_lines, tf
+
+    # Convert "Top Symbols" and "Tag Mix" lines back into structured lists/dicts
+    # Examples of lines we produced:
+    #   _top_sym_lines: ["- NQ: $1,250", "- ES: $900", ...]
+    #   _tag_lines:     ["- A+: 3", "- A: 2", "- B: 0", "- C: 1"]
+    def _parse_money(s: str) -> float:
+        s = s.replace("$", "").replace(",", "").strip()
+        try:
+            return float(s)
+        except Exception:
+            return 0.0
+
+    _top_symbols_json = []
+    for line in _top_sym_lines:
+        line = line.strip().lstrip("-").strip()
+        if ": " in line:
+            sym, val = line.split(": ", 1)
+            _top_symbols_json.append({"symbol": sym, "net_pnl": _parse_money(val)})
+
+    _tag_mix_json = {}
+    for line in _tag_lines:
+        line = line.strip().lstrip("-").strip()
+        if ": " in line:
+            tg, ct = line.split(": ", 1)
+            try:
+                _tag_mix_json[tg] = int(ct)
+            except Exception:
+                pass
+
+    # Build the JSON payload (a plain Python dict)
+    _json_payload = {
+        "range": tf,
+        "generated_at": _dt.now().isoformat(timespec="seconds"),
+        "trades": {
+            "count": _total,
+            "win_rate_pct": round(_wr, 2),
+            "gross_profit": round(_gp, 2),
+            "gross_loss": round(_gl, 2),
+            "net_profit": round(_np, 2),
+            "profit_factor": (None if _pf == float("inf") else round(_pf, 4)),
+            "best_trade": round(_best, 2),
+            "worst_trade": round(_worst, 2)
+        },
+        "risk": {
+            "max_drawdown_pct": round(_max_dd_pct_report, 2)
+        },
+        "top_symbols": _top_symbols_json,   # list of {symbol, net_pnl}
+        "tag_mix": _tag_mix_json,           # dict: {"A+": 3, "A": 2, ...}
+        "recent_notes": [n.lstrip("- ").strip() for n in _note_lines]  # list of strings
+    }
+
+    # Show preview (pretty-printed)
+    st.code(json.dumps(_json_payload, ensure_ascii=False, indent=2), language="json")
+
+    # Download JSON button
+    _fname_json = f"summary_{tf.lower().replace(' ','_')}_{_dt.now().strftime('%Y%m%d_%H%M%S')}.json"
+    st.download_button(
+        "⬇️ Download Summary (JSON)",
+        data=json.dumps(_json_payload, ensure_ascii=False, indent=2).encode("utf-8"),
+        file_name=_fname_json,
+        mime="application/json",
+        use_container_width=True
+    )
+
     # -------- Underwater (Drawdown %) [timeframe-aware] --------
     st.divider()
     st.markdown("#### Underwater (Drawdown %)")
