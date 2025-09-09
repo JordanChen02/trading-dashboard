@@ -723,6 +723,10 @@ with tab_perf:
     _dfu["equity"]   = start_equity + _dfu["cum_pnl"]
     _dfu["peak"]     = _dfu["equity"].cummax()
     _dfu["dd_pct"]   = np.where(_dfu["peak"] > 0, (_dfu["equity"] / _dfu["peak"]) - 1.0, 0.0) * 100.0  # ≤ 0
+    # Current DD badge (uses last row)
+    _current_dd_pct = float(_dfu["dd_pct"].iloc[-1])  # last drawdown % (negative or 0)
+    _current_dd_abs = float((_dfu["equity"] - _dfu["peak"]).iloc[-1])  # last DD in $ (≤ 0)
+    st.caption(f"Current DD: **{_current_dd_pct:.2f}%**  (${_current_dd_abs:,.0f})")
 
     if len(_dfu) > 0:
         # Extra fields for hover
@@ -778,6 +782,19 @@ with tab_perf:
         _dd_abs_v = float(_dfu.loc[_idx_min, "dd_abs"])    # drawdown in $ (≤ 0)
         _date_str = str(_dfu.loc[_idx_min, "_date"]) if "_date" in _dfu.columns else ""
 
+        # Compute trades needed to recover from Max DD (back to 0% drawdown)
+        # We look for first index AFTER _idx_min where dd_pct is ~0 (allow tiny float error).
+        _recover_slice = _dfu.loc[_idx_min + 1:, "dd_pct"]
+        # boolean mask using tolerance (>= -1e-9 ≈ zero or positive)
+        _recovered_mask = _recover_slice >= -1e-9
+        _recover_idx = _recovered_mask.index[_recovered_mask.argmax()] if _recovered_mask.any() else None
+
+        if _recover_idx is not None:
+            _trades_to_recover = int(_dfu.loc[_recover_idx, "trade_no"] - _x_trade)
+            _recover_msg = f"Recovered from Max DD in **{_trades_to_recover} trades**."
+        else:
+            _recover_msg = "Not yet recovered from Max DD."
+
         # 3) Add a red dot at the max drawdown location
         fig_dd.add_scatter(
             x=[_x_trade], y=[_y_ddpct],
@@ -814,6 +831,8 @@ with tab_perf:
 
 
         st.plotly_chart(fig_dd, use_container_width=True)
+
+        st.caption(_recover_msg)
 
     else:
         st.caption("No rows available in the current Range to compute drawdown.")
