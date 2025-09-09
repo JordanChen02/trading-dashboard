@@ -238,6 +238,21 @@ if _dt_full is not None and len(df) > 0:
         df_view = df[mask]
 # else: keep df_view = df (All)
 
+# -------- Apply Calendar selection (optional) to df_view --------
+# We’ll store the calendar selection in st.session_state._cal_filter
+#   - ("day", date)
+#   - ("week", (start_date, end_date))
+cal_sel = st.session_state.get("_cal_filter")
+if cal_sel is not None and _date_col is not None and _date_col in df.columns and len(df_view) > 0:
+    _dates_series = pd.to_datetime(df_view[_date_col], errors="coerce").dt.date
+    mode, payload = cal_sel
+    if mode == "day":
+        _day = payload  # datetime.date
+        df_view = df_view[_dates_series == _day]
+    elif mode == "week":
+        _ws, _we = payload  # (datetime.date, datetime.date)
+        df_view = df_view[(_dates_series >= _ws) & (_dates_series <= _we)]
+
 # --- Recompute KPI ingredients for the view ---
 pnl_v = pd.to_numeric(df_view["pnl"], errors="coerce").fillna(0.0)
 wins_mask_v   = pnl_v > 0
@@ -861,3 +876,67 @@ with tab_calendar:
         st.markdown(f"### {_title}")
         st.plotly_chart(fig_cal, use_container_width=True)
         st.caption("Green = positive PnL, red = negative. Rightmost column shows weekly totals.")
+
+        # -------- Filter from Calendar --------
+        st.markdown("#### Filter from Calendar")
+
+        # A) Day filter (within the selected month)
+        col_day, col_week, col_clear = st.columns([2, 2, 1])
+
+        with col_day:
+            _day_pick = st.date_input(
+                "Pick a day",
+                value=_month_start.to_pydatetime(),
+                min_value=_month_start.to_pydatetime(),
+                max_value=_month_end.to_pydatetime(),
+                key="cal_day_input"
+            )
+            if st.button("Apply Day Filter", use_container_width=True):
+                st.session_state._cal_filter = ("day", pd.to_datetime(_day_pick).date())
+                st.toast(f"Filtered to day: {pd.to_datetime(_day_pick).date()}")
+                st.rerun()
+
+        # Helper to compute the Monday start of each visible week-row
+        def _week_start_for_row(r_idx: int):
+            first_slot = r_idx * 7
+            # find the first in-month date in that row
+            first_date = None
+            for c_idx in range(7):
+                d = _slot_to_date(first_slot + c_idx)
+                if d is not None:
+                    first_date = pd.Timestamp(d)
+                    break
+            if first_date is None:
+                return None
+            # normalize to Monday (weekday: Monday=0)
+            return (first_date - pd.Timedelta(days=first_date.weekday())).date()
+
+        # Build week options from visible rows
+        _week_starts = []
+        for _r in range(_rows):
+            ws = _week_start_for_row(_r)
+            if ws is not None:
+                _week_starts.append(ws)
+
+        with col_week:
+            _week_ix = st.selectbox(
+                "Pick a week",
+                options=list(range(len(_week_starts))),
+                format_func=lambda i: f"Week of {pd.Timestamp(_week_starts[i]).strftime('%b %d')}",
+                key="cal_week_sel"
+            )
+            if st.button("Apply Week Filter", use_container_width=True):
+                ws = pd.Timestamp(_week_starts[_week_ix]).date()
+                we = (pd.Timestamp(ws) + pd.Timedelta(days=6)).date()
+                # Clamp to the displayed month window
+                ws = max(ws, _month_start.date())
+                we = min(we, _month_end.date())
+                st.session_state._cal_filter = ("week", (ws, we))
+                st.toast(f"Filtered to week: {ws} → {we}")
+                st.rerun()
+
+        with col_clear:
+            if st.button("Clear Filter", use_container_width=True):
+                st.session_state._cal_filter = None
+                st.toast("Calendar filter cleared")
+                st.rerun()
