@@ -114,6 +114,9 @@ df = add_pnl(df)
 # In-session notes store: maps original df index -> note text
 if "_trade_notes" not in st.session_state:            # if key not present in the dict
     st.session_state["_trade_notes"] = {}             # {} creates an empty dictionary
+# In-session tags store: maps original df index -> tag (e.g., "A+", "A", "B", "C")
+if "_trade_tags" not in st.session_state:
+    st.session_state["_trade_tags"] = {}
 
 st.subheader("Preview (first 50 rows)")
 st.dataframe(df.head(50), use_container_width=True)
@@ -330,6 +333,16 @@ if len(_notes_map) > 0:
         if _idx in df.index:                                    # guard against stale indices
             df.at[_idx, "note"] = _txt                          # .at is fast scalar setter
     # Recompute df_view from df with the same mask (cheap & safe)
+    df_view = df.loc[df_view.index]
+
+# Apply in-session tags to df/df_view so the 'tag' column reflects saved edits
+_tags_map = st.session_state.get("_trade_tags", {})
+if len(_tags_map) > 0:
+    if "tag" not in df.columns:
+        df["tag"] = ""
+    for _idx, _tg in _tags_map.items():
+        if _idx in df.index:
+            df.at[_idx, "tag"] = _tg
     df_view = df.loc[df_view.index]
 
 # --- Render the four Overview cards for the selected timeframe ---
@@ -654,7 +667,7 @@ with tab_perf:
     st.markdown("#### Export")
     _export_df = df_view.copy()
     # Optional: reorder common columns if present
-    _preferred_cols = [c for c in ["datetime","date","timestamp","symbol","side","qty","price","pnl","commission","fees","note"] if c in _export_df.columns]
+    _preferred_cols = [c for c in ["datetime","date","timestamp","symbol","side","qty","price","pnl","commission","fees","tag","note"] if c in _export_df.columns]
     _export_df = _export_df[_preferred_cols + [c for c in _export_df.columns if c not in _preferred_cols]]
 
     _fname_tf = tf.lower().replace(" ", "_")  # all / this_week / this_month / this_year
@@ -725,6 +738,39 @@ else:
         if st.button("🗑️ Clear note", use_container_width=True):
             st.session_state["_trade_notes"].pop(_sel_index, None)   # remove if exists
             st.toast(f"Note cleared for [{_sel_index}]")
+            st.rerun()
+
+    st.markdown("#### Quick Tags")
+    _tag_options = ["A+", "A", "B", "C"]
+    _current_tag = st.session_state["_trade_tags"].get(_sel_index, df.loc[_sel_index, "tag"] if "tag" in df.columns else "")
+    _tag_choice = st.radio(
+        "Select a tag for this trade",
+        options=_tag_options + ["(clear)"],
+        index=(_tag_options + ["(clear)"]).index(_current_tag) if _current_tag in (_tag_options + ["(clear)"]) else len(_tag_options),
+        horizontal=True
+    )
+
+    tcols = st.columns([1,1,6])
+    with tcols[0]:
+        if st.button("🏷️ Save tag", use_container_width=True):
+            if _tag_choice == "(clear)":
+                st.session_state["_trade_tags"].pop(_sel_index, None)
+                if "tag" in df.columns:
+                    df.at[_sel_index, "tag"] = ""
+            else:
+                st.session_state["_trade_tags"][_sel_index] = _tag_choice
+                if "tag" not in df.columns:
+                    df["tag"] = ""
+                df.at[_sel_index, "tag"] = _tag_choice
+            st.toast(f"Tag saved for trade index [{_sel_index}]")
+            st.rerun()
+
+    with tcols[1]:
+        if st.button("🗑️ Clear tag", use_container_width=True):
+            st.session_state["_trade_tags"].pop(_sel_index, None)
+            if "tag" in df.columns:
+                df.at[_sel_index, "tag"] = ""
+            st.toast(f"Tag cleared for [{_sel_index}]")
             st.rerun()
 
     st.divider()
@@ -837,6 +883,27 @@ else:
     else:
         _note_lines.append("- (no note column)")
 
+    # Tag mix (if any tags present)
+    _tag_lines = []
+    if "tag" in df_view.columns:
+        _tag_counts = (
+            df_view["tag"].astype(str).str.strip()
+            .replace("", np.nan)
+            .dropna()
+            .value_counts()
+            .reindex(["A+","A","B","C"])
+            .fillna(0)
+            .astype(int)
+        )
+        if _tag_counts.sum() > 0:
+            for tg, ct in _tag_counts.items():
+                _tag_lines.append(f"- {tg}: {ct}")
+        else:
+            _tag_lines.append("- (no tags in current Range)")
+    else:
+        _tag_lines.append("- (no tag column)")
+
+
     # Build markdown
     _report_md = f"""# Trading Summary — {tf}
 
@@ -853,6 +920,9 @@ else:
     ## Best / Worst Trade
     - Best: ${_best:,.0f}  
     - Worst: ${_worst:,.0f}
+
+    ## Tag Mix
+    {chr(10).join(_tag_lines)}
 
     ## Recent Notes
     {chr(10).join(_note_lines)}
