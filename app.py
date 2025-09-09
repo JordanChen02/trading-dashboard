@@ -169,6 +169,26 @@ with st.sidebar.expander("Filters", expanded=True):
 
     sel_symbols = st.multiselect("Symbol", symbols, default=symbols if symbols else [])
     sel_sides   = st.multiselect("Side",   sides,   default=sides   if sides   else [])
+    # --- Tag filter (A+/A/B/C) ---
+    # We gather possible tags from the DataFrame if present, plus any in-session tags.
+    _tags_present = set()
+    if "tag" in df.columns:
+        _tags_present |= set(
+            df["tag"].dropna().astype(str).str.strip().tolist()
+        )  # |= is set-union assignment
+
+    _tags_present |= set(st.session_state.get("_trade_tags", {}).values())
+
+    # Keep only known tag grades in a nice order
+    _known_order = ["A+", "A", "B", "C"]
+    tag_options = [t for t in _known_order if t in _tags_present]
+
+    sel_tags = st.multiselect(
+        "Tag",
+        options=tag_options,
+        default=tag_options if tag_options else [],
+        help="Quick grades you’ve applied to trades (A+, A, B, C)."
+    )
 
 # Apply filters
 df_filtered = df.copy()
@@ -176,6 +196,8 @@ if "symbol" in df_filtered.columns and sel_symbols:
     df_filtered = df_filtered[df_filtered["symbol"].isin(sel_symbols)]
 if "side" in df_filtered.columns and sel_sides:
     df_filtered = df_filtered[df_filtered["side"].isin(sel_sides)]
+if "tag" in df_filtered.columns and sel_tags:
+    df_filtered = df_filtered[df_filtered["tag"].isin(sel_tags)]
 
 if df_filtered.empty:
     st.info("No rows match the current filters. Adjust filters in the sidebar.")
