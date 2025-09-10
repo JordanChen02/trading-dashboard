@@ -15,6 +15,46 @@ st.caption("Source → Validate → Enrich → Analyze → Visualize")
 st.caption("Upload a CSV of trades and preview it below.")
 st.divider()
 
+# ======= Top-right burger menu (Upload CSV + recent uploads) =======
+# This sits at the very top bar: right-aligned small column with a popover.
+c_spacer, c_burger = st.columns([9, 1], gap="small")
+with c_burger:
+    try:
+        burger = st.popover("☰", use_container_width=True)
+    except TypeError:
+        burger = st.popover("Menu", use_container_width=True)
+
+    with burger:
+        st.markdown("### Quick Actions")
+        st.markdown("**Upload CSV**")
+
+        # Keep a store of uploaded files (in-session)
+        if "_uploaded_files" not in st.session_state:
+            st.session_state["_uploaded_files"] = {}  # {display_name: file_bytes}
+
+        _newfile = st.file_uploader("Browse file", type=["csv"], key="file_menu")
+        if _newfile is not None:
+            # Read bytes and store in session by name (overwrites same name)
+            st.session_state["_uploaded_files"][_newfile.name] = _newfile.read()
+            st.toast(f"Saved '{_newfile.name}'")
+            st.session_state["_selected_upload"] = _newfile.name
+
+        if st.session_state["_uploaded_files"]:
+            _names = list(st.session_state["_uploaded_files"].keys())
+            _sel_ix = _names.index(st.session_state.get("_selected_upload", _names[0]))
+            _sel = st.selectbox("Uploaded files", options=_names, index=_sel_ix, key="uploaded_files_select")
+            st.session_state["_selected_upload"] = _sel
+
+            if st.button("Use this file", use_container_width=True):
+                import io
+                file = io.BytesIO(st.session_state["_uploaded_files"][_sel])
+                file.name = _sel  # give it a name for downstream loaders
+                st.session_state["_menu_file_obj"] = file
+                st.toast(f"Using '{_sel}' as current dataset")
+                st.rerun()
+        else:
+            st.caption("No uploads yet.")
+
 import pandas as pd
 import numpy as np
 import plotly.express as px
@@ -31,10 +71,173 @@ from src.metrics import add_pnl
 # ===================== SIDEBAR: Journals (UI only) =====================
 ensure_journal_store()
 with st.sidebar:
-    # --- Navigation (static for now) ---
-    st.markdown("## Navigation")
-    nav = st.radio("Go to:", ["Dashboard", "Journal", "Accounts"], index=0, label_visibility="collapsed")
+    # ===== Brand header =====
+    BRAND = "Wavemark"  # <— change to taste
+
+    st.markdown("""
+    <style>
+    .brand-row{
+    display:flex; align-items:center; justify-content:space-between;
+    margin: 6px 0 8px 0;
+    }
+    .brand-name{
+    font-weight: 800; letter-spacing: .6px;
+    font-size: 20px; color: #dbe5ff;
+    }
+    .brand-accent{ color:#3579ba; }  /* your theme blue */
+    .brand-burger{
+    font-weight:700; font-size: 20px; color:#3579ba; opacity:.9;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown(f'''
+    <div class="brand-row">
+    <div class="brand-name">{BRAND}<span class="brand-accent">.</span></div>
+    <div class="brand-burger">≡</div>
+    </div>
+    ''', unsafe_allow_html=True)
+
+    # st.markdown("## Navigation")
+
+
+    # Keep selected tab in session; default to Dashboard
+    _current = st.session_state.get("nav", "Dashboard")
+    _options = ["Dashboard", "Journal", "Accounts"]
+
+    # Render as a radio but style it as a flat list (no circles, full-bleed rows)
+    nav = st.radio(
+        "Go to:",
+        _options,
+        index=_options.index(_current),
+        label_visibility="collapsed",
+        key="nav_radio"
+    )
+    st.session_state["nav"] = nav  # normalize key we use elsewhere
+
+    # --- TradingView-like styling for the radio group + line icons ---
+    st.markdown("""
+    <style>
+    :root { --brand:#3579ba; }   /* theme blue you chose */
+
+    /* Let rows go edge-to-edge (reduce padding) */
+    [data-testid="stSidebar"] > div:first-child {
+    padding-left: 8px !important;
+    padding-right: 8px !important;
+    }
+
+    /* Make each radio label a full-bleed row (NO circles, flat list) */
+    [data-testid="stSidebar"] .stRadio > div[role="radiogroup"] > label {
+    display: flex;
+    align-items: center;
+    height: 40px;
+    padding: 0 12px;
+    margin: 0;                           /* no gaps between rows */
+    border-radius: 10px;
+    background: transparent;
+    position: relative;
+    left: -8px;                          /* bleed to left edge */
+    width: calc(100% + 16px);            /* bleed to both edges */
+    border-bottom: 1px solid #202b3b;    /* thin separator */
+    }
+
+    /* Remove the circular radio indicator */
+    [data-testid="stSidebar"] .stRadio > div[role="radiogroup"] > label > div:first-child {
+    display: none !important;
+    }
+
+    /* Hover: subtle lighten */
+    [data-testid="stSidebar"] .stRadio > div[role="radiogroup"] > label:hover {
+    background: rgba(53,121,186,0.12);   /* brand tint */
+    }
+
+    /* Active row: filled bg */
+    [data-testid="stSidebar"] .stRadio > div[role="radiogroup"] > label[aria-checked="true"],
+    [data-testid="stSidebar"] .stRadio > div[role="radiogroup"] > label[data-checked="true"] {
+    background: #0e1a33 !important;
+    }
+
+    /* Remove the separator on the last item */
+    [data-testid="stSidebar"] .stRadio > div[role="radiogroup"] > label:last-of-type {
+    border-bottom: none;
+    }
+
+    /* Text polish */
+    [data-testid="stSidebar"] .stRadio label p {
+    color: #d5deed !important;
+    font-weight: 600 !important;
+    letter-spacing: .2px;
+    }
+
+    /* === ICONS (inline SVG, colored by --brand via CSS mask) === */
+
+    /* Create an icon box before the label text */
+    [data-testid="stSidebar"] .stRadio > div[role="radiogroup"] > label::before{
+    content: "";
+    width: 22px; height: 22px;
+    margin-right: 10px;
+    display:inline-block;
+    background-color: var(--brand);      /* icon color */
+    -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; -webkit-mask-size: contain;
+    mask-repeat: no-repeat; mask-position: center; mask-size: contain;
+    opacity:.95;
+    }
+
+    /* Row order mapping: 1=Dashboard, 2=Journal, 3=Accounts  */
+    /* DASHBOARD icon: grid */
+    [data-testid="stSidebar"] .stRadio > div[role="radiogroup"] > label:nth-of-type(1)::before{
+    -webkit-mask-image: url("data:image/svg+xml;utf8,\
+    <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'>\
+        <rect x='3' y='3' width='8' height='8' rx='2' ry='2' fill='black'/>\
+        <rect x='13' y='3' width='8' height='5' rx='2' ry='2' fill='black'/>\
+        <rect x='13' y='10' width='8' height='11' rx='2' ry='2' fill='black'/>\
+        <rect x='3' y='13' width='8' height='8' rx='2' ry='2' fill='black'/>\
+    </svg>");
+            mask-image: url("data:image/svg+xml;utf8,\
+    <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'>\
+        <rect x='3' y='3' width='8' height='8' rx='2' ry='2' fill='black'/>\
+        <rect x='13' y='3' width='8' height='5' rx='2' ry='2' fill='black'/>\
+        <rect x='13' y='10' width='8' height='11' rx='2' ry='2' fill='black'/>\
+        <rect x='3' y='13' width='8' height='8' rx='2' ry='2' fill='black'/>\
+    </svg>");
+    }
+
+    /* JOURNAL icon: pencil */
+    [data-testid="stSidebar"] .stRadio > div[role="radiogroup"] > label:nth-of-type(2)::before{
+    -webkit-mask-image: url("data:image/svg+xml;utf8,\
+    <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'>\
+        <path d='M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25z' fill='black'/>\
+        <path d='M20.71 7.04a1 1 0 0 0 0-1.42L18.37 3.3a1 1 0 0 0-1.42 0l-1.34 1.34 3.75 3.75 1.34-1.35z' fill='black'/>\
+    </svg>");
+            mask-image: url("data:image/svg+xml;utf8,\
+    <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'>\
+        <path d='M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25z' fill='black'/>\
+        <path d='M20.71 7.04a1 1 0 0 0 0-1.42L18.37 3.3a1 1 0 0 0-1.42 0l-1.34 1.34 3.75 3.75 1.34-1.35z' fill='black'/>\
+    </svg>");
+    }
+
+    /* ACCOUNTS icon: stacked cards */
+    [data-testid="stSidebar"] .stRadio > div[role="radiogroup"] > label:nth-of-type(3)::before{
+    -webkit-mask-image: url("data:image/svg+xml;utf8,\
+    <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'>\
+        <rect x='4' y='6' width='14' height='10' rx='2' ry='2' fill='black'/>\
+        <rect x='6' y='4' width='14' height='10' rx='2' ry='2' fill='black'/>\
+    </svg>");
+            mask-image: url("data:image/svg+xml;utf8,\
+    <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'>\
+        <rect x='4' y='6' width='14' height='10' rx='2' ry='2' fill='black'/>\
+        <rect x='6' y='4' width='14' height='10' rx='2' ry='2' fill='black'/>\
+    </svg>");
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+
     st.divider()
+
+
+
+
 
     st.header("Journals")
 
@@ -71,20 +274,21 @@ with st.sidebar:
 
 
 # ===================== MAIN: Upload OR Journal Fallback =====================
-file = st.file_uploader("Upload CSV", type=["csv"])
-
 df = None
 source_label = ""
 
-if file is not None:
-    source_label = "uploaded file"
+# 1) If user picked a file from the burger/popover, use it
+_menu_file = st.session_state.get("_menu_file_obj")
+
+if _menu_file is not None:
+    source_label = f"uploaded: {getattr(_menu_file, 'name', 'file.csv')}"
     try:
-        df = load_trades(file)
+        df = load_trades(_menu_file)
     except Exception as e:
         st.error(f"Could not read that file: {e}")
         st.stop()
 else:
-    # Fallback: load the currently selected journal (if any)
+    # 2) Otherwise fallback to currently selected journal (if any)
     sel_id = st.session_state.get("selected_journal")
     if sel_id:
         idx = load_journal_index()
@@ -96,8 +300,9 @@ else:
 
 # If we still don't have data, bail out gently
 if df is None:
-    st.info("Upload a CSV or create/select a journal to begin.")
+    st.info("Use the ☰ menu (top-right) to upload a CSV, or create/select a journal.")
     st.stop()
+
 
 st.caption(f"Data source: **{source_label}**")
 st.toast(f"✅ Loaded {len(df)} trades from {source_label}")
@@ -158,8 +363,6 @@ def _persist_journal_meta():
     except Exception as e:
         st.warning(f"Couldn't save journal metadata: {e}")
 
-st.subheader("Preview (first 50 rows)")
-st.dataframe(df.head(50), use_container_width=True)
 
 # ===================== FILTERS (render after df exists) =====================
 # Recreate the sidebar expander now that df is available
@@ -206,21 +409,10 @@ if df_filtered.empty:
 # From here on, keep your existing code but make it operate on the filtered data:
 df = df_filtered
 
-# ===================== CONTROLS + KPIs =====================
-st.subheader("Controls")
-
-# Breakeven handling for win-rate
-be_policy = st.radio(
-    "Breakeven trades (PnL = 0) should…",
-    ["be excluded from win-rate", "count as losses", "count as wins"],
-    help="This only affects win-rate. Totals and sums still include breakeven PnL."
-)
-
-# Starting equity for equity curve + Max DD%
-start_equity = st.number_input(
-    "Starting equity ($)", min_value=0.0, value=5000.0, step=100.0,
-    help="Used to anchor the equity curve and compute Max Drawdown %."
-)
+# ===================== RUNTIME SETTINGS (no UI) =====================
+# Defaults for now; we'll move breakeven policy into Filters later
+be_policy = st.session_state.get("be_policy", "be excluded from win-rate")
+start_equity = float(st.session_state.get("start_equity", 5000.0))
 
 # --- Win-rate components depending on breakeven policy ---
 is_win = df["pnl"] > 0
@@ -1465,3 +1657,7 @@ with tab_calendar:
                 st.session_state._cal_filter = None
                 st.toast("Calendar filter cleared")
                 st.rerun()
+
+st.divider()
+st.subheader("Preview (first 50 rows)")
+st.dataframe(df.head(50), use_container_width=True)
