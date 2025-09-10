@@ -604,6 +604,19 @@ if len(_tags_map) > 0:
 with tab_overview:
     render_active_filters("ov")
     st.divider()
+
+    # ======= LAYOUT FRAME: 40/60 main split (left=40%, right=60%) =======
+    s_left, s_right = st.columns([2, 3], gap="large")  # 2:3 ≈ 40%:60%
+
+    with s_left:
+        st.markdown("### s2 — left (40%)")
+        st.caption("Layout frame only; we’ll move KPIs here next.")
+
+    with s_right:
+        st.markdown("### s3 — right (60%)")
+        st.caption("Layout frame only; we’ll move charts/calendar here next.")
+    # ======= END LAYOUT FRAME =======
+
     # ===================== CHARTS (card layout) =====================
     # tiny filter icon button (Material icon if supported; emoji fallback otherwise)
     _, btn_col = st.columns([8, 1], gap="small")
