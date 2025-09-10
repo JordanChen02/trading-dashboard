@@ -61,6 +61,8 @@ import plotly.express as px
 from pathlib import Path
 from src.utils import ensure_journal_store, load_journal_index, create_journal, DATA_DIR
 import json  # read/write sidecar metadata for notes/tags
+import calendar as _cal
+import plotly.graph_objects as go
 
 # 👇 our modules
 from src.io import load_trades, validate
@@ -465,6 +467,272 @@ max_dd_pct = float(df["dd_pct"].min()) * 100.0    # most negative percent drawdo
 current_balance = float(df["equity"].iloc[-1]) if len(df) else start_equity
 net_pnl         = float(df["cum_pnl"].iloc[-1]) if len(df) else 0.0
 
+def render_calendar_panel(df_view: pd.DataFrame, _date_col: str | None, tf: str):
+    """Render the Calendar — Daily PnL & Trade Count panel in-place (no tabs)."""
+    st.markdown("**Calendar — Daily PnL & Trade Count**")
+    st.caption(f"Using Range: **{tf}**")
+
+    # === Begin: moved verbatim from your `with tab_calendar:` block (minus the first 2 header lines) ===
+
+    # Guard
+    if _date_col is None or _date_col not in df_view.columns or len(df_view) == 0:
+        st.info("No date/timestamp column found — calendar view unavailable for this dataset.")
+        return
+
+    # ---- Month selector (defaults to current month) ----
+    _today = pd.Timestamp.today().normalize()
+    _default_month = _today.replace(day=1)
+    _picked = st.date_input(
+        "Select a month",
+        value=_default_month.to_pydatetime(),
+        format="YYYY-MM-DD"
+    )
+    _picked = pd.to_datetime(_picked)
+    _month_start = _picked.replace(day=1)
+    _month_end   = (_month_start + pd.offsets.MonthEnd(1)).normalize()
+
+    # ---- Aggregate df_view by day for the selected month ----
+    _dt = pd.to_datetime(df_view[_date_col], errors="coerce")
+    _mask_month = (_dt >= _month_start) & (_dt <= _month_end)
+    _dfm = df_view.loc[_mask_month].copy()
+    _dfm["_day"] = pd.to_datetime(_dfm[_date_col], errors="coerce").dt.date
+
+    _daily_stats = (
+        _dfm.assign(_pnl=pd.to_numeric(_dfm["pnl"], errors="coerce").fillna(0.0))
+            .groupby("_day")
+            .agg(NetPnL=("_pnl", "sum"), Trades=("pnl", "count"))
+            .reset_index()
+    )
+    _daily_map = {row["_day"]: (float(row["NetPnL"]), int(row["Trades"])) for _, row in _daily_stats.iterrows()}
+
+    # ---- Build calendar grid meta ----
+    _first_weekday, _n_days = _cal.monthrange(_month_start.year, _month_start.month)  # Mon=0..Sun=6
+    _leading = _first_weekday
+    _total_slots = _leading + _n_days
+    _rows = (_total_slots + 6) // 7  # ceil div by 7
+
+    # ---------- THEME TOKENS ----------
+    _panel_bg    = "#0b0f19"
+    _cell_bg     = "#101621"
+    _grid_line   = "#2a3444"
+    _txt_main    = "#e5e7eb"
+    _txt_muted   = "#9ca3af"
+    _pnl_pos     = "#22c55e"
+    _pnl_neg     = "#ef4444"
+    _pnl_zero    = _txt_main
+    _dash_accent = "#1f2937"
+    _total_bg    = "#0d1320"
+    _total_border= "#3a4557"
+    _total_hdr   = "#cbd5e1"
+
+    def _slot_in_month(slot_idx: int) -> bool:
+        day_n = slot_idx - _leading + 1
+        return 1 <= day_n <= _n_days
+
+    def _slot_to_date(slot_idx: int):
+        day_n = slot_idx - _leading + 1
+        if 1 <= day_n <= _n_days:
+            return (_month_start + pd.Timedelta(days=day_n - 1)).date()
+        return None
+
+    # Precompute weekly totals (row-wise)
+    week_totals = []
+    for r_idx in range(_rows):
+        start_slot = r_idx * 7
+        pnl_sum = 0.0
+        trade_sum = 0
+        for c_idx in range(7):
+            slot_idx = start_slot + c_idx
+            d = _slot_to_date(slot_idx)
+            if d is not None:
+                p, t = _daily_map.get(d, (0.0, 0))
+                pnl_sum += float(p)
+                trade_sum += int(t)
+        week_totals.append((pnl_sum, trade_sum))
+
+    # ---------- DRAW GRID ----------
+    shapes, annos = [], []
+
+    # weekday header (adds "Total" column)
+    _weekday_labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun", "Total"]
+    for c, label in enumerate(_weekday_labels):
+        annos.append(dict(
+            x=c + 0.5, y=-0.35, xref="x", yref="y",
+            text=label, showarrow=False,
+            font=dict(size=12, color=_total_hdr if label == "Total" else _txt_muted),
+            xanchor="center", yanchor="middle"
+        ))
+
+    # rounded outer container (8 columns wide incl. totals)
+    total_w, total_h = 8, _rows
+    _corner_r = 0.35
+    path = (
+        f"M{_corner_r},-1 H{total_w - _corner_r} "
+        f"Q{total_w},-1 {total_w},{-1 + _corner_r} "
+        f"V{total_h - _corner_r} "
+        f"Q{total_w},{total_h} {total_w - _corner_r},{total_h} "
+        f"H{_corner_r} "
+        f"Q0,{total_h} 0,{total_h - _corner_r} "
+        f"V{-1 + _corner_r} "
+        f"Q0,-1 {_corner_r},-1 Z"
+    )
+    shapes.append(dict(type="path", path=path, line=dict(color=_dash_accent, width=1.5),
+                       fillcolor=_panel_bg, layer="below"))
+
+    # cells (7 day columns + 1 total column)
+    for r_idx in range(_rows):
+        for c_idx in range(8):
+            x0, x1 = c_idx, c_idx + 1
+            y0, y1 = r_idx, r_idx + 1
+            is_total_col = (c_idx == 7)
+
+            shapes.append(dict(
+                type="rect", x0=x0, x1=x1, y0=y0, y1=y1,
+                line=dict(color=_total_border if is_total_col else _grid_line,
+                          width=1.5 if is_total_col else 1),
+                fillcolor=_total_bg if is_total_col else _cell_bg,
+                layer="below"
+            ))
+
+            if not is_total_col:
+                slot_idx = r_idx * 7 + c_idx
+                if _slot_in_month(slot_idx):
+                    d = _slot_to_date(slot_idx)
+                    pnl_val, trade_ct = _daily_map.get(d, (0.0, 0))
+
+                    # day number
+                    annos.append(dict(
+                        x=x0 + 0.08, y=y0 + 0.15, xref="x", yref="y",
+                        text=str((slot_idx - _leading + 1)),
+                        showarrow=False,
+                        font=dict(size=12, color=_txt_muted),
+                        xanchor="left", yanchor="top"
+                    ))
+
+                    # PnL (center)
+                    if trade_ct == 0:
+                        pnl_txt = "—"; pnl_col = _txt_muted
+                    else:
+                        pnl_txt = f"${pnl_val:,.0f}"
+                        pnl_col = (_pnl_pos if pnl_val > 0 else (_pnl_neg if pnl_val < 0 else _pnl_zero))
+                    annos.append(dict(
+                        x=x0 + 0.5, y=y0 + 0.48, xref="x", yref="y",
+                        text=pnl_txt, showarrow=False,
+                        font=dict(size=16, color=pnl_col),
+                        xanchor="center", yanchor="middle"
+                    ))
+
+                    # trades (below center)
+                    trades_txt = "—" if trade_ct == 0 else (f"{trade_ct} trade" if trade_ct == 1 else f"{trade_ct} trades")
+                    annos.append(dict(
+                        x=x0 + 0.5, y=y0 + 0.78, xref="x", yref="y",
+                        text=trades_txt, showarrow=False,
+                        font=dict(size=11, color=_txt_muted),
+                        xanchor="center", yanchor="top"
+                    ))
+            else:
+                pnl_sum, trade_sum = week_totals[r_idx]
+                # totals PnL
+                if trade_sum == 0:
+                    tot_pnl_txt = "—"; tot_pnl_col = _txt_muted
+                else:
+                    tot_pnl_txt = f"${pnl_sum:,.0f}"
+                    tot_pnl_col = (_pnl_pos if pnl_sum > 0 else (_pnl_neg if pnl_sum < 0 else _pnl_zero))
+                annos.append(dict(
+                    x=x0 + 0.5, y=y0 + 0.48, xref="x", yref="y",
+                    text=tot_pnl_txt, showarrow=False,
+                    font=dict(size=16, color=tot_pnl_col),
+                    xanchor="center", yanchor="middle"
+                ))
+                # totals trades
+                tot_trades_txt = "—" if trade_sum == 0 else (f"{trade_sum} trade" if trade_sum == 1 else f"{trade_sum} trades")
+                annos.append(dict(
+                    x=x0 + 0.5, y=y0 + 0.78, xref="x", yref="y",
+                    text=tot_trades_txt, showarrow=False,
+                    font=dict(size=11, color=_txt_muted),
+                    xanchor="center", yanchor="top"
+                ))
+
+    # Build figure
+    fig_cal = go.Figure()
+    fig_cal.update_layout(
+        paper_bgcolor=_panel_bg,
+        plot_bgcolor=_panel_bg,
+        shapes=shapes,
+        annotations=annos,
+        xaxis=dict(range=[0, 8], showgrid=False, zeroline=False, tickmode="array", tickvals=[], ticktext=[], fixedrange=True),
+        yaxis=dict(range=[_rows, -1], showgrid=False, zeroline=False, tickvals=[], ticktext=[], fixedrange=True),
+        margin=dict(l=10, r=10, t=16, b=16),
+        height=160 + _rows * 120
+    )
+
+    _title = _month_start.strftime("%B %Y")
+    st.markdown(f"### {_title}")
+    st.plotly_chart(fig_cal, use_container_width=True)
+    st.caption("Green = positive PnL, red = negative. Rightmost column shows weekly totals.")
+
+    # -------- Filter from Calendar --------
+    st.markdown("#### Filter from Calendar")
+
+    # A) Day filter
+    col_day, col_week, col_clear = st.columns([2, 2, 1])
+
+    with col_day:
+        _day_pick = st.date_input(
+            "Pick a day",
+            value=_month_start.to_pydatetime(),
+            min_value=_month_start.to_pydatetime(),
+            max_value=_month_end.to_pydatetime(),
+            key="cal_day_input"
+        )
+        if st.button("Apply Day Filter", use_container_width=True):
+            st.session_state._cal_filter = ("day", pd.to_datetime(_day_pick).date())
+            st.toast(f"Filtered to day: {pd.to_datetime(_day_pick).date()}")
+            st.rerun()
+
+    def _week_start_for_row(r_idx: int):
+        first_slot = r_idx * 7
+        first_date = None
+        for c_idx in range(7):
+            d = _slot_to_date(first_slot + c_idx)
+            if d is not None:
+                first_date = pd.Timestamp(d)
+                break
+        if first_date is None:
+            return None
+        return (first_date - pd.Timedelta(days=first_date.weekday())).date()
+
+    _week_starts = []
+    for _r in range(_rows):
+        ws = _week_start_for_row(_r)
+        if ws is not None:
+            _week_starts.append(ws)
+
+    with col_week:
+        _week_ix = st.selectbox(
+            "Pick a week",
+            options=list(range(len(_week_starts))),
+            format_func=lambda i: f"Week of {pd.Timestamp(_week_starts[i]).strftime('%b %d')}",
+            key="cal_week_sel"
+        )
+        if st.button("Apply Week Filter", use_container_width=True):
+            ws = pd.Timestamp(_week_starts[_week_ix]).date()
+            we = (pd.Timestamp(ws) + pd.Timedelta(days=6)).date()
+            ws = max(ws, _month_start.date())
+            we = min(we, _month_end.date())
+            st.session_state._cal_filter = ("week", (ws, we))
+            st.toast(f"Filtered to week: {ws} → {we}")
+            st.rerun()
+
+    with col_clear:
+        if st.button("Clear Filter", use_container_width=True):
+            st.session_state._cal_filter = None
+            st.toast("Calendar filter cleared")
+            st.rerun()
+
+    # === End moved code ===
+
+
 # ===================== TABS =====================
 tab_overview, tab_perf, tab_calendar = st.tabs(["Overview", "Performance", "Calendar"])
 
@@ -657,6 +925,26 @@ with tab_overview:
                 _pf_disp = "∞" if pf_v == float("inf") else f"{pf_v:.2f}"
                 st.metric(label="", value=_pf_disp)
 
+        # === Equity Curve (bottom of s_left) ===
+        with st.container(border=True):
+            st.markdown("**Equity Curve**")
+
+            dfv = df_view.copy().reset_index(drop=True)
+            dfv["trade_no"] = np.arange(1, len(dfv) + 1)
+            dfv["cum_pnl"] = pd.to_numeric(dfv["pnl"], errors="coerce").fillna(0).cumsum()
+            dfv["equity"] = start_equity + dfv["cum_pnl"]
+
+            fig_eq = px.line(
+                dfv,
+                x="trade_no",
+                y="equity",
+                title=None,
+                labels={"trade_no": "Trade #", "equity": "Equity ($)"},
+            )
+            ymax = max(start_equity, float(dfv["equity"].max()) * 1.05)
+            fig_eq.update_yaxes(range=[start_equity, ymax])
+            fig_eq.update_layout(height=220, margin=dict(l=10, r=10, t=10, b=10))
+            st.plotly_chart(fig_eq, use_container_width=True)
 
     with s_right:
         # === Right column top row (split in 2) ===
@@ -714,6 +1002,9 @@ with tab_overview:
                 st.metric("Days 🔥", "33")
                 st.metric("Trades 🔥", "19")
 
+        # --- Right column bottom: Calendar panel ---
+        with st.container(border=True):
+            render_calendar_panel(df_view, _date_col, tf)
 
     # ======= END LAYOUT FRAME =======
 
@@ -794,31 +1085,6 @@ with tab_overview:
             {"day": [f"T-{i}" for i in range(len(_last20_notional),0,-1)][::-1],
             "vol": _last20_notional}
         )
-
-
-    # --- Left card: Equity Curve (smaller, minimal title) ---
-    with left:
-        with st.container():
-            st.markdown("#### Equity Curve")
-            # Recompute equity series on the timeframe view (fresh numbering + cum sums)
-            dfv = df_view.copy().reset_index(drop=True)
-            dfv["trade_no"] = np.arange(1, len(dfv) + 1)
-            dfv["cum_pnl"] = pd.to_numeric(dfv["pnl"], errors="coerce").fillna(0).cumsum()
-            dfv["equity"] = start_equity + dfv["cum_pnl"]
-            dfv["equity_peak"] = dfv["equity"].cummax()
-    
-            fig = px.line(
-                dfv,
-                x="trade_no",
-                y="equity",
-                title=None,
-                labels={"trade_no": "Trade #", "equity": "Equity ($)"},
-            )
-            ymax = max(start_equity, float(dfv["equity"].max()) * 1.05)
-            fig.update_yaxes(range=[start_equity, ymax])
-            fig.update_layout(height=320, margin=dict(l=10, r=10, t=10, b=10))
-            st.plotly_chart(fig, use_container_width=True)
-
 
     # --- Right column: Wheel charts + Bars ---
     with right:
