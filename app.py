@@ -609,8 +609,54 @@ with tab_overview:
     s_left, s_right = st.columns([2, 3], gap="large")  # 2:3 ≈ 40%:60%
 
     with s_left:
-        st.markdown("### s2 — left (40%)")
-        st.caption("Layout frame only; we’ll move KPIs here next.")
+        # === Prep values used in these KPIs (Range-aware) ===
+        gross_profit_v = float(pnl_v[wins_mask_v].sum())
+        gross_loss_v   = float(pnl_v[losses_mask_v].sum())
+        pf_v = (gross_profit_v / abs(gross_loss_v)) if gross_loss_v != 0 else float("inf")
+
+        _side_dist_local = (
+            df_view["side"].str.lower().value_counts(normalize=True)
+                .reindex(["long", "short"]).fillna(0.0)
+            if "side" in df_view.columns else pd.Series(dtype=float)
+        )
+
+        # === KPI GRID (2x2) ===
+        kpi_row1 = st.columns(2, gap="medium")
+        with kpi_row1[0]:
+            with st.container(border=True):
+                st.markdown("**Win Rate**")
+                st.metric(label="", value=f"{win_rate_v*100:.1f}%")
+
+        with kpi_row1[1]:
+            with st.container(border=True):
+                st.markdown("**Avg Win / Avg Loss**")
+                _aw_al = "∞" if avg_win_loss_ratio_v == float("inf") else f"{avg_win_loss_ratio_v:.2f}"
+                st.metric(label="", value=_aw_al)
+
+        kpi_row2 = st.columns(2, gap="medium")
+        with kpi_row2[0]:
+            with st.container(border=True):
+                st.markdown("**Long vs Short**")
+                if not _side_dist_local.empty:
+                    fig_ls = px.pie(
+                        values=_side_dist_local.values,
+                        names=_side_dist_local.index.str.capitalize(),
+                        hole=0.55,
+                        color=_side_dist_local.index.str.capitalize(),
+                        color_discrete_map={"Long": "#2E86C1", "Short": "#E57373"},
+                    )
+                    fig_ls.update_traces(textinfo="label+percent")
+                    fig_ls.update_layout(height=180, margin=dict(l=10, r=10, t=10, b=10), showlegend=False)
+                    st.plotly_chart(fig_ls, use_container_width=True)
+                else:
+                    st.caption("No side column found.")
+
+        with kpi_row2[1]:
+            with st.container(border=True):
+                st.markdown("**Profit Factor**")
+                _pf_disp = "∞" if pf_v == float("inf") else f"{pf_v:.2f}"
+                st.metric(label="", value=_pf_disp)
+
 
     with s_right:
         st.markdown("### s3 — right (60%)")
