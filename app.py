@@ -659,8 +659,62 @@ with tab_overview:
 
 
     with s_right:
-        st.markdown("### s3 — right (60%)")
-        st.caption("Layout frame only; we’ll move charts/calendar here next.")
+        # === Right column top row (split in 2) ===
+        right_top = st.columns([2, 1], gap="medium")
+
+        # Left side: Volume per Day chart
+        with right_top[0]:
+            with st.container(border=True):
+                st.markdown("**Volume per Day (last ~20 trades)**")
+
+                # --- Compute local _vol_per_day (independent of other sections) ---
+                # 1) Determine notional per trade (qty*price, or 'notional', or |pnl| as fallback)
+                _qty_cols   = [c for c in ["qty","quantity","size","contracts","amount"] if c in df_view.columns]
+                _price_cols = [c for c in ["price","entry_price","avg_entry_price"] if c in df_view.columns]
+                if _qty_cols and _price_cols:
+                    _notional_local = (
+                        pd.to_numeric(df_view[_qty_cols[0]], errors="coerce").fillna(0) *
+                        pd.to_numeric(df_view[_price_cols[0]], errors="coerce").fillna(0)
+                    ).abs()
+                elif "notional" in df_view.columns:
+                    _notional_local = pd.to_numeric(df_view["notional"], errors="coerce").fillna(0).abs()
+                else:
+                    _notional_local = pd.to_numeric(df_view["pnl"], errors="coerce").fillna(0).abs()
+
+                # 2) Take the last ~20 trades within the current Range
+                _last20_notional_local = _notional_local.tail(20).reset_index(drop=True)
+
+                # 3) Group by day if we have a date column; else use simple indices
+                if _date_col is not None and _date_col in df_view.columns:
+                    _dt_view_local = pd.to_datetime(df_view[_date_col], errors="coerce")
+                    _last20_days_local = _dt_view_local.tail(20).dt.date
+                    _vol_per_day_local = (
+                        pd.DataFrame({"day": _last20_days_local, "vol": _last20_notional_local})
+                        .groupby("day", as_index=False)["vol"].sum()
+                        .sort_values("day")
+                    )
+                    _x_col = "day"
+                else:
+                    _vol_per_day_local = pd.DataFrame(
+                        {"idx": range(1, len(_last20_notional_local) + 1), "vol": _last20_notional_local}
+                    )
+                    _x_col = "idx"
+
+                # 4) Build chart
+                fig_vol = px.bar(_vol_per_day_local, x=_x_col, y="vol")
+                fig_vol.update_layout(height=220, margin=dict(l=10, r=10, t=10, b=10))
+                fig_vol.update_yaxes(tickprefix="$", separatethousands=True)
+                st.plotly_chart(fig_vol, use_container_width=True)
+
+        # Right side: Win Streak box
+        with right_top[1]:
+            with st.container(border=True):
+                st.markdown("**Win Streak**")
+                # Simple vertical metrics (avoid nested columns restriction)
+                st.metric("Days 🔥", "33")
+                st.metric("Trades 🔥", "19")
+
+
     # ======= END LAYOUT FRAME =======
 
     # ===================== CHARTS (card layout) =====================
