@@ -9,32 +9,70 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ONLY AFTER page_config:
-st.title("Trading Dashboard — MVP")
-st.caption("Source → Validate → Enrich → Analyze → Visualize")
-st.caption("Upload a CSV of trades and preview it below.")
-st.divider()
+# === Header row: Title (left) + Upload (right) ===
+h_left, h_right = st.columns([12, 2], gap="small")
 
-# ======= Top-right burger menu (Upload CSV + recent uploads) =======
-# This sits at the very top bar: right-aligned small column with a popover.
-c_spacer, c_burger = st.columns([9, 1], gap="small")
-with c_burger:
+with h_left:
+    st.title("Trading Dashboard — MVP")
+
+with h_right:
+    # Flat trigger + upload icon in theme color; popover widened; no "Quick Actions" title
+    st.markdown("""
+    <style>
+    :root { --brand:#3579ba; }
+    .upload-trigger { display:flex; justify-content:flex-end; }
+    .upload-trigger button{
+      background: transparent !important;
+      border: 0 !important;
+      color: #d5deed !important;
+      padding: 6px 10px !important;
+      border-radius: 8px !important;
+      font-weight: 600;
+    }
+    .upload-trigger button:hover{ background: rgba(53,121,186,0.14) !important; }
+    .upload-trigger button:focus{ box-shadow:none !important; outline:none !important; }
+
+    /* Add an upload icon before the text using an SVG mask in brand color */
+    .upload-trigger button::before{
+      content:"";
+      width:16px; height:16px; margin-right:8px;
+      display:inline-block; background-color: var(--brand);
+      -webkit-mask: url("data:image/svg+xml;utf8,\
+      <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'>\
+        <path fill='black' d='M5 20h14a1 1 0 0 0 1-1v-4h-2v3H6v-3H4v4a1 1 0 0 0 1 1z'/>\
+        <path fill='black' d='M12 3l5 5h-3v6h-4V8H7l5-5z'/>\
+      </svg>") no-repeat center / contain;
+              mask: url("data:image/svg+xml;utf8,\
+      <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'>\
+        <path fill='black' d='M5 20h14a1 1 0 0 0 1-1v-4h-2v3H6v-3H4v4a1 1 0 0 0 1 1z'/>\
+        <path fill='black' d='M12 3l5 5h-3v6h-4V8H7l5-5z'/>\
+      </svg>") no-repeat center / contain;
+    }
+
+    /* Widen the popover and avoid 'Browse files' overlapping the drop text */
+    .upload-pop { min-width: 400px; }
+    .upload-pop [data-testid="stFileUploaderDropzone"]{
+      width: 100% !important; min-width: 600px; padding-right: 200px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown('<div class="upload-trigger">', unsafe_allow_html=True)
     try:
-        burger = st.popover("☰", use_container_width=True)
+        up = st.popover("Upload", use_container_width=False)
     except TypeError:
-        burger = st.popover("Menu", use_container_width=True)
+        up = st.popover("Upload", use_container_width=False)
 
-    with burger:
-        st.markdown("### Quick Actions")
-        st.markdown("**Upload CSV**")
+    with up:
+        st.markdown('<div class="upload-pop">', unsafe_allow_html=True)
 
         # Keep a store of uploaded files (in-session)
         if "_uploaded_files" not in st.session_state:
             st.session_state["_uploaded_files"] = {}  # {display_name: file_bytes}
 
+        # Upload widget (label only; we removed "Quick Actions")
         _newfile = st.file_uploader("Browse file", type=["csv"], key="file_menu")
         if _newfile is not None:
-            # Read bytes and store in session by name (overwrites same name)
             st.session_state["_uploaded_files"][_newfile.name] = _newfile.read()
             st.toast(f"Saved '{_newfile.name}'")
             st.session_state["_selected_upload"] = _newfile.name
@@ -54,6 +92,13 @@ with c_burger:
                 st.rerun()
         else:
             st.caption("No uploads yet.")
+
+        st.markdown('</div>', unsafe_allow_html=True)  # close .upload-pop
+    st.markdown('</div>', unsafe_allow_html=True)      # close .upload-trigger
+
+# Keep your captions + divider *after* the header row
+
+
 
 import pandas as pd
 import numpy as np
@@ -306,7 +351,7 @@ if df is None:
     st.stop()
 
 
-st.caption(f"Data source: **{source_label}**")
+# st.caption(f"Data source: **{source_label}**")
 st.toast(f"✅ Loaded {len(df)} trades from {source_label}")
 
 # ===================== PIPELINE: Validate → PnL → Preview =====================
@@ -870,8 +915,6 @@ if len(_tags_map) > 0:
 
 # --- Render the four Overview cards for the selected timeframe ---
 with tab_overview:
-    render_active_filters("ov")
-    st.divider()
 
     # ======= LAYOUT FRAME: 40/60 main split (left=40%, right=60%) =======
     s_left, s_right = st.columns([2, 3], gap="large")  # 2:3 ≈ 40%:60%
