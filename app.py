@@ -9,30 +9,90 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# === Header row: Title (left) + Upload (right) ===
-h_left, h_right = st.columns([12, 2], gap="small")
+# === Header row: Title (left) + Month picker (right) + Upload (far right) ===
+import pandas as pd
+
+# default month in session (first of current month)
+if "_cal_month_start" not in st.session_state:
+    st.session_state["_cal_month_start"] = pd.Timestamp.today().normalize().replace(day=1)
+
+h_left, h_month, h_upload = st.columns([12, 2, 2], gap="small")
 
 with h_left:
     st.title("Trading Dashboard — MVP")
 
-with h_right:
-    # Flat trigger + upload icon in theme color; popover widened; no "Quick Actions" title
+# ---------- MONTH PICKER (popover trigger with calendar icon) ----------
+with h_month:
     st.markdown("""
     <style>
     :root { --brand:#3579ba; }
-    .upload-trigger { display:flex; justify-content:flex-end; }
+    .month-trigger button{
+      background: transparent !important;
+      border: 1px solid #233045 !important;
+      color: #d5deed !important;
+      padding: 6px 12px !important;
+      border-radius: 10px !important;
+      font-weight: 600;
+    }
+    .month-trigger button:hover{ background: rgba(53,121,186,0.14) !important; }
+    .month-trigger button:focus{ box-shadow:none !important; outline:none !important; }
+    .month-trigger button::before{
+      content:"";
+      width:16px; height:16px; margin-right:8px;
+      display:inline-block; background-color: var(--brand);
+      -webkit-mask: url("data:image/svg+xml;utf8,\
+      <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'>\
+        <path fill='black' d='M7 2v2H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2V2h-2v2H9V2H7zm12 7H5v10h14V9z'/>\
+      </svg>") no-repeat center / contain;
+              mask: url("data:image/svg+xml;utf8,\
+      <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'>\
+        <path fill='black' d='M7 2v2H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2V2h-2v2H9V2H7zm12 7H5v10h14V9z'/>\
+      </svg>") no-repeat center / contain;
+    }
+    .month-pop { min-width: 360px; }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # Build a label like: "Sep 1, 2025 - Sep 30, 2025"
+    _ms = pd.Timestamp(st.session_state["_cal_month_start"]).normalize().replace(day=1)
+    _me = (_ms + pd.offsets.MonthEnd(1)).normalize()
+
+    def _fmt(ts: pd.Timestamp) -> str:
+        # Avoid %-d vs %#d OS differences: format day via attribute
+        return f"{ts.strftime('%b')} {ts.day}, {ts.year}"
+
+    _lbl = f"{_fmt(_ms)} - {_fmt(_me)}"
+
+    st.markdown('<div class="month-trigger">', unsafe_allow_html=True)
+    mp = st.popover(_lbl, use_container_width=False)
+    with mp:
+        st.markdown('<div class="month-pop">', unsafe_allow_html=True)
+        _picked = st.date_input(
+            "Pick month",
+            value=st.session_state["_cal_month_start"].to_pydatetime(),
+            format="YYYY-MM-DD",
+            key="cal_month_input"
+        )
+        # normalize to first-of-month
+        st.session_state["_cal_month_start"] = pd.to_datetime(_picked).normalize().replace(day=1)
+        st.markdown('</div>', unsafe_allow_html=True)  # close .month-pop
+    st.markdown('</div>', unsafe_allow_html=True)      # close .month-trigger
+
+# ---------- UPLOAD (unchanged, still a popover) ----------
+with h_upload:
+    st.markdown("""
+    <style>
+    :root { --brand:#3579ba; }
     .upload-trigger button{
       background: transparent !important;
-      border: 0 !important;
+      border: 1px solid #233045 !important;
       color: #d5deed !important;
-      padding: 6px 10px !important;
-      border-radius: 8px !important;
+      padding: 6px 12px !important;
+      border-radius: 10px !important;
       font-weight: 600;
     }
     .upload-trigger button:hover{ background: rgba(53,121,186,0.14) !important; }
     .upload-trigger button:focus{ box-shadow:none !important; outline:none !important; }
-
-    /* Add an upload icon before the text using an SVG mask in brand color */
     .upload-trigger button::before{
       content:"";
       width:16px; height:16px; margin-right:8px;
@@ -48,9 +108,7 @@ with h_right:
         <path fill='black' d='M12 3l5 5h-3v6h-4V8H7l5-5z'/>\
       </svg>") no-repeat center / contain;
     }
-
-    /* Widen the popover and avoid 'Browse files' overlapping the drop text */
-    .upload-pop { min-width: 400px; }
+    .upload-pop { min-width: 640px; }
     .upload-pop [data-testid="stFileUploaderDropzone"]{
       width: 100% !important; min-width: 600px; padding-right: 200px;
     }
@@ -58,19 +116,12 @@ with h_right:
     """, unsafe_allow_html=True)
 
     st.markdown('<div class="upload-trigger">', unsafe_allow_html=True)
-    try:
-        up = st.popover("Upload", use_container_width=False)
-    except TypeError:
-        up = st.popover("Upload", use_container_width=False)
-
+    up = st.popover("Upload", use_container_width=False)
     with up:
         st.markdown('<div class="upload-pop">', unsafe_allow_html=True)
-
-        # Keep a store of uploaded files (in-session)
         if "_uploaded_files" not in st.session_state:
-            st.session_state["_uploaded_files"] = {}  # {display_name: file_bytes}
+            st.session_state["_uploaded_files"] = {}
 
-        # Upload widget (label only; we removed "Quick Actions")
         _newfile = st.file_uploader("Browse file", type=["csv"], key="file_menu")
         if _newfile is not None:
             st.session_state["_uploaded_files"][_newfile.name] = _newfile.read()
@@ -86,7 +137,7 @@ with h_right:
             if st.button("Use this file", use_container_width=True):
                 import io
                 file = io.BytesIO(st.session_state["_uploaded_files"][_sel])
-                file.name = _sel  # give it a name for downstream loaders
+                file.name = _sel
                 st.session_state["_menu_file_obj"] = file
                 st.toast(f"Using '{_sel}' as current dataset")
                 st.rerun()
@@ -96,7 +147,8 @@ with h_right:
         st.markdown('</div>', unsafe_allow_html=True)  # close .upload-pop
     st.markdown('</div>', unsafe_allow_html=True)      # close .upload-trigger
 
-# Keep your captions + divider *after* the header row
+st.divider()
+
 
 
 
@@ -512,10 +564,8 @@ max_dd_pct = float(df["dd_pct"].min()) * 100.0    # most negative percent drawdo
 current_balance = float(df["equity"].iloc[-1]) if len(df) else start_equity
 net_pnl         = float(df["cum_pnl"].iloc[-1]) if len(df) else 0.0
 
-def render_calendar_panel(df_view: pd.DataFrame, _date_col: str | None, tf: str):
+def render_calendar_panel(df_view: pd.DataFrame, _date_col: str | None, month_start: pd.Timestamp):
     """Render the Calendar — Daily PnL & Trade Count panel in-place (no tabs)."""
-    st.markdown("**Calendar — Daily PnL & Trade Count**")
-    st.caption(f"Using Range: **{tf}**")
 
     # === Begin: moved verbatim from your `with tab_calendar:` block (minus the first 2 header lines) ===
 
@@ -524,17 +574,9 @@ def render_calendar_panel(df_view: pd.DataFrame, _date_col: str | None, tf: str)
         st.info("No date/timestamp column found — calendar view unavailable for this dataset.")
         return
 
-    # ---- Month selector (defaults to current month) ----
-    _today = pd.Timestamp.today().normalize()
-    _default_month = _today.replace(day=1)
-    _picked = st.date_input(
-        "Select a month",
-        value=_default_month.to_pydatetime(),
-        format="YYYY-MM-DD"
-    )
-    _picked = pd.to_datetime(_picked)
-    _month_start = _picked.replace(day=1)
+    _month_start = pd.to_datetime(month_start).normalize().replace(day=1)
     _month_end   = (_month_start + pd.offsets.MonthEnd(1)).normalize()
+
 
     # ---- Aggregate df_view by day for the selected month ----
     _dt = pd.to_datetime(df_view[_date_col], errors="coerce")
@@ -708,74 +750,77 @@ def render_calendar_panel(df_view: pd.DataFrame, _date_col: str | None, tf: str)
         xaxis=dict(range=[0, 8], showgrid=False, zeroline=False, tickmode="array", tickvals=[], ticktext=[], fixedrange=True),
         yaxis=dict(range=[_rows, -1], showgrid=False, zeroline=False, tickvals=[], ticktext=[], fixedrange=True),
         margin=dict(l=10, r=10, t=16, b=16),
-        height=160 + _rows * 120
     )
+    _cal_h = int(160 + _rows * 120)
+    fig_cal.update_layout(height=_cal_h)
+    st.session_state["_cal_height"] = _cal_h
+
 
     _title = _month_start.strftime("%B %Y")
     st.markdown(f"### {_title}")
     st.plotly_chart(fig_cal, use_container_width=True)
-    st.caption("Green = positive PnL, red = negative. Rightmost column shows weekly totals.")
 
-    # -------- Filter from Calendar --------
-    st.markdown("#### Filter from Calendar")
 
-    # A) Day filter
-    col_day, col_week, col_clear = st.columns([2, 2, 1])
+    # # -------- Filter from Calendar --------
+    # st.markdown("#### Filter from Calendar")
 
-    with col_day:
-        _day_pick = st.date_input(
-            "Pick a day",
-            value=_month_start.to_pydatetime(),
-            min_value=_month_start.to_pydatetime(),
-            max_value=_month_end.to_pydatetime(),
-            key="cal_day_input"
-        )
-        if st.button("Apply Day Filter", use_container_width=True):
-            st.session_state._cal_filter = ("day", pd.to_datetime(_day_pick).date())
-            st.toast(f"Filtered to day: {pd.to_datetime(_day_pick).date()}")
-            st.rerun()
+    # # A) Day filter
+    # col_day, col_week, col_clear = st.columns([2, 2, 1])
 
-    def _week_start_for_row(r_idx: int):
-        first_slot = r_idx * 7
-        first_date = None
-        for c_idx in range(7):
-            d = _slot_to_date(first_slot + c_idx)
-            if d is not None:
-                first_date = pd.Timestamp(d)
-                break
-        if first_date is None:
-            return None
-        return (first_date - pd.Timedelta(days=first_date.weekday())).date()
+    # with col_day:
+    #     _day_pick = st.date_input(
+    #         "Pick a day",
+    #         value=_month_start.to_pydatetime(),
+    #         min_value=_month_start.to_pydatetime(),
+    #         max_value=_month_end.to_pydatetime(),
+    #         key="cal_day_input"
+    #     )
+    #     if st.button("Apply Day Filter", use_container_width=True):
+    #         st.session_state._cal_filter = ("day", pd.to_datetime(_day_pick).date())
+    #         st.toast(f"Filtered to day: {pd.to_datetime(_day_pick).date()}")
+    #         st.rerun()
 
-    _week_starts = []
-    for _r in range(_rows):
-        ws = _week_start_for_row(_r)
-        if ws is not None:
-            _week_starts.append(ws)
+    # def _week_start_for_row(r_idx: int):
+    #     first_slot = r_idx * 7
+    #     first_date = None
+    #     for c_idx in range(7):
+    #         d = _slot_to_date(first_slot + c_idx)
+    #         if d is not None:
+    #             first_date = pd.Timestamp(d)
+    #             break
+    #     if first_date is None:
+    #         return None
+    #     return (first_date - pd.Timedelta(days=first_date.weekday())).date()
 
-    with col_week:
-        _week_ix = st.selectbox(
-            "Pick a week",
-            options=list(range(len(_week_starts))),
-            format_func=lambda i: f"Week of {pd.Timestamp(_week_starts[i]).strftime('%b %d')}",
-            key="cal_week_sel"
-        )
-        if st.button("Apply Week Filter", use_container_width=True):
-            ws = pd.Timestamp(_week_starts[_week_ix]).date()
-            we = (pd.Timestamp(ws) + pd.Timedelta(days=6)).date()
-            ws = max(ws, _month_start.date())
-            we = min(we, _month_end.date())
-            st.session_state._cal_filter = ("week", (ws, we))
-            st.toast(f"Filtered to week: {ws} → {we}")
-            st.rerun()
+    # _week_starts = []
+    # for _r in range(_rows):
+    #     ws = _week_start_for_row(_r)
+    #     if ws is not None:
+    #         _week_starts.append(ws)
 
-    with col_clear:
-        if st.button("Clear Filter", use_container_width=True):
-            st.session_state._cal_filter = None
-            st.toast("Calendar filter cleared")
-            st.rerun()
+    # with col_week:
+    #     _week_ix = st.selectbox(
+    #         "Pick a week",
+    #         options=list(range(len(_week_starts))),
+    #         format_func=lambda i: f"Week of {pd.Timestamp(_week_starts[i]).strftime('%b %d')}",
+    #         key="cal_week_sel"
+    #     )
+    #     if st.button("Apply Week Filter", use_container_width=True):
+    #         ws = pd.Timestamp(_week_starts[_week_ix]).date()
+    #         we = (pd.Timestamp(ws) + pd.Timedelta(days=6)).date()
+    #         ws = max(ws, _month_start.date())
+    #         we = min(we, _month_end.date())
+    #         st.session_state._cal_filter = ("week", (ws, we))
+    #         st.toast(f"Filtered to week: {ws} → {we}")
+    #         st.rerun()
 
-    # === End moved code ===
+    # with col_clear:
+    #     if st.button("Clear Filter", use_container_width=True):
+    #         st.session_state._cal_filter = None
+    #         st.toast("Calendar filter cleared")
+    #         st.rerun()
+
+    # # === End moved code ===
 
 
 # ===================== TABS =====================
@@ -968,26 +1013,158 @@ with tab_overview:
                 _pf_disp = "∞" if pf_v == float("inf") else f"{pf_v:.2f}"
                 st.metric(label="", value=_pf_disp)
 
-        # === Equity Curve (bottom of s_left) ===
+        # === Equity Curve (bottom of s_left) — with tabs and date x-axis ===
         with st.container(border=True):
-            st.markdown("**Equity Curve**")
+            st.markdown("""
+            <style>
+            /* Add a left-side caption in the same row as the tabs */
+            div[data-testid="stTabs"] div[role="tablist"]::before{
+            content: "Equity Curve";
+            margin-right: auto;   /* keeps tabs on the right */
+            color: #d5deed;
+            font-weight: 600;
+            letter-spacing: .2px;
+            font-size:32px;        /* <-- adjust size here */
+            }
+            /* Tab list (container of the labels) */
+            div[data-testid="stTabs"] div[role="tablist"]{
+            justify-content: flex-end;
+            gap: 6px;
+            margin-top: 2px;
+            }
+            /* Individual tabs (the buttons) */
+            div[data-testid="stTabs"] button[role="tab"]{
+            padding: 4px 10px;
+            }
+            </style>
+            """, unsafe_allow_html=True)
 
-            dfv = df_view.copy().reset_index(drop=True)
-            dfv["trade_no"] = np.arange(1, len(dfv) + 1)
-            dfv["cum_pnl"] = pd.to_numeric(dfv["pnl"], errors="coerce").fillna(0).cumsum()
-            dfv["equity"] = start_equity + dfv["cum_pnl"]
 
-            fig_eq = px.line(
-                dfv,
-                x="trade_no",
-                y="equity",
-                title=None,
-                labels={"trade_no": "Trade #", "equity": "Equity ($)"},
-            )
-            ymax = max(start_equity, float(dfv["equity"].max()) * 1.05)
-            fig_eq.update_yaxes(range=[start_equity, ymax])
-            fig_eq.update_layout(height=220, margin=dict(l=10, r=10, t=10, b=10))
-            st.plotly_chart(fig_eq, use_container_width=True)
+            # Build a date-indexed equity series from the current df_view (respects your sidebar Range)
+            _has_date = (_date_col is not None and _date_col in df_view.columns and len(df_view) > 0)
+            df_ec = df_view.copy()
+            pnl_num = pd.to_numeric(df_ec["pnl"], errors="coerce").fillna(0.0)
+            df_ec["cum_pnl"] = pnl_num.cumsum()
+            df_ec["equity"]  = float(start_equity) + df_ec["cum_pnl"]
+
+            if _has_date:
+                _dt = pd.to_datetime(df_ec[_date_col], errors="coerce")
+                df_ec = df_ec.assign(_date=_dt).sort_values("_date")
+            else:
+                # fallback to simple index if no date column exists
+                df_ec = df_ec.reset_index(drop=True).assign(_date=pd.RangeIndex(start=0, stop=len(df_ec)))
+
+            # Helper: filter by a trailing time window (relative to LAST visible date)
+            def _slice_window(df_in: pd.DataFrame, label: str) -> pd.DataFrame:
+                if not _has_date or len(df_in) == 0 or label == "All":
+                    return df_in
+                last_ts = pd.to_datetime(df_in["_date"].iloc[-1])
+                if label == "1D":
+                    start = last_ts - pd.Timedelta(days=1)
+                elif label == "1W":
+                    start = last_ts - pd.Timedelta(weeks=1)
+                elif label == "1M":
+                    start = last_ts - pd.DateOffset(months=1)
+                elif label == "6M":
+                    start = last_ts - pd.DateOffset(months=6)
+                elif label == "1Y":
+                    start = last_ts - pd.DateOffset(years=1)
+                else:
+                    start = df_in["_date"].min()
+                return df_in[df_in["_date"] >= start]
+
+
+            def _plot_equity(df_in: pd.DataFrame, *, height: int | None = None):
+                import plotly.graph_objects as go
+
+                x = df_in["_date"]
+                y = pd.to_numeric(df_in["equity"], errors="coerce").astype(float)
+
+                fig = go.Figure()
+
+                # Invisible baseline at starting equity
+                fig.add_scatter(
+                    x=x,
+                    y=[float(start_equity)] * len(df_in),
+                    mode="lines",
+                    line=dict(width=0),
+                    hoverinfo="skip",
+                    showlegend=False
+                )
+
+                # Equity line filled to the baseline (NOT to zero)
+                fig.add_scatter(
+                    x=x,
+                    y=y,
+                    mode="lines",
+                    line=dict(width=2, color="#9ecbff"),
+                    fill="tonexty",
+                    fillcolor="rgba(53,121,186,0.18)",
+                    hovertemplate=(
+                        "%{x|%b %d, %Y}<br>Equity: $%{y:,.0f}<extra></extra>"
+                        if _has_date else
+                        "Trade %{x}<br>Equity: $%{y:,.0f}<extra></extra>"
+                    ),
+                    showlegend=False
+                )
+
+                # Height: reuse calendar height if present, else 240
+                target_h = int(height) if height is not None else int(st.session_state.get("_cal_height", 240))
+
+                # Y range anchored near starting equity with a little padding
+                ymin = min(float(start_equity), float(np.nanmin(y)) if len(y) else float(start_equity))
+                ymax = max(float(start_equity), float(np.nanmax(y)) if len(y) else float(start_equity))
+                pad_low = max(30, (ymax - ymin) * 0.05)
+                pad_high = max(30, (ymax - ymin) * 0.07)
+
+                fig.update_layout(
+                    height=target_h,
+                    margin=dict(l=10, r=10, t=10, b=10),
+                    paper_bgcolor="#0b0f19",
+                    plot_bgcolor="#0b0f19",
+                    showlegend=False,
+                )
+
+                if _has_date:
+                    # Minimal, auto-spaced date ticks; formats change with zoom level
+                    fig.update_xaxes(
+                        type="date",
+                        showgrid=False, zeroline=False, showspikes=False, automargin=True,
+                        nticks=6,
+                        tickformatstops=[
+                            dict(dtickrange=[None, 1000*60*60*24*2],  value="%H:%M\n%b %d"),  # < 2 days
+                            dict(dtickrange=[1000*60*60*24*2, 1000*60*60*24*14],  value="%b %d"),  # up to ~2w
+                            dict(dtickrange=[1000*60*60*24*14, 1000*60*60*24*92], value="Wk %W"),  # ~2w..3m
+                            dict(dtickrange=[1000*60*60*24*92,  1000*60*60*24*370], value="%b %Y"), # ~3m..1y
+                            dict(dtickrange=[1000*60*60*24*370, None], value="%Y"),               # > 1y
+                        ],
+                    )
+                else:
+                    fig.update_xaxes(type="linear", showgrid=False, zeroline=False, automargin=True, nticks=6)
+
+                fig.update_yaxes(
+                    showgrid=False, zeroline=False, automargin=True,
+                    tickprefix="$", separatethousands=True,
+                    range=[ymin - pad_low, ymax + pad_high]
+                )
+
+                return fig
+
+
+            # Tabs like your top-level tabs; default = All (first tab)
+            st.markdown('<div class="eq-tabs">', unsafe_allow_html=True)
+            eq_tabs = st.tabs(["All", "1D", "1W", "1M", "6M", "1Y"])
+
+            for _label, _tab in zip(["All","1D","1W","1M","6M","1Y"], eq_tabs):
+                with _tab:
+                    _dfw = _slice_window(df_ec, _label)
+                    if len(_dfw) == 0:
+                        st.caption("No data in this window.")
+                    else:
+                        fig_eq = _plot_equity(_dfw, height=590)
+                        st.plotly_chart(fig_eq, use_container_width=True)
+
+
 
     with s_right:
         # === Right column top row (split in 2) ===
@@ -1047,7 +1224,8 @@ with tab_overview:
 
         # --- Right column bottom: Calendar panel ---
         with st.container(border=True):
-            render_calendar_panel(df_view, _date_col, tf)
+            render_calendar_panel(df_view, _date_col, st.session_state["_cal_month_start"])
+
 
     # ======= END LAYOUT FRAME =======
 
@@ -2007,8 +2185,12 @@ with tab_calendar:
                 tickvals=[], ticktext=[], fixedrange=True
             ),
             margin=dict(l=10, r=10, t=10, b=16),
-            height=160 + _rows * 120  # ↑ more breathing room per row
         )
+        # Save the computed height for other panels (e.g., Equity Curve)
+        _cal_h = 160 + _rows * 120
+        fig_cal.update_layout(height=_cal_h)
+        st.session_state["_cal_height"] = int(_cal_h)
+
 
         # Month title
         _title = _month_start.strftime("%B %Y")
