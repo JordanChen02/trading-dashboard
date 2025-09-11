@@ -1012,6 +1012,50 @@ with tab_overview:
             if "side" in df_view.columns else pd.Series(dtype=float)
         )
 
+        st.markdown("""
+        <style>
+        /* Pull everything inside the KPI card up by N pixels */
+        .kpi-pack{
+        margin-top:12px;
+        margin-bottom:12px;   /* ← adds space at the bottom INSIDE the card */
+        }
+        .kpi-card-vh{ padding-bottom:18px; }
+        .kpi-number{ margin:1; line-height:1; }
+        .kpi-label{  margin:1.05; line-height:1.05; }
+        .pillbar{    margin-top:8px; }   /* keep a small gap above the bar */
+        /* vertical centering wrapper for KPI cards */
+        .kpi-card-vh{
+        min-height:130px;              /* adjust height to taste */
+        display:flex;
+        flex-direction:column;
+        justify-content:center;        /* vertical center */
+        align-items:center;            /* keep contents centered horizontally */
+        gap:8px;                       /* tight vertical spacing */
+        }
+
+        /* center the headline/label group */
+        .kpi-center{ text-align:center; margin:0; }
+
+        /* tighten text spacing so vertical centering is true */
+        .kpi-number{ font-size:32px; font-weight:800; line-height:1.5; margin:0; }
+        .kpi-label{  font-size:14px; color:#cbd5e1; line-height:1.2; margin:0; }
+
+        /* progress pill */
+        .pillbar{
+        width:100%;
+        height:18px;
+        background:#1b2433;
+        border-radius:999px;
+        overflow:hidden;
+        margin:1px 0 17px 0;  /* top | right | bottom | left */
+        }
+        .pillbar .win{  height:100%; background:#2E86C1; display:inline-block; }
+        .pillbar .loss{ height:100%; background:#2f3a52; display:inline-block; }
+        st.markdown('<div style="height:14px"></div>', unsafe_allow_html=True)
+        </style>
+        """, unsafe_allow_html=True)
+
+
         # === KPI GRID (2x2) ===
         kpi_row1 = st.columns([1, 1], gap="small")  # wider left card, smaller gap
         with kpi_row1[0]:
@@ -1064,11 +1108,44 @@ with tab_overview:
 
         with kpi_row1[1]:
             with st.container(border=True):
-                st.markdown("**Avg Win / Avg Loss**")
-                _aw_al = "∞" if avg_win_loss_ratio_v == float("inf") else f"{avg_win_loss_ratio_v:.2f}"
-                st.metric(label="", value=_aw_al)
+                # force card height (adjust 160 as you like)
+                st.markdown('<div class="kpi-pack">', unsafe_allow_html=True)
 
-        kpi_row2 = st.columns(2, gap="medium")
+
+
+                _aw_al_num = "∞" if avg_win_loss_ratio_v == float("inf") else f"{avg_win_loss_ratio_v:.2f}"
+                st.markdown(
+                    f"""
+                    <div class="kpi-center">
+                    <div class="kpi-number">{_aw_al_num}</div>
+                    <div class="kpi-label">Avg Win / Avg Loss</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+
+                # --- Blue/Red ratio pill (Avg Win vs Avg Loss) ---
+                _aw = float(max(avg_win_v, 0.0))       # ensure non-negative
+                _al = float(abs(avg_loss_v))           # loss magnitude
+                _total = _aw + _al
+                _blue_pct = 50.0 if _total <= 0 else (_aw / _total) * 100.0
+                _red_pct  = 100.0 - _blue_pct
+
+                st.markdown(
+                    f"""
+                    <div class="pillbar" style="margin-top:6px;">
+                    <div class="win"  style="width:{_blue_pct:.2f}%"></div>
+                    <div class="loss" style="width:{_red_pct:.2f}%"></div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+
+                st.markdown("</div>", unsafe_allow_html=True)  # close .kpi-tight
+
+
+
+        kpi_row2 = st.columns([1,1], gap="small")
         with kpi_row2[0]:
             with st.container(border=True):
                 # Title styled like your Win Rate title
