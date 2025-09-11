@@ -1,1 +1,40 @@
--e "__pycache__/\n*.pyc\nvenv/\n.vscode/\n.streamlit/\n.DS_Store" 
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+*.pyo
+*.pyd
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Caches / tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+dist/
+build/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Streamlit
+.streamlit/cache/
+.streamlit/logs/
+.streamlit/secrets.toml
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Project-generated stuff (adjust to your repo!)
+data/
+uploads/
+tmp/
+logs/
