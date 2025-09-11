@@ -1395,57 +1395,138 @@ with tab_overview:
                         st.caption("No data in this window.")
                     else:
                         fig_eq = _plot_equity(_dfw, height=590)
-                        st.plotly_chart(fig_eq, use_container_width=True)
+                        st.plotly_chart(fig_eq, use_container_width=True, key=f"eq_curve_{_label}")
 
 
 
+    # === Right column top row (split in 2) ===
     with s_right:
-        # === Right column top row (split in 2) ===
         right_top = st.columns([2, 1], gap="medium")
 
-        # Left side: Volume per Day chart
+        # ----- Left side: Daily / Weekly PnL (replaces "Volume per Day (last ~20 trades)") -----
         with right_top[0]:
             with st.container(border=True):
-                st.markdown("**Volume per Day (last ~20 trades)**")
 
-                # --- Compute local _vol_per_day (independent of other sections) ---
-                # 1) Determine notional per trade (qty*price, or 'notional', or |pnl| as fallback)
-                _qty_cols   = [c for c in ["qty","quantity","size","contracts","amount"] if c in df_view.columns]
-                _price_cols = [c for c in ["price","entry_price","avg_entry_price"] if c in df_view.columns]
-                if _qty_cols and _price_cols:
-                    _notional_local = (
-                        pd.to_numeric(df_view[_qty_cols[0]], errors="coerce").fillna(0) *
-                        pd.to_numeric(df_view[_price_cols[0]], errors="coerce").fillna(0)
-                    ).abs()
-                elif "notional" in df_view.columns:
-                    _notional_local = pd.to_numeric(df_view["notional"], errors="coerce").fillna(0).abs()
-                else:
-                    _notional_local = pd.to_numeric(df_view["pnl"], errors="coerce").fillna(0).abs()
+                # --- Header: title/caption on left; seg control visually inline on right ---
 
-                # 2) Take the last ~20 trades within the current Range
-                _last20_notional_local = _notional_local.tail(20).reset_index(drop=True)
+                # 2) Right-align the segmented control and pull it up to share the caption line
+                # --- Header row: title/caption left, segmented control right ---
+                header_left, header_right = st.columns([3, 1])
 
-                # 3) Group by day if we have a date column; else use simple indices
-                if _date_col is not None and _date_col in df_view.columns:
-                    _dt_view_local = pd.to_datetime(df_view[_date_col], errors="coerce")
-                    _last20_days_local = _dt_view_local.tail(20).dt.date
-                    _vol_per_day_local = (
-                        pd.DataFrame({"day": _last20_days_local, "vol": _last20_notional_local})
-                        .groupby("day", as_index=False)["vol"].sum()
-                        .sort_values("day")
+                # Row 1: Title (left) | Segmented control (right)
+                row1_left, row1_right = st.columns([3, 1], gap="small")
+                with row1_left:
+                    st.markdown("<div style='height:0px'></div>", unsafe_allow_html=True)  # minimal top space
+                    current_mode = st.session_state.get("_dpnl_mode", "Daily")
+                    st.markdown(
+                        f"<div style='font-size:26px; font-weight:600;'>{current_mode} PnL</div>",
+                        unsafe_allow_html=True
                     )
-                    _x_col = "day"
-                else:
-                    _vol_per_day_local = pd.DataFrame(
-                        {"idx": range(1, len(_last20_notional_local) + 1), "vol": _last20_notional_local}
+                with row1_right:
+                    mode = st.segmented_control(
+                        options=["Daily", "Weekly"],
+                        default=current_mode,
+                        label=""
                     )
-                    _x_col = "idx"
+                    st.session_state["_dpnl_mode"] = mode
 
-                # 4) Build chart
-                fig_vol = px.bar(_vol_per_day_local, x=_x_col, y="vol")
-                fig_vol.update_layout(height=220, margin=dict(l=10, r=10, t=10, b=10))
-                fig_vol.update_yaxes(tickprefix="$", separatethousands=True)
-                st.plotly_chart(fig_vol, use_container_width=True)
+                # Spacer between row 1 and row 2 (control vertical gap)
+                st.markdown("<div style='margin-bottom:6px'></div>", unsafe_allow_html=True)
+
+                # Row 2: Caption (left) | Show Profit toggle (right)
+                row2_left, row2_right = st.columns([3, 1], gap="small")
+                with row2_left:
+                    st.caption("Daily & weekly profit")
+                with row2_right:
+                    show_profit = st.toggle("Show Profit", value=True, key="dpnl_show")
+
+                # Reduce space below header rows (before the chart)
+                st.markdown("<div style='margin-bottom:-12px'></div>", unsafe_allow_html=True)
+
+
+
+
+
+
+
+
+                # ---- Data prep ----
+                if _date_col and _date_col in df_view.columns:
+                    _dt = pd.to_datetime(df_view[_date_col], errors="coerce")
+                else:
+                    _fallbacks = ["_date", "date", "datetime", "timestamp", "time", "entry_time", "exit_time"]
+                    _cand = next((c for c in _fallbacks if c in df_view.columns), None)
+                    _dt = pd.to_datetime(df_view[_cand], errors="coerce") if _cand else pd.to_datetime(pd.Series([], dtype="float64"))
+
+                _pnl = pd.to_numeric(df_view.get("pnl", df_view.get("net_pnl")), errors="coerce").fillna(0.0)
+                _tmp = pd.DataFrame({"_date": _dt, "pnl": _pnl}).dropna(subset=["_date"])
+                if _tmp.empty:
+                    st.info("No dated PnL rows available.")
+                else:
+                    _tmp["_day"] = _tmp["_date"].dt.floor("D")
+                    _last_day = pd.to_datetime(_tmp["_day"].max())
+
+                    import plotly.graph_objects as go
+                    panel_bg = "#0b0f19"
+                    pos_color = "#2E86C1"
+                    neg_color = "#2E86C1"
+                    bar_line  = "rgba(255,255,255,0.12)"
+
+                    if mode == "Daily":
+                        idx = pd.date_range(end=_last_day, periods=14, freq="D")
+                        daily = (_tmp.groupby("_day", as_index=False)["pnl"].sum()
+                                .set_index("_day").reindex(idx, fill_value=0.0)
+                                .rename_axis("_day").reset_index())
+                        x_vals = daily["_day"]; y_vals = daily["pnl"]
+                        tickvals = x_vals[::2]  # every 2 days (7 labels)
+                        ticktext = [d.strftime("%m/%d/%Y") for d in tickvals]
+                    else:
+                        wk = _tmp.set_index("_day")["pnl"].resample("W-SUN").sum()
+                        widx = pd.date_range(end=wk.index.max(), periods=8, freq="W-SUN")
+                        weekly = wk.reindex(widx, fill_value=0.0).reset_index()
+                        weekly.columns = ["_week", "pnl"]
+                        x_vals = weekly["_week"]; y_vals = weekly["pnl"]
+                        tickvals = x_vals; ticktext = [d.strftime("%m/%d/%Y") for d in x_vals]
+
+                    fig = go.Figure()
+                    fig.add_bar(
+                        x=x_vals, y=y_vals,
+                        marker=dict(color=[pos_color if v >= 0 else neg_color for v in y_vals],
+                                    line=dict(color=bar_line, width=1)),
+                        hovertemplate="%{x|%b %d, %Y}<br>PNL: $%{y:,.2f}<extra></extra>",
+                    )
+                    fig.add_hline(y=0, line_width=1, line_color="rgba(255,255,255,0.25)")
+
+                    # --- Profit labels: show/hide via toggle (clears annotations when off)
+                    annotations = []
+                    if show_profit:
+                        ymax = max(1.0, float(abs(y_vals.max())))
+                        ymin = max(1.0, float(abs(y_vals.min())))
+                        pad_pos, pad_neg = ymax * 0.03, ymin * 0.03
+                        for xv, yv in zip(x_vals, y_vals):
+                            ay = yv + (pad_pos if yv >= 0 else -pad_neg)
+                            annotations.append(dict(x=xv, y=ay, xref="x", yref="y",
+                                                    text=f"${yv:,.2f}", showarrow=False,
+                                                    font=dict(size=12, color="#e5e7eb")))
+                    fig.update_layout(annotations=annotations)
+
+                    fig.update_layout(
+                        height=300,
+                        margin=dict(l=16, r=16, t=8, b=10),
+                        paper_bgcolor=panel_bg, plot_bgcolor=panel_bg,
+                        showlegend=False,
+                    )
+                    fig.update_yaxes(
+                        zeroline=False, showgrid=True, gridcolor="rgba(255,255,255,0.06)",
+                        tickprefix="$", separatethousands=True,
+                    )
+                    fig.update_xaxes(
+                        showgrid=False, tickangle=-35,
+                        tickmode="array", tickvals=tickvals, ticktext=ticktext,
+                    )
+
+                    st.plotly_chart(fig, use_container_width=True)
+
 
         # Right side: Win Streak box (styled like your mock)
         with right_top[1]:
