@@ -822,6 +822,42 @@ def render_calendar_panel(df_view: pd.DataFrame, _date_col: str | None, month_st
 
     # # === End moved code ===
 
+def winrate_half_donut(wr: float, height: int = 110, hole: float = 0.72, half: str = "bottom"):
+    """
+    Horizontal half-donut (blue = wins, red = losses).
+    `half`: "bottom" (default) or "top"
+    """
+    import plotly.graph_objects as go
+    wr = max(0.0, min(1.0, float(wr)))
+
+    # wins + losses fill one half; ghost hides the other half
+    wins, losses, ghost = wr, 1.0 - wr, 1.0
+    start = 270 if half.lower() == "bottom" else 90   # 180 = bottom half, 0 = top half
+
+    fig = go.Figure(go.Pie(
+        values=[wins, losses, ghost],    # keep this order
+        hole=hole,
+        rotation=start,                  # <- horizontal half control
+        direction="clockwise",
+        sort=False,                      # <- IMPORTANT so order doesn’t shuffle
+        textinfo="none",
+        hoverinfo="skip",
+        marker=dict(
+            colors=["#2E86C1", "#E57373", "rgba(0,0,0,0)"],
+            line=dict(width=0),
+        ),
+        showlegend=False,
+    ))
+    fig.update_traces(domain=dict(x=[0, 1], y=[0, 1]))
+    fig.update_layout(
+        height=height,                   # lower height => looks wider
+        margin=dict(l=0, r=0, t=0, b=0),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        showlegend=False,
+    )
+    return fig
+
 
 # ===================== TABS =====================
 tab_overview, tab_perf, tab_calendar = st.tabs(["Overview", "Performance", "Calendar"])
@@ -977,11 +1013,54 @@ with tab_overview:
         )
 
         # === KPI GRID (2x2) ===
-        kpi_row1 = st.columns(2, gap="medium")
+        kpi_row1 = st.columns([1, 1], gap="small")  # wider left card, smaller gap
         with kpi_row1[0]:
             with st.container(border=True):
-                st.markdown("**Win Rate**")
-                st.metric(label="", value=f"{win_rate_v*100:.1f}%")
+                st.markdown('<div style="text-align:center; font-weight:600; margin:0 0 6px; transform: translateX(6px);">Win Rate</div>',
+                            unsafe_allow_html=True)
+
+
+                wr_pct = float(win_rate_v * 100.0)         # win_rate_v is 0..1
+                win_color   = "#2E86C1"
+                loss_color  = "#E57373"
+                panel_bg    = "#0b0f19"                    # match your theme bg
+
+                fig_win = go.Figure(go.Indicator(
+                    mode="gauge",                          # no number, no needle
+                    value=wr_pct,                          # where the bar would go (we’ll hide it)
+                    gauge={
+                        "shape": "angular",                # semicircle
+                        "axis": {"range": [0, 100], "visible": False},
+                        "bar": {"color": "rgba(0,0,0,0)"}, # hide the bar entirely
+                        "borderwidth": 0,
+                        # Two colored bands: wins then losses
+                        "steps": [
+                            {"range": [0, wr_pct],     "color": win_color},
+                            {"range": [wr_pct, 100.0], "color": loss_color},
+                        ],
+                    },
+                    domain={"x": [0, 1], "y": [0, 1]},
+                ))
+
+                # Size/spacing
+                fig_win.update_layout(
+                    margin=dict(l=8, r=8, t=6, b=0),
+                    height=90,                            # bump this up/down to taste
+                    paper_bgcolor=panel_bg,
+                )
+                # Put the % label in the middle of the visible half-donut
+                fig_win.add_annotation(
+                    x=0.5, y=0.10,            # center-ish of the lower half (paper coords)
+                    xref="paper", yref="paper",
+                    text=f"{wr_pct:.0f}%",
+                    showarrow=False,
+                    font=dict(size=30, color="#e5e7eb", family="Inter, system-ui, sans-serif"),
+                    align="center"
+                )
+
+                st.plotly_chart(fig_win, use_container_width=True)
+
+
 
         with kpi_row1[1]:
             with st.container(border=True):
