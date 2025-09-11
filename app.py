@@ -1022,7 +1022,7 @@ with tab_overview:
 
                 wr_pct = float(win_rate_v * 100.0)         # win_rate_v is 0..1
                 win_color   = "#2E86C1"
-                loss_color  = "#E57373"
+                loss_color  = "#212C47"   
                 panel_bg    = "#0b0f19"                    # match your theme bg
 
                 fig_win = go.Figure(go.Indicator(
@@ -1071,20 +1071,67 @@ with tab_overview:
         kpi_row2 = st.columns(2, gap="medium")
         with kpi_row2[0]:
             with st.container(border=True):
-                st.markdown("**Long vs Short**")
-                if not _side_dist_local.empty:
-                    fig_ls = px.pie(
-                        values=_side_dist_local.values,
-                        names=_side_dist_local.index.str.capitalize(),
-                        hole=0.55,
-                        color=_side_dist_local.index.str.capitalize(),
-                        color_discrete_map={"Long": "#2E86C1", "Short": "#E57373"},
+                # Title styled like your Win Rate title
+                st.markdown(
+                    '<div style="text-align:center; font-weight:600; margin:0 0 6px; transform: translateX(6px);">'
+                    'Long vs Short</div>',
+                    unsafe_allow_html=True
+                )
+
+                # Counts (respect current filters/range)
+                if "side" in df_view.columns:
+                    _side_lower = df_view["side"].astype(str).str.lower()
+                    long_ct  = int((_side_lower == "long").sum())
+                    short_ct = int((_side_lower == "short").sum())
+                    total_ct = long_ct + short_ct
+
+                    # Percent of LONG (gauge fills left→right)
+                    long_pct = (long_ct / total_ct * 100.0) if total_ct > 0 else 0.0
+
+                    panel_bg   = "#0b0f19"   # match your card bg
+                    long_color = "#2E86C1"
+                    short_color= "#212C47"
+
+                    fig_ls = go.Figure(go.Indicator(
+                        mode="gauge",                   # semicircle, no needle/number
+                        value=long_pct,                 # not shown; steps do the coloring
+                        gauge={
+                            "shape": "angular",         # half donut
+                            "axis": {"range": [0, 100], "visible": False},
+                            "bar": {"color": "rgba(0,0,0,0)"},  # hide the bar
+                            "borderwidth": 0,
+                            # Left portion = Long, right portion = Short
+                            "steps": [
+                                {"range": [0, long_pct],   "color": long_color},
+                                {"range": [long_pct, 100], "color": short_color},
+                            ],
+                        },
+                        domain={"x": [0, 1], "y": [0, 1]},
+                    ))
+
+                    fig_ls.update_layout(
+                        margin=dict(l=8, r=8, t=6, b=0),
+                        height=90,                      # tweak to resize the half donut
+                        paper_bgcolor=panel_bg,
+                        showlegend=False,
                     )
-                    fig_ls.update_traces(textinfo="label+percent")
-                    fig_ls.update_layout(height=180, margin=dict(l=10, r=10, t=10, b=10), showlegend=False)
+
+                    # Outside labels (left = Long, right = Short)
+                    fig_ls.add_annotation(
+                        xref="paper", yref="paper", x=0.03, y=0.88,
+                        text="Long", showarrow=False,
+                        font=dict(size=12, color="#cbd5e1"), xanchor="left"
+                    )
+                    fig_ls.add_annotation(
+                        xref="paper", yref="paper", x=0.97, y=0.88,
+                        text="Short", showarrow=False,
+                        font=dict(size=12, color="#cbd5e1"), xanchor="right"
+                    )
+
                     st.plotly_chart(fig_ls, use_container_width=True)
                 else:
                     st.caption("No side column found.")
+
 
         with kpi_row2[1]:
             with st.container(border=True):
