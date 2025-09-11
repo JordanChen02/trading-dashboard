@@ -1145,76 +1145,93 @@ with tab_overview:
 
 
 
-        kpi_row2 = st.columns([1,1], gap="small")
+            # --- KPI row 2 (Profit Factor left, Long vs Short right) ---
+        kpi_row2 = st.columns([1, 1], gap="small")
+
+        # LEFT: Profit Factor — half donut
         with kpi_row2[0]:
             with st.container(border=True):
-                # Title styled like your Win Rate title
                 st.markdown(
                     '<div style="text-align:center; font-weight:600; margin:0 0 6px; transform: translateX(6px);">'
+                    'Profit Factor</div>',
+                    unsafe_allow_html=True
+                )
+
+                # Display value and clamp for gauge fill
+                pf_display = "∞" if pf_v == float("inf") else f"{pf_v:.2f}"
+                max_pf = 4.0  # visual cap for the gauge
+                pf_clamped = max(0.0, min(float(pf_v if pf_v != float("inf") else max_pf), max_pf))
+                pct = (pf_clamped / max_pf) * 100.0
+
+                panel_bg  = "#0b0f19"
+                fill_col  = "#2E86C1"
+                rest_col  = "#212C47"
+
+                fig_pf = go.Figure(go.Indicator(
+                    mode="gauge",
+                    value=pct,  # percent of the arc to fill
+                    gauge={
+                        "shape": "angular",                          # half donut
+                        "axis": {"range": [0, 100], "visible": False},
+                        "bar": {"color": "rgba(0,0,0,0)"},           # hide the default bar
+                        "borderwidth": 0,
+                        "steps": [
+                            {"range": [0, pct],     "color": fill_col},
+                            {"range": [pct, 100.0], "color": rest_col},
+                        ],
+                    },
+                    domain={"x": [0, 1], "y": [0, 1]},
+                ))
+                fig_pf.update_layout(
+                    margin=dict(l=8, r=8, t=6, b=0),
+                    height=90,
+                    paper_bgcolor=panel_bg,
+                    showlegend=False,
+                )
+                # Value centered in the visible half
+                fig_pf.add_annotation(
+                    x=0.5, y=0.10, xref="paper", yref="paper",
+                    text=pf_display, showarrow=False,
+                    font=dict(size=28, color="#e5e7eb", family="Inter, system-ui, sans-serif"),
+                    align="center"
+                )
+                st.plotly_chart(fig_pf, use_container_width=True)
+
+        # RIGHT: Long vs Short — pillbar
+        with kpi_row2[1]:
+            with st.container(border=True):
+                st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+                st.markdown(
+                    '<div style="text-align:center; font-weight:600; margin:0 0 16px; transform: translateX(6px);">'
                     'Long vs Short</div>',
                     unsafe_allow_html=True
                 )
 
-                # Counts (respect current filters/range)
                 if "side" in df_view.columns:
                     _side_lower = df_view["side"].astype(str).str.lower()
                     long_ct  = int((_side_lower == "long").sum())
                     short_ct = int((_side_lower == "short").sum())
                     total_ct = long_ct + short_ct
 
-                    # Percent of LONG (gauge fills left→right)
-                    long_pct = (long_ct / total_ct * 100.0) if total_ct > 0 else 0.0
+                    long_pct = (long_ct / total_ct * 100.0) if total_ct > 0 else 50.0
+                    short_pct = 100.0 - long_pct
 
-                    panel_bg   = "#0b0f19"   # match your card bg
-                    long_color = "#2E86C1"
-                    short_color= "#212C47"
-
-                    fig_ls = go.Figure(go.Indicator(
-                        mode="gauge",                   # semicircle, no needle/number
-                        value=long_pct,                 # not shown; steps do the coloring
-                        gauge={
-                            "shape": "angular",         # half donut
-                            "axis": {"range": [0, 100], "visible": False},
-                            "bar": {"color": "rgba(0,0,0,0)"},  # hide the bar
-                            "borderwidth": 0,
-                            # Left portion = Long, right portion = Short
-                            "steps": [
-                                {"range": [0, long_pct],   "color": long_color},
-                                {"range": [long_pct, 100], "color": short_color},
-                            ],
-                        },
-                        domain={"x": [0, 1], "y": [0, 1]},
-                    ))
-
-                    fig_ls.update_layout(
-                        margin=dict(l=8, r=8, t=6, b=0),
-                        height=90,                      # tweak to resize the half donut
-                        paper_bgcolor=panel_bg,
-                        showlegend=False,
+                    # Optional tiny labels above the bar
+                    # Pillbar with local bottom margin
+                    st.markdown(
+                        f'''
+                        <div class="pillbar" style="margin:20px 0 42px;">  <!-- top 10px, bottom 12px -->
+                        <div class="win"  style="width:{long_pct:.2f}%"></div>
+                        <div class="loss" style="width:{short_pct:.2f}%"></div>
+                        </div>
+                        ''',
+                        unsafe_allow_html=True
                     )
 
-                    # Outside labels (left = Long, right = Short)
-                    fig_ls.add_annotation(
-                        xref="paper", yref="paper", x=0.03, y=0.88,
-                        text="Long", showarrow=False,
-                        font=dict(size=12, color="#cbd5e1"), xanchor="left"
-                    )
-                    fig_ls.add_annotation(
-                        xref="paper", yref="paper", x=0.97, y=0.88,
-                        text="Short", showarrow=False,
-                        font=dict(size=12, color="#cbd5e1"), xanchor="right"
-                    )
 
-                    st.plotly_chart(fig_ls, use_container_width=True)
                 else:
                     st.caption("No side column found.")
 
-
-        with kpi_row2[1]:
-            with st.container(border=True):
-                st.markdown("**Profit Factor**")
-                _pf_disp = "∞" if pf_v == float("inf") else f"{pf_v:.2f}"
-                st.metric(label="", value=_pf_disp)
 
         # === Equity Curve (bottom of s_left) — with tabs and date x-axis ===
         with st.container(border=True):
@@ -1222,7 +1239,7 @@ with tab_overview:
             <style>
             /* Add a left-side caption in the same row as the tabs */
             div[data-testid="stTabs"] div[role="tablist"]::before{
-            content: "Equity Curve";
+            # content: "Equity Curve";
             margin-right: auto;   /* keeps tabs on the right */
             color: #d5deed;
             font-weight: 600;
@@ -1356,7 +1373,20 @@ with tab_overview:
 
             # Tabs like your top-level tabs; default = All (first tab)
             st.markdown('<div class="eq-tabs">', unsafe_allow_html=True)
+            # Header row: left label, right-aligned tabs
+            hdr_l, hdr_r = st.columns([1, 3], gap="small")
+            with hdr_l:
+                st.markdown(
+                    '<div style="color:#d5deed; font-weight:600; letter-spacing:.2px; font-size:32px; margin:0;">Equity Curve</div>',
+                    unsafe_allow_html=True
+                )
+            with hdr_r:
+                st.empty()   # keep the header row height; nothing else here
+
+            # Create tabs at full card width so the chart can expand
             eq_tabs = st.tabs(["All", "1D", "1W", "1M", "6M", "1Y"])
+
+
 
             for _label, _tab in zip(["All","1D","1W","1M","6M","1Y"], eq_tabs):
                 with _tab:
