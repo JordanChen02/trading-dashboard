@@ -163,6 +163,7 @@ import plotly.graph_objects as go
 # 👇 our modules
 from src.io import load_trades, validate
 from src.metrics import add_pnl
+from src.charts.equity import plot_equity
 
 
 
@@ -1294,139 +1295,6 @@ with tab_overview:
                 return df_in[df_in["_date"] >= start]
 
 
-            def _plot_equity(df_in: pd.DataFrame, *, height: int | None = None):
-                import plotly.graph_objects as go
-
-                x = df_in["_date"]
-                y = pd.to_numeric(df_in["equity"], errors="coerce").astype(float)
-
-                fig = go.Figure()
-
-                # Invisible baseline at starting equity
-                fig.add_scatter(
-                    x=x,
-                    y=[float(start_equity)] * len(df_in),
-                    mode="lines",
-                    line=dict(width=0),
-                    hoverinfo="skip",
-                    showlegend=False
-                )
-
-                # --- Dynamic baseline: if equity ever dips below start_equity, use the min as the new fill baseline
-                base = float(min(start_equity, float(np.nanmin(y)) if len(y) else start_equity))
-
-                # Helper: hover template (keep your existing _has_date)
-                _ht = (
-                    "%{x|%b %d, %Y}<br>Equity: $%{y:,.0f}<extra></extra>"
-                    if _has_date else
-                    "Trade %{x}<br>Equity: $%{y:,.0f}<extra></extra>"
-                )
-
-                # Split series
-                y_above = [v if (v is not None and v >= base) else None for v in y]
-                y_below = [v if (v is not None and v <  base) else None for v in y]
-
-
-                # (A) Invisible baseline (so we can "fill to next y") — for ABOVE segment
-                fig.add_scatter(
-                    x=x, y=[base] * len(x),
-                    mode="lines",
-                    line=dict(width=0),
-                    hoverinfo="skip",
-                    showlegend=False
-                )
-
-                # (B) ABOVE-baseline segment
-                
-                fig.add_scatter(
-                    x=x, y=y_above,
-                    mode="lines",
-                    line=dict(width=2, color="#9ecbff", shape="spline", smoothing=0.6),  # <- smoothing IN line
-                    fill="tonexty",
-                    fillcolor="rgba(53,121,186,0.18)",
-                    hovertemplate=_ht,
-                    showlegend=False
-                )
-
-                # (C) Another invisible baseline — ensures BELOW fills to the baseline, not to (B)
-                fig.add_scatter(
-                    x=x, y=[base] * len(x),
-                    mode="lines",
-                    line=dict(width=0),
-                    hoverinfo="skip",
-                    showlegend=False
-                )
-
-                # (D) BELOW-baseline segment (use your half-donut dark color)
-                fig.add_scatter(
-                    x=x, y=y_below,
-                    mode="lines",
-                    line=dict(width=2, color="#212C47", shape="spline", smoothing=0.6),
-                    fill="tonexty",
-                    fillcolor="rgba(33,44,71,0.55)",  # #212C47 @ ~55% alpha
-                    hovertemplate=_ht,
-                    showlegend=False
-                )
-
-
-                # Height: reuse calendar height if present, else 240
-                target_h = int(height) if height is not None else int(st.session_state.get("_cal_height", 240))
-
-                # Y range anchored near starting equity with a little padding
-                ymin = min(float(start_equity), float(np.nanmin(y)) if len(y) else float(start_equity))
-                ymax = max(float(start_equity), float(np.nanmax(y)) if len(y) else float(start_equity))
-                pad_low = max(30, (ymax - ymin) * 0.05)
-                pad_high = max(30, (ymax - ymin) * 0.07)
-
-                # AFTER the line: pad_high = max(30, (ymax - ymin) * 0.07)
-                fig.update_layout(
-                    height=target_h,
-                    margin=dict(l=8, r=8, t=0, b=0),   # ↓ tighter
-                    paper_bgcolor="#0b0f19",
-                    plot_bgcolor="#0b0f19",
-                    showlegend=False,
-                )
-
-                if _has_date:
-                    # Convert whatever x is into a DatetimeIndex
-                    dt_index = pd.to_datetime(x)
-
-                    # Normalize to calendar days
-                    unique_days = pd.Series(dt_index).dt.floor("D").unique()
-
-                    # Aim for ~7 ticks
-                    step = max(1, len(unique_days) // 7)
-                    tick_vals = unique_days[::step]
-
-                    fig.update_xaxes(
-                        type="date",
-                        showgrid=False, zeroline=False, showspikes=False, automargin=True,
-                        tickmode="array",
-                        tickvals=tick_vals,
-                        tickformat="%b %d",   # e.g. Sep 11
-                        ticklabelstandoff=-20,  # tighten label spacing
-
-                    )
-
-                    # Extend the x-axis so it starts a bit earlier (prevents ticks from sitting far from curve)
-                    xmin = dt_index.min()
-                    xmax = dt_index.max()
-                    xmin_shifted = xmin - pd.Timedelta(days=5)  # adjust how much earlier you want
-                    fig.update_xaxes(range=[xmin_shifted, xmax])
-
-                else:
-                    fig.update_xaxes(type="linear", showgrid=False, zeroline=False, automargin=True, nticks=6)
-
-
-                fig.update_yaxes(
-                    showgrid=False, zeroline=False, automargin=True,
-                    tickprefix="$", separatethousands=True,
-                    range=[ymin - pad_low, ymax + pad_high]
-                )
-
-                return fig
-
-
 
             # Tabs like your top-level tabs; default = All (first tab)
             st.markdown('<div class="eq-tabs">', unsafe_allow_html=True)
@@ -1451,7 +1319,12 @@ with tab_overview:
                     if len(_dfw) == 0:
                         st.caption("No data in this window.")
                     else:
-                        fig_eq = _plot_equity(_dfw, height=590)
+                        fig_eq = plot_equity(
+                            _dfw,
+                            start_equity=start_equity,
+                            has_date=_has_date,
+                            height=590,
+                        )
                         st.plotly_chart(fig_eq, use_container_width=True, key=f"eq_curve_{_label}")
 
 
