@@ -17,6 +17,7 @@ import src.views.calendar_panel as cal_view
 from src.io import load_trades, validate
 from src.metrics import add_pnl
 from src.charts.equity import plot_equity
+from src.charts.drawdown import plot_underwater
 
 
 st.set_page_config(
@@ -1477,124 +1478,21 @@ with tab_perf:
     st.divider()
     st.markdown("#### Underwater (Drawdown %)")
 
-    # Build equity from df_view so this respects Range + Calendar filter
-    _p = pd.to_numeric(df_view["pnl"], errors="coerce").fillna(0.0)
-    _dfu = df_view.copy().reset_index(drop=True)
-    _dfu["trade_no"] = np.arange(1, len(_dfu) + 1)
-    _dfu["cum_pnl"]  = _p.cumsum()
-    _dfu["equity"]   = start_equity + _dfu["cum_pnl"]
-    _dfu["peak"]     = _dfu["equity"].cummax()
-    _dfu["dd_pct"]   = np.where(_dfu["peak"] > 0, (_dfu["equity"] / _dfu["peak"]) - 1.0, 0.0) * 100.0  # ≤ 0
+    show_vline = st.checkbox("Show Max DD vertical line", value=True, key="uw_show_maxdd_vline")
+    show_label = st.checkbox("Show Max DD label", value=True, key="uw_show_maxdd_label")
 
-    # Current DD badge (uses last row)
-    _current_dd_pct = float(_dfu["dd_pct"].iloc[-1])  # last drawdown % (negative or 0)
-    _current_dd_abs = float((_dfu["equity"] - _dfu["peak"]).iloc[-1])  # last DD in $ (≤ 0)
-    st.caption(f"Current DD: **{_current_dd_pct:.2f}%**  (${_current_dd_abs:,.0f})")
+    fig_dd, dd_stats = plot_underwater(
+        df_view,
+        start_equity=start_equity,
+        date_col=_date_col,
+        show_vline=show_vline,
+        show_label=show_label,
+        height=220,
+    )
 
-    if len(_dfu) > 0:
-        # Extra fields for hover
-        _dfu["dd_abs"] = _dfu["equity"] - _dfu["peak"]  # drawdown in $ (≤ 0)
-        if _date_col is not None and _date_col in df_view.columns:
-            _dfu["_date"] = pd.to_datetime(df_view[_date_col], errors="coerce").dt.strftime("%Y-%m-%d")
-        else:
-            _dfu["_date"] = ""
-
-        # Range-aware chips
-        _max_dd_pct_chip = float(_dfu["dd_pct"].min())
-        _current_dd_pct_chip = float(_dfu["dd_pct"].iloc[-1])
-
-        _idx_min_chip = int(_dfu["dd_pct"].idxmin())
-        _recovered_chip = (_dfu.loc[_idx_min_chip + 1:, "dd_pct"] >= -1e-9).any()
-
-        c_max, c_cur, c_rec = st.columns(3)
-        with c_max: st.caption(f"**Max DD**: { _max_dd_pct_chip:.2f}%")
-        with c_cur: st.caption(f"**Current DD**: { _current_dd_pct_chip:.2f}%")
-        with c_rec: st.caption(f"**Recovered**: {'Yes ✅' if _recovered_chip else 'No ❌'}")
-
-        fig_dd = px.area(
-            _dfu,
-            x="trade_no",
-            y="dd_pct",
-            title=None,
-            labels={"trade_no": "Trade #", "dd_pct": "Drawdown (%)"},
-            custom_data=["dd_abs", "equity", "peak", "_date"]
-        )
-        fig_dd.update_traces(
-            hovertemplate=(
-                "Trade #%{x}<br>"
-                "Date: %{customdata[3]}<br>"
-                "Drawdown: %{y:.2f}%<br>"
-                "DD ($): $%{customdata[0]:,.0f}<br>"
-                "Equity: $%{customdata[1]:,.0f}<br>"
-                "Peak: $%{customdata[2]:,.0f}<extra></extra>"
-            ),
-            showlegend=False
-        )
-        min_dd = float(_dfu["dd_pct"].min()) if len(_dfu) else 0.0
-        y_floor = min(-1.0, min_dd * 1.10)
-        fig_dd.update_yaxes(range=[y_floor, 0], ticksuffix="%", separatethousands=True)
-        fig_dd.add_hline(y=0, line_width=1, line_dash="dot", opacity=0.6)
-        fig_dd.update_layout(height=220, margin=dict(l=10, r=10, t=10, b=10))
-
-        _show_vline = st.checkbox("Show Max DD vertical line", value=True, key="uw_show_maxdd_vline")
-        _show_persistent = st.checkbox("Show Max DD label", value=True, key="uw_show_maxdd_label")
-
-        _idx_min = int(_dfu["dd_pct"].idxmin())
-        _x_trade = int(_dfu.loc[_idx_min, "trade_no"])
-        _y_ddpct = float(_dfu.loc[_idx_min, "dd_pct"])
-        _dd_abs_v = float(_dfu.loc[_idx_min, "dd_abs"])
-        _date_str = str(_dfu.loc[_idx_min, "_date"]) if "_date" in _dfu.columns else ""
-
-        _pre_slice = _dfu.loc[:_idx_min]
-        _peak_idx  = int(_pre_slice["equity"].idxmax())
-        _since_peak_trades = int(_x_trade - int(_dfu.loc[_peak_idx, "trade_no"]))
-
-        _recover_slice = _dfu.loc[_idx_min + 1:, "dd_pct"]
-        _recovered_mask = _recover_slice >= -1e-9
-        _recover_idx = _recovered_mask.index[_recovered_mask.argmax()] if _recovered_mask.any() else None
-        if _recover_idx is not None:
-            _trades_to_recover = int(_dfu.loc[_recover_idx, "trade_no"] - _x_trade)
-            _recover_msg = f"Recovered from Max DD in **{_trades_to_recover} trades**."
-        else:
-            _recover_msg = "Not yet recovered from Max DD."
-
-        fig_dd.add_scatter(
-            x=[_x_trade], y=[_y_ddpct],
-            mode="markers",
-            marker=dict(size=8, color="#ef4444"),
-            name="Max DD",
-            hovertemplate=(
-                "Trade #%{x}<br>"
-                "Date: " + (_date_str if _date_str else "%{x}") + "<br>"
-                "Drawdown: %{y:.2f}%<br>"
-                f"Since peak: {_since_peak_trades} trades"
-                "<extra>Max DD point</extra>"
-            )
-        )
-
-        if _show_persistent:
-            fig_dd.add_annotation(
-                x=_x_trade, y=_y_ddpct,
-                text=f"Max DD { _y_ddpct:.2f}% (${'{:,.0f}'.format(_dd_abs_v)})",
-                showarrow=True, arrowhead=2,
-                ax=0, ay=-40,
-                bgcolor="rgba(16,22,33,0.7)",
-                bordercolor="#2a3444",
-                font=dict(size=11, color="#e5e7eb")
-            )
-        if _show_vline:
-            fig_dd.add_vline(
-                x=_x_trade,
-                line_width=1,
-                line_dash="dash",
-                line_color="#ef4444",
-                opacity=0.6
-            )
-
-        st.plotly_chart(fig_dd, use_container_width=True)
-        st.caption(_recover_msg)
-    else:
-        st.caption("No rows available in the current Range to compute drawdown.")
+    st.caption(f"Current DD: **{dd_stats['current_dd_pct']:.2f}%**  (${dd_stats['current_dd_abs']:,.0f})")
+    st.plotly_chart(fig_dd, use_container_width=True)
+    st.caption(dd_stats['recover_msg'])
 
 
 with tab_calendar:
