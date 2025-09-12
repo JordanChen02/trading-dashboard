@@ -1401,53 +1401,43 @@ with tab_overview:
 
     # === Right column top row (split in 2) ===
     with s_right:
-        right_top = st.columns([2, 1], gap="medium")
+        st.markdown("<div style='margin-bottom:-12px'></div>", unsafe_allow_html=True)
+        right_top = st.columns([2, 1], gap="small")
 
         # ----- Left side: Daily / Weekly PnL (replaces "Volume per Day (last ~20 trades)") -----
         with right_top[0]:
             with st.container(border=True):
 
-                # --- Header: title/caption on left; seg control visually inline on right ---
+                # ---- header tuning knobs (edit these numbers) ----
+                DP_HEADER = dict(
+                    title_size=22,      # px
+                    title_bottom=-6,    # a bit tighter under the title
+                    caption_size=12,    # px
+                    caption_top=-2,     # LOWER the caption slightly (it was too high)
+                    right_row1_top=-6,  # RAISE the segmented control to meet the title
+                    right_row2_top=-14, # RAISE the toggle to meet the caption
+                    after_header=-8,    # pull chart a touch closer
+                )
 
-                # 2) Right-align the segmented control and pull it up to share the caption line
-                # --- Header row: title/caption left, segmented control right ---
-                header_left, header_right = st.columns([3, 1])
+                # --- Compact header with deterministic alignment ---
 
-                # Row 1: Title (left) | Segmented control (right)
-                row1_left, row1_right = st.columns([3, 1], gap="small")
-                with row1_left:
-                    st.markdown("<div style='height:0px'></div>", unsafe_allow_html=True)  # minimal top space
+                # tweak these 4 values to nudge baselines
+                TITLE_TOP_PAD = 10      # px spacer BEFORE "Daily PnL"
+                CTRL_TOP_PAD  = 4     # px spacer BEFORE segmented control
+                CAP_TOP_PAD   = 10      # px spacer BEFORE caption
+                TOGGLE_TOP_PAD= 4      # px spacer BEFORE toggle
+
+                # ROW 1: Title (left) | Segmented control (right)
+                r1l, r1r = st.columns([3, 1], gap="small")
+                with r1l:
+                    st.markdown(f"<div style='height:{TITLE_TOP_PAD}px'></div>", unsafe_allow_html=True)
                     current_mode = st.session_state.get("_dpnl_mode", "Daily")
-                    st.markdown(
-                        f"<div style='font-size:26px; font-weight:600;'>{current_mode} PnL</div>",
-                        unsafe_allow_html=True
-                    )
-                with row1_right:
-                    mode = st.segmented_control(
-                        options=["Daily", "Weekly"],
-                        default=current_mode,
-                        label=""
-                    )
+                    st.markdown("<div style='font-size:28px; font-weight:600; margin:0'>"
+                                f"{current_mode} PnL</div>", unsafe_allow_html=True)
+                with r1r:
+                    st.markdown(f"<div style='height:{CTRL_TOP_PAD}px'></div>", unsafe_allow_html=True)
+                    mode = st.segmented_control(options=["Daily","Weekly"], default=current_mode, label="")
                     st.session_state["_dpnl_mode"] = mode
-
-                # Spacer between row 1 and row 2 (control vertical gap)
-                st.markdown("<div style='margin-bottom:6px'></div>", unsafe_allow_html=True)
-
-                # Row 2: Caption (left) | Show Profit toggle (right)
-                row2_left, row2_right = st.columns([3, 1], gap="small")
-                with row2_left:
-                    st.caption("Daily & weekly profit")
-                with row2_right:
-                    show_profit = st.toggle("Show Profit", value=True, key="dpnl_show")
-
-                # Reduce space below header rows (before the chart)
-                st.markdown("<div style='margin-bottom:-12px'></div>", unsafe_allow_html=True)
-
-
-
-
-
-
 
 
                 # ---- Data prep ----
@@ -1488,6 +1478,8 @@ with tab_overview:
                         x_vals = weekly["_week"]; y_vals = weekly["pnl"]
                         tickvals = x_vals; ticktext = [d.strftime("%m/%d/%Y") for d in x_vals]
 
+                    st.markdown("<div style='margin-bottom:-12px'></div>", unsafe_allow_html=True)
+
                     fig = go.Figure()
                     fig.add_bar(
                         x=x_vals, y=y_vals,
@@ -1497,24 +1489,46 @@ with tab_overview:
                     )
                     fig.add_hline(y=0, line_width=1, line_color="rgba(255,255,255,0.25)")
 
-                    # --- Profit labels: show/hide via toggle (clears annotations when off)
+                    # --- Label only the biggest profit (max) and biggest loss (min) ---
                     annotations = []
-                    if show_profit:
-                        ymax = max(1.0, float(abs(y_vals.max())))
-                        ymin = max(1.0, float(abs(y_vals.min())))
-                        pad_pos, pad_neg = ymax * 0.03, ymin * 0.03
-                        for xv, yv in zip(x_vals, y_vals):
-                            ay = yv + (pad_pos if yv >= 0 else -pad_neg)
-                            annotations.append(dict(x=xv, y=ay, xref="x", yref="y",
-                                                    text=f"${yv:,.2f}", showarrow=False,
-                                                    font=dict(size=12, color="#e5e7eb")))
+                    if len(y_vals) > 0:
+                        max_idx = int(y_vals.idxmax())
+                        min_idx = int(y_vals.idxmin())
+
+                        y_max = float(y_vals[max_idx])
+                        y_min = float(y_vals[min_idx])
+
+                        # small padding so text sits above/below the bar tip
+                        span = max(1.0, float(abs(y_vals.max()) + abs(y_vals.min())))
+                        pad  = span * 0.04
+
+                        # biggest profit (above bar)
+                        annotations.append(dict(
+                            x=x_vals[max_idx], y=(y_max + pad if y_max >= 0 else y_max - pad),
+                            xref="x", yref="y",
+                            text=f"${y_max:,.2f}", showarrow=False,
+                            font=dict(size=12, color="#ffffff")  # tweak color if you want
+                        ))
+
+                        # biggest loss (below bar if negative; above if positive edge case)
+                        annotations.append(dict(
+                            x=x_vals[min_idx], y=(y_min - pad if y_min < 0 else y_min + pad),
+                            xref="x", yref="y",
+                            text=f"${y_min:,.2f}", showarrow=False,
+                            font=dict(size=12, color="#ffffff")
+                        ))
+
                     fig.update_layout(annotations=annotations)
 
+                    # --- Profit labels: show/hide via toggle (clears annotations when off)
+
                     fig.update_layout(
-                        height=300,
+                        height=250,
                         margin=dict(l=16, r=16, t=8, b=10),
                         paper_bgcolor=panel_bg, plot_bgcolor=panel_bg,
                         showlegend=False,
+                        bargap=0.5,         # increase to make bars thinner (try 0.3–0.5)
+                        bargroupgap=0.1     # optional, controls inner spacing
                     )
                     fig.update_yaxes(
                         zeroline=False, showgrid=True, gridcolor="rgba(255,255,255,0.06)",
@@ -1612,7 +1626,9 @@ with tab_overview:
                 </div>
                 """, unsafe_allow_html=True)
 
-
+                # Reduce space below header rows (before the chart)
+                st.markdown("<div style='margin-bottom:-32px'></div>", unsafe_allow_html=True)
+                
         # --- Right column bottom: Calendar panel ---
         with st.container(border=True):
             render_calendar_panel(df_view, _date_col, st.session_state["_cal_month_start"])
@@ -1927,317 +1943,7 @@ with tab_perf:
         mime="text/csv",
         use_container_width=True,
     )
-    # -------- Notes (per trade) — Journal QoL --------
-st.markdown("#### Notes (per trade)")
-if len(df_view) == 0:
-    st.caption("No rows to annotate.")
-else:
-    # Build human-friendly chooser; preserve original indices
-    _dv = df_view.copy()
-    _date_lbl = None
-    if _date_col is not None and _date_col in _dv.columns:
-        _date_lbl = pd.to_datetime(_dv[_date_col], errors="coerce").dt.strftime("%Y-%m-%d")
-    else:
-        _date_lbl = pd.Series(["—"] * len(_dv), index=_dv.index)
 
-    _sym_lbl  = _dv["symbol"].astype(str) if "symbol" in _dv.columns else pd.Series(["—"] * len(_dv), index=_dv.index)
-    _side_lbl = _dv["side"].astype(str)   if "side"   in _dv.columns else pd.Series(["—"] * len(_dv), index=_dv.index)
-    _pnl_lbl  = pd.to_numeric(_dv["pnl"], errors="coerce").fillna(0.0)
-
-    _options = []
-    for _i in _dv.index:  # original index label
-        _label = f"[{_i}] {_date_lbl.loc[_i]} · {_sym_lbl.loc[_i]} · {_side_lbl.loc[_i]} · ${_pnl_lbl.loc[_i]:,.0f}"
-        _options.append((_label, _i))
-
-    _labels = [t[0] for t in _options]
-    _values = [t[1] for t in _options]
-
-    _sel = st.selectbox(
-        "Pick a trade to annotate",
-        options=list(range(len(_labels))),
-        format_func=lambda k: _labels[k],
-        key="note_sel_idx",
-    )
-    _sel_index = _values[_sel]
-
-    _prefill = st.session_state["_trade_notes"].get(_sel_index, "")
-    if _prefill == "" and "note" in df.columns:
-        _prefill = str(df.loc[_sel_index, "note"]) if pd.notna(df.loc[_sel_index, "note"]) else ""
-
-    _note_txt = st.text_area(
-        "Note",
-        value=_prefill,
-        height=100,
-        placeholder="What did you see or learn on this trade? Execution, context, emotions, setup quality…"
-    )
-
-    cols = st.columns([1,1,6])
-    with cols[0]:
-        if st.button("💾 Save note", use_container_width=True):
-            st.session_state["_trade_notes"][_sel_index] = _note_txt
-            _persist_journal_meta()  # persist for journals
-            st.toast(f"Note saved for trade index [{_sel_index}]")
-            st.rerun()
-    with cols[1]:
-        if st.button("🗑️ Clear note", use_container_width=True):
-            st.session_state["_trade_notes"].pop(_sel_index, None)
-            _persist_journal_meta()  # persist for journals
-            st.toast(f"Note cleared for [{_sel_index}]")
-            st.rerun()
-
-    st.markdown("#### Quick Tags")
-    _tag_options = ["A+", "A", "B", "C"]
-    _current_tag = st.session_state["_trade_tags"].get(
-        _sel_index, df.loc[_sel_index, "tag"] if "tag" in df.columns else ""
-    )
-    _tag_choice = st.radio(
-        "Select a tag for this trade",
-        options=_tag_options + ["(clear)"],
-        index=(_tag_options + ["(clear)"]).index(_current_tag) if _current_tag in (_tag_options + ["(clear)"]) else len(_tag_options),
-        horizontal=True
-    )
-
-    tcols = st.columns([1,1,6])
-    with tcols[0]:
-        if st.button("🏷️ Save tag", use_container_width=True):
-            if _tag_choice == "(clear)":
-                st.session_state["_trade_tags"].pop(_sel_index, None)
-                if "tag" in df.columns:
-                    df.at[_sel_index, "tag"] = ""
-            else:
-                st.session_state["_trade_tags"][_sel_index] = _tag_choice
-                if "tag" not in df.columns:
-                    df["tag"] = ""
-                df.at[_sel_index, "tag"] = _tag_choice
-            _persist_journal_meta()  # persist for journals
-            st.toast(f"Tag saved for trade index [{_sel_index}]")
-            st.rerun()
-    with tcols[1]:
-        if st.button("🗑️ Clear tag", use_container_width=True):
-            st.session_state["_trade_tags"].pop(_sel_index, None)
-            if "tag" in df.columns:
-                df.at[_sel_index, "tag"] = ""
-            _persist_journal_meta()  # persist for journals
-            st.toast(f"Tag cleared for [{_sel_index}]")
-            st.rerun()
-
-# ======= BELOW ARE SIBLINGS OF NOTES (dedented one level), STILL INSIDE with tab_perf: =======
-
-st.divider()
-st.subheader("Breakdown")
-
-def _group_metrics(group_df: pd.DataFrame) -> pd.Series:
-    _p = pd.to_numeric(group_df["pnl"], errors="coerce").fillna(0.0)
-    _wins = (_p > 0)
-    _loss = (_p < 0)
-    _be   = (_p == 0)
-    _w = int(_wins.sum()); _l = int(_loss.sum()); _b = int(_be.sum())
-    _tot = int(len(_p))
-
-    # win-rate with your breakeven policy
-    if be_policy == "be excluded from win-rate":
-        denom = _w + _l
-        wr = (_w / denom) * 100.0 if denom > 0 else 0.0
-    elif be_policy == "count as losses":
-        wr = (_w / _tot) * 100.0 if _tot > 0 else 0.0
-    else:  # count as wins
-        wr = ((_w + _b) / _tot) * 100.0 if _tot > 0 else 0.0
-
-    gp = float(_p[_wins].sum())
-    gl = float(_p[_loss].sum())
-    pf = (gp / abs(gl)) if gl != 0 else float("inf")
-    avg_w = float(_p[_wins].mean()) if _w > 0 else 0.0
-    avg_l = float(_p[_loss].mean()) if _l > 0 else 0.0
-    aw_al = (abs(avg_w / avg_l) if avg_l != 0 else float("inf"))
-
-    return pd.Series({
-        "Trades": _tot,
-        "Win Rate %": round(wr, 1),
-        "PF": (float("inf") if pf == float("inf") else round(pf, 2)),
-        "Net PnL": round(float(_p.sum()), 2),
-        "Avg Win/Loss": ("∞" if aw_al == float("inf") else round(aw_al, 2)),
-    })
-
-# Per-Symbol
-if "symbol" in df_view.columns:
-    sym_tbl = df_view.groupby("symbol", dropna=True).apply(_group_metrics).reset_index().sort_values("Net PnL", ascending=False)
-    st.markdown("**Per Symbol**")
-    st.dataframe(sym_tbl, use_container_width=True)
-else:
-    st.caption("No `symbol` column found for per-symbol breakdown.")
-
-st.divider()
-
-# Per-Side
-if "side" in df_view.columns:
-    side_tbl = df_view.assign(_side=df_view["side"].str.lower()).groupby("_side", dropna=True).apply(_group_metrics).reset_index()
-    side_tbl["_side"] = side_tbl["_side"].str.capitalize()
-    side_tbl = side_tbl.rename(columns={"_side": "Side"}).sort_values("Net PnL", ascending=False)
-    st.markdown("**Per Side**")
-    st.dataframe(side_tbl, use_container_width=True)
-else:
-    st.caption("No `side` column found for per-side breakdown.")
-
-# -------- One-click Summary Report (Markdown + JSON) --------
-st.divider()
-st.markdown("#### Summary Report (current Range)")
-
-# Gather quick stats from df_view
-_p = pd.to_numeric(df_view["pnl"], errors="coerce").fillna(0.0)
-_total = int(len(_p))
-_wr = ( (_p > 0).mean() * 100.0 ) if _total > 0 else 0.0
-_gp = float(_p[_p > 0].sum()); _gl = float(_p[_p < 0].sum()); _np = float(_p.sum())
-_pf = ( _gp / abs(_gl) ) if _gl != 0 else float("inf")
-
-_best = float(_p.max()) if _total > 0 else 0.0
-_worst = float(_p.min()) if _total > 0 else 0.0
-
-# Time-aware drawdown for this Range (reusing approach from Performance risk KPIs)
-_eq = start_equity + _p.cumsum()
-_peak = _eq.cummax()
-_dd_pct_series = np.where(_peak > 0, (_eq / _peak) - 1.0, 0.0) * 100.0
-_max_dd_pct_report = float(_dd_pct_series.min()) if _total > 0 else 0.0
-
-# Top symbols by Net PnL (if symbol column present)
-_top_sym_lines = []
-if "symbol" in df_view.columns:
-    _by_sym = (
-        df_view.assign(_p=_p)
-            .groupby("symbol", dropna=True)["_p"]
-            .sum()
-            .sort_values(ascending=False)
-            .head(3)
-    )
-    for s, v in _by_sym.items():
-        _top_sym_lines.append(f"- {s}: ${v:,.0f}")
-else:
-    _top_sym_lines.append("- (no symbol column)")
-
-# Last 3 notes (if any and if note column exists)
-_note_lines = []
-if "note" in df_view.columns:
-    _notes_nonempty = df_view.loc[df_view["note"].astype(str).str.strip() != ""]
-    if len(_notes_nonempty) > 0:
-        _last_notes = _notes_nonempty.tail(3)[["note"]].astype(str)["note"].tolist()
-        for n in _last_notes:
-            _note_lines.append(f"- {n[:200]}")
-    else:
-        _note_lines.append("- (no notes in current Range)")
-else:
-    _note_lines.append("- (no note column)")
-
-# Tag mix (if any tags present)
-_tag_lines = []
-if "tag" in df_view.columns:
-    _tag_counts = (
-        df_view["tag"].astype(str).str.strip()
-        .replace("", np.nan)
-        .dropna()
-        .value_counts()
-        .reindex(["A+","A","B","C"])
-        .fillna(0)
-        .astype(int)
-    )
-    if _tag_counts.sum() > 0:
-        for tg, ct in _tag_counts.items():
-            _tag_lines.append(f"- {tg}: {ct}")
-    else:
-        _tag_lines.append("- (no tags in current Range)")
-else:
-    _tag_lines.append("- (no tag column)")
-
-# Build markdown
-_report_md = f"""# Trading Summary — {tf}
-
-**Range:** {tf}  
-**Trades:** {_total}  
-**Win Rate:** {_wr:.1f}%  
-**Net Profit:** ${_np:,.0f}  
-**Profit Factor:** {"∞" if _pf == float("inf") else f"{_pf:.2f}"}  
-**Max Drawdown (Range):** {_max_dd_pct_report:.2f}%
-
-## Top Symbols
-{chr(10).join(_top_sym_lines)}
-
-## Best / Worst Trade
-- Best: ${_best:,.0f}  
-- Worst: ${_worst:,.0f}
-
-## Tag Mix
-{chr(10).join(_tag_lines)}
-
-## Recent Notes
-{chr(10).join(_note_lines)}
-"""
-
-st.code(_report_md, language="markdown")
-
-from datetime import datetime as _dt
-_fname_rep = f"summary_{tf.lower().replace(' ','_')}_{_dt.now().strftime('%Y%m%d_%H%M%S')}.md"
-st.download_button(
-    "⬇️ Download Summary (Markdown)",
-    data=_report_md.encode("utf-8"),
-    file_name=_fname_rep,
-    mime="text/markdown",
-    use_container_width=True
-)
-
-# ---- JSON Summary (machine-readable) ----
-def _parse_money(s: str) -> float:
-    s = s.replace("$", "").replace(",", "").strip()
-    try:
-        return float(s)
-    except Exception:
-        return 0.0
-
-_top_symbols_json = []
-for line in _top_sym_lines:
-    line = line.strip().lstrip("-").strip()
-    if ": " in line:
-        sym, val = line.split(": ", 1)
-        _top_symbols_json.append({"symbol": sym, "net_pnl": _parse_money(val)})
-
-_tag_mix_json = {}
-for line in _tag_lines:
-    line = line.strip().lstrip("-").strip()
-    if ": " in line:
-        tg, ct = line.split(": ", 1)
-        try:
-            _tag_mix_json[tg] = int(ct)
-        except Exception:
-            pass
-
-_json_payload = {
-    "range": tf,
-    "generated_at": _dt.now().isoformat(timespec="seconds"),
-    "trades": {
-        "count": _total,
-        "win_rate_pct": round(_wr, 2),
-        "gross_profit": round(_gp, 2),
-        "gross_loss": round(_gl, 2),
-        "net_profit": round(_np, 2),
-        "profit_factor": (None if _pf == float("inf") else round(_pf, 4)),
-        "best_trade": round(_best, 2),
-        "worst_trade": round(_worst, 2)
-    },
-    "risk": {
-        "max_drawdown_pct": round(_max_dd_pct_report, 2)
-    },
-    "top_symbols": _top_symbols_json,
-    "tag_mix": _tag_mix_json,
-    "recent_notes": [n.lstrip("- ").strip() for n in _note_lines]
-}
-
-st.code(json.dumps(_json_payload, ensure_ascii=False, indent=2), language="json")
-
-_fname_json = f"summary_{tf.lower().replace(' ','_')}_{_dt.now().strftime('%Y%m%d_%H%M%S')}.json"
-st.download_button(
-    "⬇️ Download Summary (JSON)",
-    data=json.dumps(_json_payload, ensure_ascii=False, indent=2).encode("utf-8"),
-    file_name=_fname_json,
-    mime="application/json",
-    use_container_width=True
-)
 
 # -------- Underwater (Drawdown %) [timeframe-aware] --------
 st.divider()
