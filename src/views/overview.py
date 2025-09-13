@@ -11,6 +11,7 @@ import src.views.calendar_panel as cal_view
 from src.charts.pnl import plot_pnl
 from src.components.winstreak import render_winstreak
 from src.theme import BLUE  # to pass the brand color
+from src.kpis import profit_factor
 
 
 def render_overview(
@@ -35,7 +36,7 @@ def render_overview(
         # === Prep values used in these KPIs (Range-aware) ===
         gross_profit_v = float(pnl_v[wins_mask_v].sum())
         gross_loss_v   = float(pnl_v[losses_mask_v].sum())
-        pf_v = (gross_profit_v / abs(gross_loss_v)) if gross_loss_v != 0 else float("inf")
+        pf_v = profit_factor(pnl_v)
 
         _side_dist_local = (
             df_view["side"].str.lower().value_counts(normalize=True)
@@ -346,12 +347,6 @@ def render_overview(
                     fig_pnl = plot_pnl(df_view, date_col, mode=mode, height=250)
                     st.plotly_chart(fig_pnl, use_container_width=True, key=f"ov_pnl_{mode}")
 
-            # ----- Right side: Win Streak box (keep your existing content here) -----
-            with right_top[1]:
-                with st.container(border=True):
-                    # ... your Win Streak CSS/HTML block unchanged ...
-                    # (leave everything you already had for the Winstreak card)
-                    pass  # REMOVE this 'pass' if your content is already here
 
             # --- Right column bottom: Calendar panel ---
             with st.container(border=True):
