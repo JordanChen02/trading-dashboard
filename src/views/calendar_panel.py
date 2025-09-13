@@ -6,7 +6,14 @@ import streamlit as st
 import numpy as np  # only if your function uses np
 
 
-def render_calendar_panel(df_view: pd.DataFrame, _date_col: str | None, month_start: pd.Timestamp):
+def render_calendar_panel(
+    df_view: pd.DataFrame,
+    _date_col: str | None,
+    month_start: pd.Timestamp,
+    *,
+    key: str = "cal",
+):
+
     """Render the Calendar — Daily PnL & Trade Count panel in-place (no tabs)."""
 
     # === Begin: moved verbatim from your `with tab_calendar:` block (minus the first 2 header lines) ===
@@ -200,4 +207,8 @@ def render_calendar_panel(df_view: pd.DataFrame, _date_col: str | None, month_st
 
     _title = _month_start.strftime("%B %Y")
     st.markdown(f"### {_title}")
-    st.plotly_chart(fig_cal, use_container_width=True)
+    st.plotly_chart(
+        fig_cal,
+        use_container_width=True,
+        key=f"{key}_{month_start.strftime('%Y%m')}"
+    )

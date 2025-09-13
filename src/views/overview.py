@@ -8,6 +8,7 @@ import streamlit as st
 
 from src.charts.equity import plot_equity
 import src.views.calendar_panel as cal_view
+from src.charts.pnl import plot_pnl
 
 
 def render_overview(
@@ -311,114 +312,49 @@ def render_overview(
                         # Use a unique key prefix so it won't collide with other tabs
                         st.plotly_chart(fig_eq, use_container_width=True, key=f"ov_eq_curve_{_label}")
 
-    # === Right column top row (split in 2) ===
-    with s_right:
-        st.markdown("<div style='margin-bottom:-12px'></div>", unsafe_allow_html=True)
-        right_top = st.columns([2, 1], gap="small")
+        # === Right column top row (split in 2) ===
+        with s_right:
+            st.markdown("<div style='margin-bottom:-12px'></div>", unsafe_allow_html=True)
+            right_top = st.columns([2, 1], gap="small")
 
-        # ----- Left side: Daily / Weekly PnL -----
-        with right_top[0]:
-            with st.container(border=True):
-                # Header spacing knobs
-                TITLE_TOP_PAD = 10
-                CTRL_TOP_PAD  = 4
+            # ----- Left side: Daily / Weekly PnL (inside bordered card) -----
+            with right_top[0]:
+                with st.container(border=True):
+                    # Header spacing knobs
+                    TITLE_TOP_PAD = 10
+                    CTRL_TOP_PAD  = 4
 
-                r1l, r1r = st.columns([3, 1], gap="small")
-                with r1l:
-                    st.markdown(f"<div style='height:{TITLE_TOP_PAD}px'></div>", unsafe_allow_html=True)
-                    current_mode = st.session_state.get("_dpnl_mode", "Daily")
-                    st.markdown("<div style='font-size:28px; font-weight:600; margin:0'>"
-                                f"{current_mode} PnL</div>", unsafe_allow_html=True)
-                with r1r:
-                    st.markdown(f"<div style='height:{CTRL_TOP_PAD}px'></div>", unsafe_allow_html=True)
-                    mode = st.segmented_control(options=["Daily","Weekly"], default=current_mode, label="")
-                    st.session_state["_dpnl_mode"] = mode
+                    # ROW 1: Title (left) | Segmented control (right)
+                    r1l, r1r = st.columns([3, 1], gap="small")
+                    with r1l:
+                        st.markdown(f"<div style='height:{TITLE_TOP_PAD}px'></div>", unsafe_allow_html=True)
+                        current_mode = st.session_state.get("_dpnl_mode", "Daily")
+                        st.markdown("<div style='font-size:28px; font-weight:600; margin:0'>"
+                                    f"{current_mode} PnL</div>", unsafe_allow_html=True)
+                    with r1r:
+                        st.markdown(f"<div style='height:{CTRL_TOP_PAD}px'></div>", unsafe_allow_html=True)
+                        mode = st.segmented_control(options=["Daily","Weekly"], default=current_mode, label="")
+                        st.session_state["_dpnl_mode"] = mode
 
-                if date_col and date_col in df_view.columns:
-                    _dt = pd.to_datetime(df_view[date_col], errors="coerce")
-                else:
-                    _fallbacks = ["_date", "date", "datetime", "timestamp", "time", "entry_time", "exit_time"]
-                    _cand = next((c for c in _fallbacks if c in df_view.columns), None)
-                    _dt = pd.to_datetime(df_view[_cand], errors="coerce") if _cand else pd.to_datetime(pd.Series([], dtype="float64"))
-
-                _pnl = pd.to_numeric(df_view.get("pnl", df_view.get("net_pnl")), errors="coerce").fillna(0.0)
-                _tmp = pd.DataFrame({"_date": _dt, "pnl": _pnl}).dropna(subset=["_date"])
-                if _tmp.empty:
-                    st.info("No dated PnL rows available.")
-                else:
-                    _tmp["_day"] = _tmp["_date"].dt.floor("D")
-                    _last_day = pd.to_datetime(_tmp["_day"].max())
-
-                    panel_bg = "#0b0f19"
-                    pos_color = "#2E86C1"
-                    neg_color = "#2E86C1"
-                    bar_line  = "rgba(255,255,255,0.12)"
-
-                    if mode == "Daily":
-                        idx = pd.date_range(end=_last_day, periods=14, freq="D")
-                        daily = (_tmp.groupby("_day", as_index=False)["pnl"].sum()
-                                .set_index("_day").reindex(idx, fill_value=0.0)
-                                .rename_axis("_day").reset_index())
-                        x_vals = daily["_day"]; y_vals = daily["pnl"]
-                        tickvals = x_vals[::2]
-                        ticktext = [d.strftime("%m/%d/%Y") for d in tickvals]
-                    else:
-                        wk = _tmp.set_index("_day")["pnl"].resample("W-SUN").sum()
-                        widx = pd.date_range(end=wk.index.max(), periods=8, freq="W-SUN")
-                        weekly = wk.reindex(widx, fill_value=0.0).reset_index()
-                        weekly.columns = ["_week", "pnl"]
-                        x_vals = weekly["_week"]; y_vals = weekly["pnl"]
-                        tickvals = x_vals; ticktext = [d.strftime("%m/%d/%Y") for d in x_vals]
-
+                    # tighten gap between header and chart
                     st.markdown("<div style='margin-bottom:-12px'></div>", unsafe_allow_html=True)
 
-                    fig = go.Figure()
-                    fig.add_bar(
-                        x=x_vals, y=y_vals,
-                        marker=dict(color=[pos_color if v >= 0 else neg_color for v in y_vals],
-                                    line=dict(color=bar_line, width=1)),
-                        hovertemplate="%{x|%b %d, %Y}<br>PNL: $%{y:,.2f}<extra></extra>",
-                    )
-                    fig.add_hline(y=0, line_width=1, line_color="rgba(255,255,255,0.25)")
+                    # ---- Chart ----
+                    mode = st.session_state.get("_dpnl_mode", "Daily")  # safety fallback
+                    fig_pnl = plot_pnl(df_view, date_col, mode=mode, height=250)
+                    st.plotly_chart(fig_pnl, use_container_width=True, key=f"ov_pnl_{mode}")
 
-                    # annotate biggest profit/loss bars
-                    annotations = []
-                    if len(y_vals) > 0:
-                        max_idx = int(y_vals.idxmax())
-                        min_idx = int(y_vals.idxmin())
-                        y_max = float(y_vals[max_idx])
-                        y_min = float(y_vals[min_idx])
-                        span = max(1.0, float(abs(y_vals.max()) + abs(y_vals.min())))
-                        pad  = span * 0.04
-                        annotations.append(dict(
-                            x=x_vals[max_idx], y=(y_max + pad if y_max >= 0 else y_max - pad),
-                            xref="x", yref="y", text=f"${y_max:,.2f}", showarrow=False,
-                            font=dict(size=12, color="#ffffff")
-                        ))
-                        annotations.append(dict(
-                            x=x_vals[min_idx], y=(y_min - pad if y_min < 0 else y_min + pad),
-                            xref="x", yref="y", text=f"${y_min:,.2f}", showarrow=False,
-                            font=dict(size=12, color="#ffffff")
-                        ))
-                    fig.update_layout(annotations=annotations)
+            # ----- Right side: Win Streak box (keep your existing content here) -----
+            with right_top[1]:
+                with st.container(border=True):
+                    # ... your Win Streak CSS/HTML block unchanged ...
+                    # (leave everything you already had for the Winstreak card)
+                    pass  # REMOVE this 'pass' if your content is already here
 
-                    fig.update_layout(
-                        height=250,
-                        margin=dict(l=16, r=16, t=8, b=10),
-                        paper_bgcolor=panel_bg, plot_bgcolor=panel_bg,
-                        showlegend=False,
-                        bargap=0.5,
-                        bargroupgap=0.1
-                    )
-                    fig.update_yaxes(
-                        zeroline=False, showgrid=True, gridcolor="rgba(255,255,255,0.06)",
-                        tickprefix="$", separatethousands=True,
-                    )
-                    fig.update_xaxes(
-                        showgrid=False, tickangle=-35,
-                        tickmode="array", tickvals=tickvals, ticktext=ticktext,
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
+            # --- Right column bottom: Calendar panel ---
+            with st.container(border=True):
+                cal_view.render_calendar_panel(df_view, date_col, month_start, key="cal_overview")
+
 
         # Right side: Win Streak box
         with right_top[1]:
@@ -482,10 +418,6 @@ def render_overview(
                 """, unsafe_allow_html=True)
 
                 st.markdown("<div style='margin-bottom:-32px'></div>", unsafe_allow_html=True)
-
-        # --- Right column bottom: Calendar panel ---
-        with st.container(border=True):
-            cal_view.render_calendar_panel(df_view, date_col, month_start)
 
     # ======= END LAYOUT FRAME =======
 
