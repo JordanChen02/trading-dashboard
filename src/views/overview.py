@@ -12,6 +12,7 @@ from src.charts.pnl import plot_pnl
 from src.components.winstreak import render_winstreak
 from src.theme import BLUE  # to pass the brand color
 from src.kpis import profit_factor
+from src.data.equity import build_equity, resample_equity_daily
 
 
 def render_overview(
@@ -257,17 +258,17 @@ def render_overview(
             </style>
             """, unsafe_allow_html=True)
 
+            # Build equity (timeframe-aware), with daily resample when dates exist
             _has_date = (date_col is not None and date_col in df_view.columns and len(df_view) > 0)
-            df_ec = df_view.copy()
-            pnl_num = pd.to_numeric(df_ec["pnl"], errors="coerce").fillna(0.0)
-            df_ec["cum_pnl"] = pnl_num.cumsum()
-            df_ec["equity"]  = float(start_equity) + df_ec["cum_pnl"]
 
             if _has_date:
-                _dt = pd.to_datetime(df_ec[date_col], errors="coerce")
-                df_ec = df_ec.assign(_date=_dt).sort_values("_date")
+                df_ec = resample_equity_daily(df_view, start_equity, date_col=date_col, pnl_col="pnl")
             else:
-                df_ec = df_ec.reset_index(drop=True).assign(_date=pd.RangeIndex(start=0, stop=len(df_ec)))
+                df_ec = build_equity(df_view, start_equity, pnl_col="pnl", date_col=None)
+                # plot_equity expects an _date column; make a simple index if no real dates
+                df_ec = df_ec.reset_index(drop=True).assign(_date=np.arange(len(df_ec)))
+
+
 
             def _slice_window(df_in: pd.DataFrame, label: str) -> pd.DataFrame:
                 if not _has_date or len(df_in) == 0 or label == "All":
