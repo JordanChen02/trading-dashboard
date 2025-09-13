@@ -22,6 +22,10 @@ from src.views.performance import render as render_performance
 from src.charts.drawdown import plot_underwater
 from src.theme import BLUE_FILL
 from src.theme import BG, RED, RED_ALPHA, HLINE
+from src.state import ensure_defaults  # if not already imported at top
+
+# Seed defaults immediately so early code can read them safely
+ensure_defaults()  # no args → falls back to today’s month start
 
 
 st.set_page_config(
@@ -37,10 +41,6 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-
-# default month in session (first of current month)
-if "_cal_month_start" not in st.session_state:
-    st.session_state["_cal_month_start"] = pd.Timestamp.today().normalize().replace(day=1)
 
 h_left, h_month, h_upload = st.columns([12, 2, 2], gap="small")
 
@@ -79,6 +79,8 @@ with h_month:
     </style>
     """, unsafe_allow_html=True)
 
+
+
     # Build a label like: "Sep 1, 2025 - Sep 30, 2025"
     _ms = pd.Timestamp(st.session_state["_cal_month_start"]).normalize().replace(day=1)
     _me = (_ms + pd.offsets.MonthEnd(1)).normalize()
@@ -103,6 +105,8 @@ with h_month:
         st.session_state["_cal_month_start"] = pd.to_datetime(_picked).normalize().replace(day=1)
         st.markdown('</div>', unsafe_allow_html=True)  # close .month-pop
     st.markdown('</div>', unsafe_allow_html=True)      # close .month-trigger
+
+
 
 # ---------- UPLOAD (unchanged, still a popover) ----------
 with h_upload:
@@ -661,6 +665,13 @@ if cal_sel is not None and _date_col is not None and _date_col in df.columns and
     elif mode == "week":
         _ws, _we = payload  # (datetime.date, datetime.date)
         df_view = df_view[(_dates_series >= _ws) & (_dates_series <= _we)]
+
+# Seed shared UI state (month start, dpnl mode, etc.) based on the current view's dates
+_series_for_state = (
+    df_view[_date_col] if (_date_col is not None and _date_col in df_view.columns) else None
+)
+ensure_defaults(_series_for_state)
+
 
 # --- Recompute KPI ingredients for the view ---
 pnl_v = pd.to_numeric(df_view["pnl"], errors="coerce").fillna(0.0)
