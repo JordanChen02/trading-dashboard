@@ -34,7 +34,7 @@ build/
 Thumbs.db
 
 # Project-generated stuff (adjust to your repo!)
-data/
+/data/
 uploads/
 tmp/
 logs/
