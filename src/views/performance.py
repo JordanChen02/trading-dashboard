@@ -5,6 +5,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 from src.charts.drawdown import plot_underwater
+from src.kpis import profit_factor, expectancy, longest_run
 
 
 def render(
@@ -44,7 +45,7 @@ def render(
     wl_count_ratio = (win_count / loss_count) if loss_count > 0 else float("inf")
 
     # Profit Factor in timeframe
-    pf_tf = (gross_profit / abs(gross_loss)) if gross_loss != 0 else float("inf")
+    pf_tf = profit_factor(pnl_tf)
 
     # Commission (if present)
     _fee_cols = [c for c in ["commission","fee","fees","commissions"] if c in df_view.columns]
@@ -65,7 +66,7 @@ def render(
     # Expectancy per trade within the selected Range
     win_rate_frac_v  = float(win_rate_v)  # win_rate_v is already in [0..1]
     loss_rate_frac_v = 1.0 - win_rate_frac_v
-    expectancy_v     = (win_rate_frac_v * float(avg_win_v)) + (loss_rate_frac_v * float(avg_loss_v))
+    expectancy_v = expectancy(win_rate_frac_v, float(avg_win_v), float(avg_loss_v))
 
     # --- KPI rows ---
     k1, k2, k3, k4 = st.columns(4)
@@ -92,20 +93,10 @@ def render(
     _dd_abs_series = _eq - _peak  # ≤ 0 in $
     _dd_pct_series = np.where(_peak > 0, (_eq / _peak) - 1.0, 0.0)
 
-    def _longest_run(mask: np.ndarray) -> int:
-        longest = cur = 0
-        for v in mask:
-            if v:
-                cur += 1
-                if cur > longest:
-                    longest = cur
-            else:
-                cur = 0
-        return int(longest)
-
     _max_dd_abs_usd = float(_dd_abs_series.min()) if len(_dd_abs_series) else 0.0  # negative or 0
-    _max_dd_duration_trades = _longest_run(_dd_pct_series < 0) if len(_dd_pct_series) else 0
-    _longest_losing_streak = _longest_run(_p_tf.values < 0) if len(_p_tf) else 0
+    _max_dd_duration_trades = longest_run(_dd_pct_series < 0) if len(_dd_pct_series) else 0
+    _longest_losing_streak = longest_run(_p_tf.values < 0) if len(_p_tf) else 0
+
 
     r1, r2, r3 = st.columns(3)
     r1.metric("Max DD ($)", f"${_max_dd_abs_usd:,.0f}")
