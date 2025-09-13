@@ -5,6 +5,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 from src.charts.drawdown import plot_underwater
+from src.data.equity import build_equity
 from src.kpis import profit_factor, expectancy, longest_run
 
 
@@ -51,17 +52,14 @@ def render(
     _fee_cols = [c for c in ["commission","fee","fees","commissions"] if c in df_view.columns]
     commission_paid = float(pd.to_numeric(df_view[_fee_cols[0]], errors="coerce").fillna(0.0).sum()) if _fee_cols else 0.0
 
-    # --- Timeframe-aware risk KPIs ---
-    # Equity over df_view so DD and balance match the selected Range
-    dfv_perf = df_view.copy().reset_index(drop=True)
+    # --- Timeframe-aware risk KPIs (via helper) ---
+    dfv_perf = build_equity(df_view, start_equity, pnl_col="pnl", date_col=date_col)
     dfv_perf["trade_no"] = np.arange(1, len(dfv_perf) + 1)
-    dfv_perf["cum_pnl"]  = pd.to_numeric(dfv_perf["pnl"], errors="coerce").fillna(0).cumsum()
-    dfv_perf["equity"]   = start_equity + dfv_perf["cum_pnl"]
-    dfv_perf["peak"]     = dfv_perf["equity"].cummax()
 
-    max_dd_abs_tf = float((dfv_perf["equity"] - dfv_perf["peak"]).min()) if len(dfv_perf) else 0.0  # ≤ 0
-    max_dd_pct_tf = float(((dfv_perf["equity"] / dfv_perf["peak"]) - 1.0).min() * 100.0) if len(dfv_perf) and (dfv_perf["peak"] > 0).any() else 0.0
-    current_balance_tf = float(dfv_perf["equity"].iloc[-1]) if len(dfv_perf) else start_equity
+    # drawdown series are already computed by build_equity
+    max_dd_abs_tf = float(dfv_perf["dd_abs"].min()) if len(dfv_perf) else 0.0        # ≤ 0
+    max_dd_pct_tf = float(dfv_perf["dd_pct"].min()) if len(dfv_perf) else 0.0        # ≤ 0 (%)
+    current_balance_tf = float(dfv_perf["equity"].iloc[-1]) if len(dfv_perf) else float(start_equity)
 
     # Expectancy per trade within the selected Range
     win_rate_frac_v  = float(win_rate_v)  # win_rate_v is already in [0..1]
@@ -90,8 +88,9 @@ def render(
     _p_tf = pd.to_numeric(df_view["pnl"], errors="coerce").fillna(0.0)
     _eq = start_equity + _p_tf.cumsum()
     _peak = _eq.cummax()
-    _dd_abs_series = _eq - _peak  # ≤ 0 in $
-    _dd_pct_series = np.where(_peak > 0, (_eq / _peak) - 1.0, 0.0)
+    _dd_abs_series = dfv_perf["dd_abs"]
+    _dd_pct_series = dfv_perf["dd_pct"] / 100.0  # convert back to fraction if needed
+
 
     _max_dd_abs_usd = float(_dd_abs_series.min()) if len(_dd_abs_series) else 0.0  # negative or 0
     _max_dd_duration_trades = longest_run(_dd_pct_series < 0) if len(_dd_pct_series) else 0
