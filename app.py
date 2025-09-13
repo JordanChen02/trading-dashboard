@@ -20,12 +20,21 @@ from src.views.overview import render_overview
 from src.charts.equity import plot_equity
 from src.views.performance import render as render_performance
 from src.charts.drawdown import plot_underwater
+from src.theme import BLUE_FILL
+from src.theme import BG, RED, RED_ALPHA, HLINE
+
 
 st.set_page_config(
     page_title="Trading Dashboard — MVP",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded",
+)
+
+# Make theme color available to CSS as a custom property
+st.markdown(
+    f"<style>:root{{--blue-fill:{BLUE_FILL};}}</style>",
+    unsafe_allow_html=True
 )
 
 
@@ -51,7 +60,7 @@ with h_month:
       border-radius: 10px !important;
       font-weight: 600;
     }
-    .month-trigger button:hover{ background: rgba(53,121,186,0.14) !important; }
+    .month-trigger button:hover{ background: var(--blue-fill) !important; }
     .month-trigger button:focus{ box-shadow:none !important; outline:none !important; }
     .month-trigger button::before{
       content:"";
@@ -108,7 +117,7 @@ with h_upload:
       border-radius: 10px !important;
       font-weight: 600;
     }
-    .upload-trigger button:hover{ background: rgba(53,121,186,0.14) !important; }
+    .upload-trigger button:hover{ background: var(--blue-fill) !important; }
     .upload-trigger button:focus{ box-shadow:none !important; outline:none !important; }
     .upload-trigger button::before{
       content:"";
@@ -247,8 +256,9 @@ with st.sidebar:
 
     /* Hover: subtle lighten */
     [data-testid="stSidebar"] .stRadio > div[role="radiogroup"] > label:hover {
-    background: rgba(53,121,186,0.12);   /* brand tint */
+    background: var(--blue-fill);
     }
+
 
     /* Active row: filled bg */
     [data-testid="stSidebar"] .stRadio > div[role="radiogroup"] > label[aria-checked="true"],
