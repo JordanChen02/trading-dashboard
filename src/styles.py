@@ -1,5 +1,7 @@
 import streamlit as st
 
+from src.theme import BLUE, BLUE_FILL
+
 
 def inject_overview_css() -> None:
     st.markdown(
@@ -47,6 +49,81 @@ def inject_winstreak_css(brand_color: str = "#2E86C1") -> None:
       .ws-pill.ws-good{{ background:rgba(46,134,193,.25); border:1px solid rgba(46,134,193,.4); }}
       .ws-pill.ws-bad{{  background:rgba(202,82,82,.25);  border:1px solid rgba(202,82,82,.4); }}
       .ws-foot{{ margin-top:6px; font-size:13px; color:#cbd5e1; }}
+    </style>
+    """,
+        unsafe_allow_html=True,
+    )
+
+
+def inject_filters_css(brand_color: str = BLUE, hover_fill: str = BLUE_FILL) -> None:
+    st.markdown(
+        f"""
+    <style>
+    :root {{ --brand:{brand_color}; --blue-fill:{hover_fill}; }}
+    .filters-trigger button{{
+      background: transparent !important;
+      border: 1px solid #233045 !important;
+      color: #d5deed !important;
+      padding: 6px 12px !important;
+      border-radius: 10px !important;
+      font-weight: 600;
+    }}
+    .filters-trigger button:hover{{ background: var(--blue-fill) !important; }}
+    .filters-trigger button:focus{{ box-shadow:none !important; outline:none !important; }}
+    .filters-trigger button::before{{
+      content:"";
+      width:16px; height:16px; margin-right:8px;
+      display:inline-block; background-color: var(--brand);
+      -webkit-mask: url("data:image/svg+xml;utf8,\
+      <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'>\
+        <path fill='black' d='M3 4h18l-6.5 7.5V21l-5-2v-7.5L3 4z'/>\
+      </svg>") no-repeat center / contain;
+              mask: url("data:image/svg+xml;utf8,\
+      <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'>\
+        <path fill='black' d='M3 4h18l-6.5 7.5V21l-5-2v-7.5L3 4z'/>\
+      </svg>") no-repeat center / contain;
+    }}
+    .filters-pop {{ min-width: 360px; }}
+    </style>
+    """,
+        unsafe_allow_html=True,
+    )
+
+
+def inject_upload_css(brand_color: str = BLUE, hover_fill: str = BLUE_FILL) -> None:
+    st.markdown(
+        f"""
+    <style>
+    :root {{ --brand:{brand_color}; --blue-fill:{hover_fill}; }}
+    .upload-trigger button{{
+      background: transparent !important;
+      border: 1px solid #233045 !important;
+      color: #d5deed !important;
+      padding: 6px 12px !important;
+      border-radius: 10px !important;
+      font-weight: 600;
+    }}
+    .upload-trigger button:hover{{ background: var(--blue-fill) !important; }}
+    .upload-trigger button:focus{{ box-shadow:none !important; outline:none !important; }}
+    .upload-trigger button::before{{
+      content:"";
+      width:16px; height:16px; margin-right:8px;
+      display:inline-block; background-color: var(--brand);
+      -webkit-mask: url("data:image/svg+xml;utf8,\
+      <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'>\
+        <path fill='black' d='M5 20h14a1 1 0 0 0 1-1v-4h-2v3H6v-3H4v4a1 1 0 0 0 1 1z'/>\
+        <path fill='black' d='M12 3l5 5h-3v6h-4V8H7l5-5z'/>\
+      </svg>") no-repeat center / contain;
+              mask: url("data:image/svg+xml;utf8,\
+      <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'>\
+        <path fill='black' d='M5 20h14a1 1 0 0 0 1-1v-4h-2v3H6v-3H4v4a1 1 0 0 0 1 1z'/>\
+        <path fill='black' d='M12 3l5 5h-3v6h-4V8H7l5-5z'/>\
+      </svg>") no-repeat center / contain;
+    }}
+    .upload-pop {{ min-width: 640px; }}
+    .upload-pop [data-testid="stFileUploaderDropzone"]{{
+      width: 100% !important; min-width: 600px; padding-right: 200px;
+    }}
     </style>
     """,
         unsafe_allow_html=True,

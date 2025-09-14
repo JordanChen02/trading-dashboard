@@ -12,6 +12,7 @@ import streamlit as st
 from src.io import load_trades, validate
 from src.metrics import add_pnl
 from src.state import ensure_defaults
+from src.styles import inject_filters_css, inject_upload_css
 from src.theme import BLUE_FILL
 from src.utils import create_journal, ensure_journal_store, load_journal_index
 from src.views.overview import render_overview
@@ -37,7 +38,7 @@ st.markdown(f"<style>:root{{--blue-fill:{BLUE_FILL};}}</style>", unsafe_allow_ht
 if "_cal_month_start" not in st.session_state:
     st.session_state["_cal_month_start"] = pd.Timestamp.today().normalize().replace(day=1)
 
-h_left, h_month, h_upload = st.columns([12, 2, 2], gap="small")
+h_left, h_month, h_upload, h_filters = st.columns([12, 2, 2, 2], gap="small")
 
 with h_left:
     st.title("Trading Dashboard — MVP")
@@ -104,43 +105,7 @@ with h_month:
 
 # ---------- UPLOAD (unchanged, still a popover) ----------
 with h_upload:
-    st.markdown(
-        """
-    <style>
-    :root { --brand:#3579ba; }
-    .upload-trigger button{
-      background: transparent !important;
-      border: 1px solid #233045 !important;
-      color: #d5deed !important;
-      padding: 6px 12px !important;
-      border-radius: 10px !important;
-      font-weight: 600;
-    }
-    .upload-trigger button:hover{ background: var(--blue-fill) !important; }
-    .upload-trigger button:focus{ box-shadow:none !important; outline:none !important; }
-    .upload-trigger button::before{
-      content:"";
-      width:16px; height:16px; margin-right:8px;
-      display:inline-block; background-color: var(--brand);
-      -webkit-mask: url("data:image/svg+xml;utf8,\
-      <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'>\
-        <path fill='black' d='M5 20h14a1 1 0 0 0 1-1v-4h-2v3H6v-3H4v4a1 1 0 0 0 1 1z'/>\
-        <path fill='black' d='M12 3l5 5h-3v6h-4V8H7l5-5z'/>\
-      </svg>") no-repeat center / contain;
-              mask: url("data:image/svg+xml;utf8,\
-      <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'>\
-        <path fill='black' d='M5 20h14a1 1 0 0 0 1-1v-4h-2v3H6v-3H4v4a1 1 0 0 0 1 1z'/>\
-        <path fill='black' d='M12 3l5 5h-3v6h-4V8H7l5-5z'/>\
-      </svg>") no-repeat center / contain;
-    }
-    .upload-pop { min-width: 640px; }
-    .upload-pop [data-testid="stFileUploaderDropzone"]{
-      width: 100% !important; min-width: 600px; padding-right: 200px;
-    }
-    </style>
-    """,
-        unsafe_allow_html=True,
-    )
+    inject_upload_css()
 
     st.markdown('<div class="upload-trigger">', unsafe_allow_html=True)
     up = st.popover("Upload", use_container_width=False)
@@ -176,6 +141,32 @@ with h_upload:
 
         st.markdown("</div>", unsafe_allow_html=True)  # close .upload-pop
     st.markdown("</div>", unsafe_allow_html=True)  # close .upload-trigger
+
+
+# ---------- FILTERS TRIGGER (popover; sits next to Upload) ----------
+with h_filters:
+    inject_filters_css()
+
+    st.markdown('<div class="filters-trigger">', unsafe_allow_html=True)
+    fp = st.popover("Filters", use_container_width=False)
+    with fp:
+        st.markdown('<div class="filters-pop">', unsafe_allow_html=True)
+
+        st.caption("Filters live in the left sidebar. Quick actions:")
+        colA, colB = st.columns(2, gap="small")
+
+        with colA:
+            if st.button("Open Sidebar", use_container_width=True):
+                st.toast("Filters are in the left sidebar (expanded).")
+
+        with colB:
+            if st.button("Clear Calendar Filter", use_container_width=True):
+                st.session_state._cal_filter = None
+                st.toast("Calendar filter cleared")
+                st.rerun()
+
+        st.markdown("</div>", unsafe_allow_html=True)  # close .filters-pop
+    st.markdown("</div>", unsafe_allow_html=True)  # close .filters-trigger
 
 
 # ===================== SIDEBAR: Journals (UI only) =====================

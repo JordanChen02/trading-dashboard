@@ -326,13 +326,6 @@ def render_overview(
                     fig_pnl = plot_pnl(df_view, date_col, mode=mode, height=250)
                     st.plotly_chart(fig_pnl, use_container_width=True, key=f"ov_pnl_{mode}")
 
-            # ----- Right side: Win Streak box (keep your existing content here) -----
-            with right_top[1]:
-                with st.container(border=True):
-                    # ... your Win Streak CSS/HTML block unchanged ...
-                    # (leave everything you already had for the Winstreak card)
-                    pass  # REMOVE this 'pass' if your content is already here
-
             # --- Right column bottom: Calendar panel ---
             with st.container(border=True):
                 cal_view.render_calendar_panel(df_view, date_col, month_start, key="cal_overview")
