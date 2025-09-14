@@ -1,15 +1,15 @@
 # src/views/overview.py
 from typing import Optional
-import numpy as np
+
 import pandas as pd
 import plotly.graph_objects as go
-import plotly.express as px
 import streamlit as st
 
-from src.charts.equity import plot_equity
 import src.views.calendar_panel as cal_view
+from src.charts.equity import plot_equity
 from src.charts.pnl import plot_pnl
 from src.components.winstreak import render_winstreak
+from src.styles import inject_overview_css
 from src.theme import BLUE  # to pass the brand color
 
 
@@ -26,6 +26,9 @@ def render_overview(
     wins_mask_v: pd.Series,
     losses_mask_v: pd.Series,
 ) -> None:
+
+    inject_overview_css()
+
     """Renders the full Overview tab (left/right split, KPIs, equity curve tabs, daily/weekly PnL, win streak, calendar, filter button)."""
 
     # ======= LAYOUT FRAME: 40/60 main split (left=40%, right=60%) =======
@@ -34,96 +37,64 @@ def render_overview(
     with s_left:
         # === Prep values used in these KPIs (Range-aware) ===
         gross_profit_v = float(pnl_v[wins_mask_v].sum())
-        gross_loss_v   = float(pnl_v[losses_mask_v].sum())
+        gross_loss_v = float(pnl_v[losses_mask_v].sum())
         pf_v = (gross_profit_v / abs(gross_loss_v)) if gross_loss_v != 0 else float("inf")
 
         _side_dist_local = (
-            df_view["side"].str.lower().value_counts(normalize=True)
-                .reindex(["long", "short"]).fillna(0.0)
-            if "side" in df_view.columns else pd.Series(dtype=float)
+            df_view["side"]
+            .str.lower()
+            .value_counts(normalize=True)
+            .reindex(["long", "short"])
+            .fillna(0.0)
+            if "side" in df_view.columns
+            else pd.Series(dtype=float)
         )
-
-        st.markdown("""
-        <style>
-        /* Pull everything inside the KPI card up by N pixels */
-        .kpi-pack{
-          margin-top:12px;
-          margin-bottom:12px;   /* ← adds space at the bottom INSIDE the card */
-        }
-        .kpi-card-vh{ padding-bottom:18px; }
-        .kpi-number{ margin:1; line-height:1; }
-        .kpi-label{  margin:1.05; line-height:1.05; }
-        .pillbar{    margin-top:8px; }   /* keep a small gap above the bar */
-        /* vertical centering wrapper for KPI cards */
-        .kpi-card-vh{
-          min-height:130px;              /* adjust height to taste */
-          display:flex;
-          flex-direction:column;
-          justify-content:center;        /* vertical center */
-          align-items:center;            /* keep contents centered horizontally */
-          gap:8px;                       /* tight vertical spacing */
-        }
-
-        /* center the headline/label group */
-        .kpi-center{ text-align:center; margin:0; }
-
-        /* tighten text spacing so vertical centering is true */
-        .kpi-number{ font-size:32px; font-weight:800; line-height:1.5; margin:0; }
-        .kpi-label{  font-size:14px; color:#cbd5e1; line-height:1.2; margin:0; }
-
-        /* progress pill */
-        .pillbar{
-          width:100%;
-          height:18px;
-          background:#1b2433;
-          border-radius:999px;
-          overflow:hidden;
-          margin:1px 0 17px 0;  /* top | right | bottom | left */
-        }
-        .pillbar .win{  height:100%; background:#2E86C1; display:inline-block; }
-        .pillbar .loss{ height:100%; background:#2f3a52; display:inline-block; }
-        </style>
-        """, unsafe_allow_html=True)
 
         # === KPI GRID (2x2) ===
         kpi_row1 = st.columns([1, 1], gap="small")
         with kpi_row1[0]:
             with st.container(border=True):
-                st.markdown('<div style="text-align:center; font-weight:600; margin:0 0 6px; transform: translateX(6px);">Win Rate</div>',
-                            unsafe_allow_html=True)
+                st.markdown(
+                    '<div style="text-align:center; font-weight:600; margin:0 0 6px; transform: translateX(6px);">Win Rate</div>',
+                    unsafe_allow_html=True,
+                )
 
-                wr_pct = float(win_rate_v * 100.0)         # win_rate_v is 0..1
-                win_color   = "#2E86C1"
-                loss_color  = "#212C47"
-                panel_bg    = "#0b0f19"
+                wr_pct = float(win_rate_v * 100.0)  # win_rate_v is 0..1
+                win_color = "#2E86C1"
+                loss_color = "#212C47"
+                panel_bg = "#0b0f19"
 
-                fig_win = go.Figure(go.Indicator(
-                    mode="gauge",
-                    value=wr_pct,
-                    gauge={
-                        "shape": "angular",
-                        "axis": {"range": [0, 100], "visible": False},
-                        "bar": {"color": "rgba(0,0,0,0)"},
-                        "borderwidth": 0,
-                        "steps": [
-                            {"range": [0, wr_pct],     "color": win_color},
-                            {"range": [wr_pct, 100.0], "color": loss_color},
-                        ],
-                    },
-                    domain={"x": [0, 1], "y": [0, 1]},
-                ))
+                fig_win = go.Figure(
+                    go.Indicator(
+                        mode="gauge",
+                        value=wr_pct,
+                        gauge={
+                            "shape": "angular",
+                            "axis": {"range": [0, 100], "visible": False},
+                            "bar": {"color": "rgba(0,0,0,0)"},
+                            "borderwidth": 0,
+                            "steps": [
+                                {"range": [0, wr_pct], "color": win_color},
+                                {"range": [wr_pct, 100.0], "color": loss_color},
+                            ],
+                        },
+                        domain={"x": [0, 1], "y": [0, 1]},
+                    )
+                )
                 fig_win.update_layout(
                     margin=dict(l=8, r=8, t=6, b=0),
                     height=90,
                     paper_bgcolor=panel_bg,
                 )
                 fig_win.add_annotation(
-                    x=0.5, y=0.10,
-                    xref="paper", yref="paper",
+                    x=0.5,
+                    y=0.10,
+                    xref="paper",
+                    yref="paper",
                     text=f"{wr_pct:.0f}%",
                     showarrow=False,
                     font=dict(size=30, color="#e5e7eb", family="Inter, system-ui, sans-serif"),
-                    align="center"
+                    align="center",
                 )
                 st.plotly_chart(fig_win, use_container_width=True)
 
@@ -131,7 +102,9 @@ def render_overview(
             with st.container(border=True):
                 st.markdown('<div class="kpi-pack">', unsafe_allow_html=True)
 
-                _aw_al_num = "∞" if avg_win_loss_ratio_v == float("inf") else f"{avg_win_loss_ratio_v:.2f}"
+                _aw_al_num = (
+                    "∞" if avg_win_loss_ratio_v == float("inf") else f"{avg_win_loss_ratio_v:.2f}"
+                )
                 st.markdown(
                     f"""
                     <div class="kpi-center">
@@ -139,7 +112,7 @@ def render_overview(
                       <div class="kpi-label">Avg Win / Avg Loss</div>
                     </div>
                     """,
-                    unsafe_allow_html=True
+                    unsafe_allow_html=True,
                 )
 
                 # --- Blue/Red ratio pill (Avg Win vs Avg Loss) ---
@@ -147,7 +120,7 @@ def render_overview(
                 _al = float(abs(avg_loss_v))
                 _total = _aw + _al
                 _blue_pct = 50.0 if _total <= 0 else (_aw / _total) * 100.0
-                _red_pct  = 100.0 - _blue_pct
+                _red_pct = 100.0 - _blue_pct
 
                 st.markdown(
                     f"""
@@ -157,7 +130,7 @@ def render_overview(
                     </div>
                     </div>
                     """,
-                    unsafe_allow_html=True
+                    unsafe_allow_html=True,
                 )
 
         # --- KPI row 2 (Profit Factor left, Long vs Short right) ---
@@ -168,8 +141,8 @@ def render_overview(
             with st.container(border=True):
                 st.markdown(
                     '<div style="text-align:center; font-weight:600; margin:0 0 6px; transform: translateX(6px);">'
-                    'Profit Factor</div>',
-                    unsafe_allow_html=True
+                    "Profit Factor</div>",
+                    unsafe_allow_html=True,
                 )
 
                 pf_display = "∞" if pf_v == float("inf") else f"{pf_v:.2f}"
@@ -177,25 +150,27 @@ def render_overview(
                 pf_clamped = max(0.0, min(float(pf_v if pf_v != float("inf") else max_pf), max_pf))
                 pct = (pf_clamped / max_pf) * 100.0
 
-                panel_bg  = "#0b0f19"
-                fill_col  = "#2E86C1"
-                rest_col  = "#212C47"
+                panel_bg = "#0b0f19"
+                fill_col = "#2E86C1"
+                rest_col = "#212C47"
 
-                fig_pf = go.Figure(go.Indicator(
-                    mode="gauge",
-                    value=pct,
-                    gauge={
-                        "shape": "angular",
-                        "axis": {"range": [0, 100], "visible": False},
-                        "bar": {"color": "rgba(0,0,0,0)"},
-                        "borderwidth": 0,
-                        "steps": [
-                            {"range": [0, pct],     "color": fill_col},
-                            {"range": [pct, 100.0], "color": rest_col},
-                        ],
-                    },
-                    domain={"x": [0, 1], "y": [0, 1]},
-                ))
+                fig_pf = go.Figure(
+                    go.Indicator(
+                        mode="gauge",
+                        value=pct,
+                        gauge={
+                            "shape": "angular",
+                            "axis": {"range": [0, 100], "visible": False},
+                            "bar": {"color": "rgba(0,0,0,0)"},
+                            "borderwidth": 0,
+                            "steps": [
+                                {"range": [0, pct], "color": fill_col},
+                                {"range": [pct, 100.0], "color": rest_col},
+                            ],
+                        },
+                        domain={"x": [0, 1], "y": [0, 1]},
+                    )
+                )
                 fig_pf.update_layout(
                     margin=dict(l=8, r=8, t=6, b=0),
                     height=90,
@@ -203,10 +178,14 @@ def render_overview(
                     showlegend=False,
                 )
                 fig_pf.add_annotation(
-                    x=0.5, y=0.10, xref="paper", yref="paper",
-                    text=pf_display, showarrow=False,
+                    x=0.5,
+                    y=0.10,
+                    xref="paper",
+                    yref="paper",
+                    text=pf_display,
+                    showarrow=False,
                     font=dict(size=28, color="#e5e7eb", family="Inter, system-ui, sans-serif"),
-                    align="center"
+                    align="center",
                 )
                 st.plotly_chart(fig_pf, use_container_width=True)
 
@@ -216,13 +195,13 @@ def render_overview(
                 st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
                 st.markdown(
                     '<div style="text-align:center; font-weight:600; margin:0 0 16px; transform: translateX(6px);">'
-                    'Long vs Short</div>',
-                    unsafe_allow_html=True
+                    "Long vs Short</div>",
+                    unsafe_allow_html=True,
                 )
 
                 if "side" in df_view.columns:
                     _side_lower = df_view["side"].astype(str).str.lower()
-                    long_ct  = int((_side_lower == "long").sum())
+                    long_ct = int((_side_lower == "long").sum())
                     short_ct = int((_side_lower == "short").sum())
                     total_ct = long_ct + short_ct
 
@@ -230,43 +209,33 @@ def render_overview(
                     short_pct = 100.0 - long_pct
 
                     st.markdown(
-                        f'''
+                        f"""
                         <div class="pillbar" style="margin:20px 0 42px;">
                           <div class="win"  style="width:{long_pct:.2f}%"></div>
                           <div class="loss" style="width:{short_pct:.2f}%"></div>
                         </div>
-                        ''',
-                        unsafe_allow_html=True
+                        """,
+                        unsafe_allow_html=True,
                     )
                 else:
                     st.caption("No side column found.")
 
         # === Equity Curve (bottom of s_left) — with tabs and date x-axis ===
         with st.container(border=True):
-            st.markdown("""
-            <style>
-            div[data-testid="stTabs"] div[role="tablist"]{
-              justify-content: flex-end;
-              gap: 4px;
-              margin-top: -4px;
-            }
-            div[data-testid="stTabs"] button[role="tab"]{
-              padding: 4px 10px;
-            }
-            </style>
-            """, unsafe_allow_html=True)
 
-            _has_date = (date_col is not None and date_col in df_view.columns and len(df_view) > 0)
+            _has_date = date_col is not None and date_col in df_view.columns and len(df_view) > 0
             df_ec = df_view.copy()
             pnl_num = pd.to_numeric(df_ec["pnl"], errors="coerce").fillna(0.0)
             df_ec["cum_pnl"] = pnl_num.cumsum()
-            df_ec["equity"]  = float(start_equity) + df_ec["cum_pnl"]
+            df_ec["equity"] = float(start_equity) + df_ec["cum_pnl"]
 
             if _has_date:
                 _dt = pd.to_datetime(df_ec[date_col], errors="coerce")
                 df_ec = df_ec.assign(_date=_dt).sort_values("_date")
             else:
-                df_ec = df_ec.reset_index(drop=True).assign(_date=pd.RangeIndex(start=0, stop=len(df_ec)))
+                df_ec = df_ec.reset_index(drop=True).assign(
+                    _date=pd.RangeIndex(start=0, stop=len(df_ec))
+                )
 
             def _slice_window(df_in: pd.DataFrame, label: str) -> pd.DataFrame:
                 if not _has_date or len(df_in) == 0 or label == "All":
@@ -292,14 +261,14 @@ def render_overview(
             with hdr_l:
                 st.markdown(
                     '<div style="color:#d5deed; font-weight:600; letter-spacing:.2px; font-size:32px; margin:0;">Equity Curve</div>',
-                    unsafe_allow_html=True
+                    unsafe_allow_html=True,
                 )
             with hdr_r:
                 st.empty()
 
             eq_tabs = st.tabs(["All", "1D", "1W", "1M", "6M", "1Y"])
 
-            for _label, _tab in zip(["All","1D","1W","1M","6M","1Y"], eq_tabs):
+            for _label, _tab in zip(["All", "1D", "1W", "1M", "6M", "1Y"], eq_tabs):
                 with _tab:
                     _dfw = _slice_window(df_ec, _label)
                     if len(_dfw) == 0:
@@ -312,7 +281,9 @@ def render_overview(
                             height=590,
                         )
                         # Use a unique key prefix so it won't collide with other tabs
-                        st.plotly_chart(fig_eq, use_container_width=True, key=f"ov_eq_curve_{_label}")
+                        st.plotly_chart(
+                            fig_eq, use_container_width=True, key=f"ov_eq_curve_{_label}"
+                        )
 
         # === Right column top row (split in 2) ===
         with s_right:
@@ -324,18 +295,27 @@ def render_overview(
                 with st.container(border=True):
                     # Header spacing knobs
                     TITLE_TOP_PAD = 10
-                    CTRL_TOP_PAD  = 4
+                    CTRL_TOP_PAD = 4
 
                     # ROW 1: Title (left) | Segmented control (right)
                     r1l, r1r = st.columns([3, 1], gap="small")
                     with r1l:
-                        st.markdown(f"<div style='height:{TITLE_TOP_PAD}px'></div>", unsafe_allow_html=True)
+                        st.markdown(
+                            f"<div style='height:{TITLE_TOP_PAD}px'></div>", unsafe_allow_html=True
+                        )
                         current_mode = st.session_state.get("_dpnl_mode", "Daily")
-                        st.markdown("<div style='font-size:28px; font-weight:600; margin:0'>"
-                                    f"{current_mode} PnL</div>", unsafe_allow_html=True)
+                        st.markdown(
+                            "<div style='font-size:28px; font-weight:600; margin:0'>"
+                            f"{current_mode} PnL</div>",
+                            unsafe_allow_html=True,
+                        )
                     with r1r:
-                        st.markdown(f"<div style='height:{CTRL_TOP_PAD}px'></div>", unsafe_allow_html=True)
-                        mode = st.segmented_control(options=["Daily","Weekly"], default=current_mode, label="")
+                        st.markdown(
+                            f"<div style='height:{CTRL_TOP_PAD}px'></div>", unsafe_allow_html=True
+                        )
+                        mode = st.segmented_control(
+                            options=["Daily", "Weekly"], default=current_mode, label=""
+                        )
                         st.session_state["_dpnl_mode"] = mode
 
                     # tighten gap between header and chart
@@ -357,17 +337,16 @@ def render_overview(
             with st.container(border=True):
                 cal_view.render_calendar_panel(df_view, date_col, month_start, key="cal_overview")
 
-
         # Right side: Win Streak box
         with right_top[1]:
             with st.container(border=True):
                 # (temporary placeholders; wire real values later)
-                days_streak        = 9
-                trades_streak      = 19
-                best_days_streak   = 21
-                resets_days_count  = 1
+                days_streak = 9
+                trades_streak = 19
+                best_days_streak = 21
+                resets_days_count = 1
                 best_trades_streak = 19
-                resets_trades_ct   = 7
+                resets_trades_ct = 7
 
                 render_winstreak(
                     days_streak=days_streak,
@@ -383,7 +362,6 @@ def render_overview(
                 # keep the small spacing tweak you had before
                 st.markdown("<div style='margin-bottom:-32px'></div>", unsafe_allow_html=True)
 
-
     # ======= END LAYOUT FRAME =======
 
     # ===================== CHARTS (card layout) =====================
@@ -391,7 +369,12 @@ def render_overview(
     with btn_col:
         clicked = False
         try:
-            clicked = st.button("Filters", key="filters_btn", icon=":material/filter_list:", use_container_width=True)
+            clicked = st.button(
+                "Filters",
+                key="filters_btn",
+                icon=":material/filter_list:",
+                use_container_width=True,
+            )
         except TypeError:
             clicked = st.button("🔎 Filters", key="filters_btn", use_container_width=True)
 

@@ -1,16 +1,39 @@
 import streamlit as st
 
+
 def inject_overview_css() -> None:
-    st.markdown("""
+    st.markdown(
+        """
     <style>
-      .pillbar{width:100%;height:18px;background:#1b2433;border-radius:999px;overflow:hidden;margin:6px 0 6px}
-      .pillbar .win{height:100%;background:#2E86C1;display:inline-block}
-      .pillbar .loss{height:100%;background:#212C47;display:inline-block}
+      /* --- KPI grid & labels --- */
+      .kpi-pack{ margin-top:12px; margin-bottom:12px; }
+      .kpi-card-vh{ padding-bottom:18px; min-height:130px; display:flex; flex-direction:column;
+                    justify-content:center; align-items:center; gap:8px; }
+      .kpi-center{ text-align:center; margin:0; }
+      .kpi-number{ font-size:32px; font-weight:800; line-height:1.5; margin:0; }
+      .kpi-label{  font-size:14px; color:#cbd5e1; line-height:1.2; margin:0; }
+
+      /* --- progress pill (Win/Loss & Long/Short) --- */
+      .pillbar{ width:100%; height:18px; background:#1b2433; border-radius:999px; overflow:hidden; margin:6px 0 17px; }
+      .pillbar .win{  height:100%; background:#2E86C1; display:inline-block; }
+      .pillbar .loss{ height:100%; background:#212C47; display:inline-block; }
+
+      /* --- Tabs header (Equity Curve) --- */
+      div[data-testid="stTabs"] div[role="tablist"]{
+        justify-content:flex-end; gap:4px; margin-top:-4px;
+      }
+      div[data-testid="stTabs"] button[role="tab"]{
+        padding:4px 10px;
+      }
     </style>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
+
 
 def inject_winstreak_css(brand_color: str = "#2E86C1") -> None:
-    st.markdown(f"""
+    st.markdown(
+        f"""
     <style>
       .ws-wrap {{ --brand:{brand_color}; }}
       .ws-title{{ font-weight:800; font-size:20px; margin:0 0 8px 0; }}
@@ -25,4 +48,6 @@ def inject_winstreak_css(brand_color: str = "#2E86C1") -> None:
       .ws-pill.ws-bad{{  background:rgba(202,82,82,.25);  border:1px solid rgba(202,82,82,.4); }}
       .ws-foot{{ margin-top:6px; font-size:13px; color:#cbd5e1; }}
     </style>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )

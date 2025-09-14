@@ -1,9 +1,11 @@
 # src/views/performance.py
 from typing import Optional
+
 import numpy as np
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+
 from src.charts.drawdown import plot_underwater
 
 
@@ -26,19 +28,16 @@ def render(
     pnl_tf = pd.to_numeric(df_view["pnl"], errors="coerce").fillna(0.0)
     wins_m = pnl_tf > 0
     loss_m = pnl_tf < 0
-    be_m   = pnl_tf == 0
 
     gross_profit = float(pnl_tf[wins_m].sum())
-    gross_loss   = float(pnl_tf[loss_m].sum())   # negative or 0
-    net_profit   = float(pnl_tf.sum())
+    gross_loss = float(pnl_tf[loss_m].sum())  # negative or 0
+    net_profit = float(pnl_tf.sum())
 
-    largest_win  = float(pnl_tf[wins_m].max()) if wins_m.any() else 0.0
+    largest_win = float(pnl_tf[wins_m].max()) if wins_m.any() else 0.0
     largest_loss = float(pnl_tf[loss_m].min()) if loss_m.any() else 0.0  # most negative
 
-    win_count    = int(wins_m.sum())
-    loss_count   = int(loss_m.sum())
-    be_count     = int(be_m.sum())
-    total_count  = int(len(pnl_tf))
+    win_count = int(wins_m.sum())
+    loss_count = int(loss_m.sum())
 
     # Win/Loss count ratio (avoid div by zero)
     wl_count_ratio = (win_count / loss_count) if loss_count > 0 else float("inf")
@@ -47,25 +46,32 @@ def render(
     pf_tf = (gross_profit / abs(gross_loss)) if gross_loss != 0 else float("inf")
 
     # Commission (if present)
-    _fee_cols = [c for c in ["commission","fee","fees","commissions"] if c in df_view.columns]
-    commission_paid = float(pd.to_numeric(df_view[_fee_cols[0]], errors="coerce").fillna(0.0).sum()) if _fee_cols else 0.0
+    _fee_cols = [c for c in ["commission", "fee", "fees", "commissions"] if c in df_view.columns]
+    commission_paid = (
+        float(pd.to_numeric(df_view[_fee_cols[0]], errors="coerce").fillna(0.0).sum())
+        if _fee_cols
+        else 0.0
+    )
 
     # --- Timeframe-aware risk KPIs ---
     # Equity over df_view so DD and balance match the selected Range
     dfv_perf = df_view.copy().reset_index(drop=True)
     dfv_perf["trade_no"] = np.arange(1, len(dfv_perf) + 1)
-    dfv_perf["cum_pnl"]  = pd.to_numeric(dfv_perf["pnl"], errors="coerce").fillna(0).cumsum()
-    dfv_perf["equity"]   = start_equity + dfv_perf["cum_pnl"]
-    dfv_perf["peak"]     = dfv_perf["equity"].cummax()
+    dfv_perf["cum_pnl"] = pd.to_numeric(dfv_perf["pnl"], errors="coerce").fillna(0).cumsum()
+    dfv_perf["equity"] = start_equity + dfv_perf["cum_pnl"]
+    dfv_perf["peak"] = dfv_perf["equity"].cummax()
 
-    max_dd_abs_tf = float((dfv_perf["equity"] - dfv_perf["peak"]).min()) if len(dfv_perf) else 0.0  # ≤ 0
-    max_dd_pct_tf = float(((dfv_perf["equity"] / dfv_perf["peak"]) - 1.0).min() * 100.0) if len(dfv_perf) and (dfv_perf["peak"] > 0).any() else 0.0
+    max_dd_pct_tf = (
+        float(((dfv_perf["equity"] / dfv_perf["peak"]) - 1.0).min() * 100.0)
+        if len(dfv_perf) and (dfv_perf["peak"] > 0).any()
+        else 0.0
+    )
     current_balance_tf = float(dfv_perf["equity"].iloc[-1]) if len(dfv_perf) else start_equity
 
     # Expectancy per trade within the selected Range
-    win_rate_frac_v  = float(win_rate_v)  # win_rate_v is already in [0..1]
+    win_rate_frac_v = float(win_rate_v)  # win_rate_v is already in [0..1]
     loss_rate_frac_v = 1.0 - win_rate_frac_v
-    expectancy_v     = (win_rate_frac_v * float(avg_win_v)) + (loss_rate_frac_v * float(avg_loss_v))
+    expectancy_v = (win_rate_frac_v * float(avg_win_v)) + (loss_rate_frac_v * float(avg_loss_v))
 
     # --- KPI rows ---
     k1, k2, k3, k4 = st.columns(4)
@@ -77,7 +83,9 @@ def render(
     k5, k6, k7, k8 = st.columns(4)
     k5.metric("Largest Win", f"${largest_win:,.2f}")
     k6.metric("Largest Loss", f"${largest_loss:,.2f}")
-    k7.metric("Win/Loss (count)", "∞" if wl_count_ratio == float("inf") else f"{wl_count_ratio:.2f}")
+    k7.metric(
+        "Win/Loss (count)", "∞" if wl_count_ratio == float("inf") else f"{wl_count_ratio:.2f}"
+    )
     k8.metric("Commission Paid", f"${commission_paid:,.2f}")
 
     k9, k10, k11 = st.columns(3)
@@ -129,9 +137,11 @@ def render(
         height=220,
     )
 
-    st.caption(f"Current DD: **{dd_stats['current_dd_pct']:.2f}%**  (${dd_stats['current_dd_abs']:,.0f})")
+    st.caption(
+        f"Current DD: **{dd_stats['current_dd_pct']:.2f}%**  (${dd_stats['current_dd_abs']:,.0f})"
+    )
     st.plotly_chart(fig_dd, use_container_width=True)
-    st.caption(dd_stats['recover_msg'])
+    st.caption(dd_stats["recover_msg"])
 
     st.divider()
 
@@ -140,11 +150,14 @@ def render(
     if date_col is not None and date_col in df_view.columns and len(df_view) > 0:
         _d = pd.to_datetime(df_view[date_col], errors="coerce")
         _daily = (
-            pd.DataFrame({
-                "day": _d.dt.date,
-                "pnl": pd.to_numeric(df_view["pnl"], errors="coerce").fillna(0.0),
-            })
-            .groupby("day", as_index=False)["pnl"].sum()
+            pd.DataFrame(
+                {
+                    "day": _d.dt.date,
+                    "pnl": pd.to_numeric(df_view["pnl"], errors="coerce").fillna(0.0),
+                }
+            )
+            .groupby("day", as_index=False)["pnl"]
+            .sum()
             .sort_values("day")
         )
 
@@ -161,7 +174,9 @@ def render(
         fig_daily.update_yaxes(tickprefix="$", separatethousands=True)
         st.plotly_chart(fig_daily, use_container_width=True)
     else:
-        st.caption("No date/timestamp column found — Daily Net PnL is unavailable for this dataset.")
+        st.caption(
+            "No date/timestamp column found — Daily Net PnL is unavailable for this dataset."
+        )
 
     st.divider()
 
@@ -169,8 +184,27 @@ def render(
     st.markdown("#### Export")
     _export_df = df_view.copy()
     # Optional: reorder common columns if present
-    _preferred_cols = [c for c in ["datetime","date","timestamp","symbol","side","qty","price","pnl","commission","fees","tag","note"] if c in _export_df.columns]
-    _export_df = _export_df[_preferred_cols + [c for c in _export_df.columns if c not in _preferred_cols]]
+    _preferred_cols = [
+        c
+        for c in [
+            "datetime",
+            "date",
+            "timestamp",
+            "symbol",
+            "side",
+            "qty",
+            "price",
+            "pnl",
+            "commission",
+            "fees",
+            "tag",
+            "note",
+        ]
+        if c in _export_df.columns
+    ]
+    _export_df = _export_df[
+        _preferred_cols + [c for c in _export_df.columns if c not in _preferred_cols]
+    ]
 
     _fname_tf = tf.lower().replace(" ", "_")  # all / this_week / this_month / this_year
     _fname = f"trades_filtered_{_fname_tf}.csv"

@@ -1,15 +1,26 @@
 from __future__ import annotations
-import pandas as pd
+
 from typing import List
+
+import pandas as pd
+
 from .utils import to_number
 
 # Our normalized, 1-row-per-trade schema
 REQUIRED_COLS = [
-    "trade_id", "symbol", "side",
-    "entry_time", "exit_time",
-    "entry_price", "exit_price",
-    "qty", "fees", "session", "notes"
+    "trade_id",
+    "symbol",
+    "side",
+    "entry_time",
+    "exit_time",
+    "entry_price",
+    "exit_price",
+    "qty",
+    "fees",
+    "session",
+    "notes",
 ]
+
 
 def load_trades(file_or_path) -> pd.DataFrame:
     """
@@ -110,12 +121,14 @@ def _from_tradingview(tv: pd.DataFrame) -> pd.DataFrame:
     # Normalize essential columns to a canonical set
     # Choose the first matching key present
     trade_key = next(k for k in ["trade #", "trade no", "trade"] if k in orig)
-    tv = tv.rename(columns={
-        col(trade_key): "trade_id",
-        col("type"): "type",
-        col("date/time"): "datetime",
-        col("price"): "price",
-    })
+    tv = tv.rename(
+        columns={
+            col(trade_key): "trade_id",
+            col("type"): "type",
+            col("date/time"): "datetime",
+            col("price"): "price",
+        }
+    )
 
     if "signal" in orig:
         tv = tv.rename(columns={col("signal"): "signal"})
@@ -136,16 +149,16 @@ def _from_tradingview(tv: pd.DataFrame) -> pd.DataFrame:
     tv["type"] = tv["type"].astype(str).str.strip().str.title()  # 'Entry'/'Exit'
     tv["datetime"] = pd.to_datetime(tv["datetime"], format="%b %d, %Y %H:%M", errors="coerce")
 
-
     # Try to get side: explicit symbol/side column rarely exists; infer from Signal if needed
     if "side" in tv.columns:
         side_series = tv["side"].astype(str).str.lower()
     else:
         # infer from 'signal' text: contains 'short' or 'long'
-        side_series = tv.get("signal", pd.Series(index=tv.index, dtype="object")).astype(str).str.lower()
+        side_series = (
+            tv.get("signal", pd.Series(index=tv.index, dtype="object")).astype(str).str.lower()
+        )
         side_series = side_series.where(
-            side_series.str.contains("short") | side_series.str.contains("long"),
-            other=""
+            side_series.str.contains("short") | side_series.str.contains("long"), other=""
         )
     # fallback: fill later per-trade
     tv["side_inferred"] = side_series
@@ -159,11 +172,11 @@ def _from_tradingview(tv: pd.DataFrame) -> pd.DataFrame:
 
     # Split entry/exit
     entries = tv[tv["type"] == "Entry"].copy()
-    exits   = tv[tv["type"] == "Exit"].copy()
+    exits = tv[tv["type"] == "Exit"].copy()
 
     # Use first non-empty value per trade for side (prefer 'side_inferred' from signal)
     entries["side"] = entries["side_inferred"].replace("", pd.NA)
-    exits["side"]   = exits["side_inferred"].replace("", pd.NA)
+    exits["side"] = exits["side_inferred"].replace("", pd.NA)
 
     # Build 1-row-per-trade
     left = entries.set_index("trade_id")
@@ -172,18 +185,24 @@ def _from_tradingview(tv: pd.DataFrame) -> pd.DataFrame:
     out = pd.DataFrame(index=sorted(set(left.index) | set(right.index)))
     out.index.name = "trade_id"
 
-    out["symbol"] = (left.get("symbol") or right.get("symbol"))
+    out["symbol"] = left.get("symbol") or right.get("symbol")
     # Fill side preference: entry side, else exit side
     out["side"] = left.get("side")
     out["side"] = out["side"].fillna(right.get("side"))
     out["side"] = out["side"].astype(str).str.strip().str.lower().replace({"": pd.NA})
     # normalize to long/short words if signal only gave that
-    out["side"] = out["side"].map(lambda s: "short" if isinstance(s, str) and "short" in s else ("long" if isinstance(s, str) and "long" in s else pd.NA))
+    out["side"] = out["side"].map(
+        lambda s: (
+            "short"
+            if isinstance(s, str) and "short" in s
+            else ("long" if isinstance(s, str) and "long" in s else pd.NA)
+        )
+    )
 
     out["entry_time"] = left["datetime"]
-    out["exit_time"]  = right["datetime"]
+    out["exit_time"] = right["datetime"]
     out["entry_price"] = left["price_num"]
-    out["exit_price"]  = right["price_num"]
+    out["exit_price"] = right["price_num"]
 
     # Quantity: take entry qty if present
     out["qty"] = left.get("qty_num")
@@ -193,17 +212,19 @@ def _from_tradingview(tv: pd.DataFrame) -> pd.DataFrame:
     # Optional fields we’ll keep in notes for now
     # (you can expose these later in charts/KPIs)
     out["session"] = ""  # can derive later
+
     # Create a basic notes string combining signal/metrics if present
     def _mk_notes(idx):
         s_entry = entries.set_index("trade_id").get("signal")
-        s_exit  = exits.set_index("trade_id").get("signal")
+        s_exit = exits.set_index("trade_id").get("signal")
         parts = []
         if s_entry is not None and idx in s_entry.index and pd.notna(s_entry.loc[idx]):
             parts.append(f"entry:{s_entry.loc[idx]}")
         if s_exit is not None and idx in s_exit.index and pd.notna(s_exit.loc[idx]):
             parts.append(f"exit:{s_exit.loc[idx]}")
         return "; ".join(parts) if parts else ""
-    out["notes"] = [ _mk_notes(i) for i in out.index ]
+
+    out["notes"] = [_mk_notes(i) for i in out.index]
 
     # Reset index back to a column and re-order
     out = out.reset_index()
@@ -212,7 +233,7 @@ def _from_tradingview(tv: pd.DataFrame) -> pd.DataFrame:
     out["symbol"] = out["symbol"].astype(str).str.upper()
     out["side"] = out["side"].fillna("long")  # default if inference failed
     out["entry_time"] = pd.to_datetime(out["entry_time"], errors="coerce")
-    out["exit_time"]  = pd.to_datetime(out["exit_time"], errors="coerce")
+    out["exit_time"] = pd.to_datetime(out["exit_time"], errors="coerce")
     for c in ["entry_price", "exit_price", "qty", "fees"]:
         out[c] = pd.to_numeric(out[c], errors="coerce")
 

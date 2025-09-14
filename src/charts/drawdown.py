@@ -1,5 +1,6 @@
 # src/charts/drawdown.py
-from typing import Optional, Tuple, Dict, Any
+from typing import Any, Dict, Optional, Tuple
+
 import numpy as np
 import pandas as pd
 import plotly.express as px
@@ -30,8 +31,10 @@ def plot_underwater(
     # Guard: empty
     if df_view is None or len(df_view) == 0:
         fig_empty = go.Figure().update_layout(
-            height=h, paper_bgcolor="#0b0f19", plot_bgcolor="#0b0f19",
-            margin=dict(l=10, r=10, t=10, b=10)
+            height=h,
+            paper_bgcolor="#0b0f19",
+            plot_bgcolor="#0b0f19",
+            margin=dict(l=10, r=10, t=10, b=10),
         )
         return fig_empty, {
             "current_dd_pct": 0.0,
@@ -45,11 +48,13 @@ def plot_underwater(
     _p = pd.to_numeric(df_view["pnl"], errors="coerce").fillna(0.0)
     _dfu = df_view.copy().reset_index(drop=True)
     _dfu["trade_no"] = np.arange(1, len(_dfu) + 1)
-    _dfu["cum_pnl"]  = _p.cumsum()
-    _dfu["equity"]   = float(start_equity) + _dfu["cum_pnl"]
-    _dfu["peak"]     = _dfu["equity"].cummax()
-    _dfu["dd_pct"]   = np.where(_dfu["peak"] > 0, (_dfu["equity"] / _dfu["peak"]) - 1.0, 0.0) * 100.0  # ≤ 0
-    _dfu["dd_abs"]   = _dfu["equity"] - _dfu["peak"]  # ≤ 0
+    _dfu["cum_pnl"] = _p.cumsum()
+    _dfu["equity"] = float(start_equity) + _dfu["cum_pnl"]
+    _dfu["peak"] = _dfu["equity"].cummax()
+    _dfu["dd_pct"] = (
+        np.where(_dfu["peak"] > 0, (_dfu["equity"] / _dfu["peak"]) - 1.0, 0.0) * 100.0
+    )  # ≤ 0
+    _dfu["dd_abs"] = _dfu["equity"] - _dfu["peak"]  # ≤ 0
 
     if date_col is not None and date_col in df_view.columns:
         _dfu["_date"] = pd.to_datetime(df_view[date_col], errors="coerce").dt.strftime("%Y-%m-%d")
@@ -67,12 +72,14 @@ def plot_underwater(
     _date_str = str(_dfu.loc[_idx_min, "_date"]) if "_date" in _dfu.columns else ""
 
     _pre_slice = _dfu.loc[:_idx_min]
-    _peak_idx  = int(_pre_slice["equity"].idxmax())
+    _peak_idx = int(_pre_slice["equity"].idxmax())
     _since_peak_trades = int(_x_trade - int(_dfu.loc[_peak_idx, "trade_no"]))
 
-    _recover_slice = _dfu.loc[_idx_min + 1:, "dd_pct"]
+    _recover_slice = _dfu.loc[_idx_min + 1 :, "dd_pct"]
     _recovered_mask = _recover_slice >= -1e-9
-    _recover_idx = _recovered_mask.index[_recovered_mask.argmax()] if _recovered_mask.any() else None
+    _recover_idx = (
+        _recovered_mask.index[_recovered_mask.argmax()] if _recovered_mask.any() else None
+    )
     if _recover_idx is not None:
         _trades_to_recover = int(_dfu.loc[_recover_idx, "trade_no"] - _x_trade)
         recover_msg = f"Recovered from Max DD in **{_trades_to_recover} trades**."
@@ -88,7 +95,7 @@ def plot_underwater(
         y="dd_pct",
         title=None,
         labels={"trade_no": "Trade #", "dd_pct": "Drawdown (%)"},
-        custom_data=["dd_abs", "equity", "peak", "_date"]
+        custom_data=["dd_abs", "equity", "peak", "_date"],
     )
     fig_dd.update_traces(
         hovertemplate=(
@@ -99,7 +106,7 @@ def plot_underwater(
             "Equity: $%{customdata[1]:,.0f}<br>"
             "Peak: $%{customdata[2]:,.0f}<extra></extra>"
         ),
-        showlegend=False
+        showlegend=False,
     )
 
     min_dd = float(_dfu["dd_pct"].min()) if len(_dfu) else 0.0
@@ -116,7 +123,8 @@ def plot_underwater(
 
     # Max DD point marker
     fig_dd.add_scatter(
-        x=[_x_trade], y=[_y_ddpct],
+        x=[_x_trade],
+        y=[_y_ddpct],
         mode="markers",
         marker=dict(size=8, color="#ef4444"),
         name="Max DD",
@@ -126,26 +134,25 @@ def plot_underwater(
             "Drawdown: %{y:.2f}%<br>"
             f"Since peak: {_since_peak_trades} trades"
             "<extra>Max DD point</extra>"
-        )
+        ),
     )
 
     if show_label:
         fig_dd.add_annotation(
-            x=_x_trade, y=_y_ddpct,
+            x=_x_trade,
+            y=_y_ddpct,
             text=f"Max DD { _y_ddpct:.2f}% (${'{:,.0f}'.format(_dd_abs_v)})",
-            showarrow=True, arrowhead=2,
-            ax=0, ay=-40,
+            showarrow=True,
+            arrowhead=2,
+            ax=0,
+            ay=-40,
             bgcolor="rgba(16,22,33,0.7)",
             bordercolor="#2a3444",
-            font=dict(size=11, color="#e5e7eb")
+            font=dict(size=11, color="#e5e7eb"),
         )
     if show_vline:
         fig_dd.add_vline(
-            x=_x_trade,
-            line_width=1,
-            line_dash="dash",
-            line_color="#ef4444",
-            opacity=0.6
+            x=_x_trade, line_width=1, line_dash="dash", line_color="#ef4444", opacity=0.6
         )
 
     stats = dict(

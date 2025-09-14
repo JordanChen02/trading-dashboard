@@ -1,10 +1,14 @@
 from __future__ import annotations
+
+import json
 import re
+from datetime import datetime
+from pathlib import Path
 from typing import Any, Optional
 
 # ===== Number parsing =====
-
 _NUM_RE = re.compile(r"[-+]?[\d,.]*\.?\d+(?:[eE][-+]?\d+)?")
+
 
 def to_number(x: Any) -> Optional[float]:
     """
@@ -25,11 +29,9 @@ def to_number(x: Any) -> Optional[float]:
         return None
 
     mult = 1.0
-    # crude check for K suffix as a separate token
     if re.search(r"\b[kK]\b", s):
         mult = 1000.0
 
-    # pull the first numeric chunk
     m = _NUM_RE.search(s.replace(",", ""))
     if not m:
         return None
@@ -42,13 +44,11 @@ def to_number(x: Any) -> Optional[float]:
 
 # ===== Journal storage (minimal scaffold only) =====
 
-import json
-from pathlib import Path
-
 # Folder: data/journals/
 DATA_DIR = Path("data/journals")
 # Registry file: data/journals/index.json
 INDEX_PATH = DATA_DIR / "index.json"
+
 
 def ensure_journal_store() -> None:
     """
@@ -61,6 +61,7 @@ def ensure_journal_store() -> None:
     if not INDEX_PATH.exists():
         INDEX_PATH.write_text(json.dumps({"journals": []}, indent=2))
 
+
 def load_journal_index() -> dict:
     """
     Return the current journals registry as a dict.
@@ -69,29 +70,25 @@ def load_journal_index() -> dict:
     ensure_journal_store()
     return json.loads(INDEX_PATH.read_text())
 
+
 def save_journal_index(idx: dict) -> None:
     """
     Overwrite the journals registry with the provided dict.
     """
     INDEX_PATH.write_text(json.dumps(idx, indent=2))
 
-from datetime import datetime
 
 def _slugify(name: str) -> str:
     """Turn 'My Journal Name' into 'my-journal-name'."""
     s = re.sub(r"[^A-Za-z0-9_-]+", "-", name.strip()).strip("-").lower()
     return s or f"journal-{int(datetime.now().timestamp())}"
 
-from datetime import datetime
-
-def _slugify(name: str) -> str:
-    s = re.sub(r"[^A-Za-z0-9_-]+", "-", name.strip()).strip("-").lower()
-    return s or f"journal-{int(datetime.now().timestamp())}"
 
 # Minimal native one-row-per-trade schema header
 _NATIVE_HEADER = (
     "trade_id,symbol,side,entry_time,exit_time,entry_price,exit_price,qty,fees,session,notes\n"
 )
+
 
 def create_journal(name: str) -> dict:
     """
@@ -104,11 +101,9 @@ def create_journal(name: str) -> dict:
     jid = _slugify(name)
     csv_path = DATA_DIR / f"{jid}.csv"
 
-    # create file with header if missing
     if not csv_path.exists():
         csv_path.write_text(_NATIVE_HEADER)
 
-    # add to index if not present
     existing = next((j for j in idx["journals"] if j["id"] == jid), None)
     if existing:
         return existing

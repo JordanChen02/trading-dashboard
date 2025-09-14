@@ -1,5 +1,6 @@
 import streamlit as st
 
+
 def render_winstreak(
     *,
     days_streak: int,
@@ -11,7 +12,8 @@ def render_winstreak(
     title: str = "Winstreak",
     brand_color: str = "#2E86C1",
 ) -> None:
-    st.markdown(f"""
+    st.markdown(
+        f"""
     <style>
     .ws-wrap {{ --brand:{brand_color}; --pillGood:#1e3a8a; --pillBad:#6b1d1d; }}
     .ws-title{{ font-weight:800; font-size:20px; letter-spacing:.2px; margin:0 0 8px 0; }}
@@ -37,9 +39,12 @@ def render_winstreak(
     .ws-pill.ws-bad{{  background:rgba(202,82,82,.25);  border:1px solid rgba(202,82,82,.4); }}
     .ws-foot{{ margin-top:6px; font-size:13px; color:#cbd5e1; }}
     </style>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
 
-    st.markdown(f"""
+    st.markdown(
+        f"""
     <div class="ws-wrap">
       <div class="ws-title">{title}</div>
       <div class="ws-row">
@@ -67,4 +72,6 @@ def render_winstreak(
         </div>
       </div>
     </div>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )

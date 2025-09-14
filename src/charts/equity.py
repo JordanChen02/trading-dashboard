@@ -1,10 +1,13 @@
 # src/charts/equity.py
 from typing import Optional
+
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
-from src.theme import BG, BLUE_LIGHT, AXIS_WEAK  # <- theme tokens
+
+from src.theme import AXIS_WEAK, BG, BLUE_LIGHT  # <- theme tokens
+
 
 def plot_equity(
     df_in: pd.DataFrame,
@@ -27,8 +30,8 @@ def plot_equity(
     # Hover
     _ht = (
         "%{x|%b %d, %Y}<br>Equity: $%{y:,.0f}<extra></extra>"
-        if has_date else
-        "Trade %{x}<br>Equity: $%{y:,.0f}<extra></extra>"
+        if has_date
+        else "Trade %{x}<br>Equity: $%{y:,.0f}<extra></extra>"
     )
 
     fig = go.Figure()
@@ -67,7 +70,6 @@ def plot_equity(
         connectgaps=False,
     )
 
-
     # Y range from data (pad a touch)
     if len(y):
         ymin = float(np.nanmin(y))
@@ -75,7 +77,7 @@ def plot_equity(
     else:
         ymin = ymax = float(start_equity)
     span = max(1.0, ymax - ymin)
-    pad_low  = max(20.0, span * 0.05)
+    pad_low = max(20.0, span * 0.05)
     pad_high = max(20.0, span * 0.07)
     fig.update_yaxes(range=[ymin - pad_low, ymax + pad_high])
 
@@ -99,8 +101,8 @@ def plot_equity(
             max_dt = pd.to_datetime(dt.max())
 
             # --- knobs ---
-            SHIFT_DAYS = 8      # ← move labels this many days to the right
-            N_LABELS   = 7      # ← how many date labels to show
+            SHIFT_DAYS = 8  # ← move labels this many days to the right
+            N_LABELS = 7  # ← how many date labels to show
 
             # Keep the chart range EXACTLY on your data (curve doesn't move)
             fig.update_xaxes(type="date", range=[min_dt, max_dt])
@@ -110,12 +112,15 @@ def plot_equity(
             tick_vals = pd.date_range(start=start_for_ticks, end=max_dt, periods=N_LABELS)
 
             fig.update_xaxes(
-                showgrid=False, zeroline=False, showspikes=False, automargin=True,
+                showgrid=False,
+                zeroline=False,
+                showspikes=False,
+                automargin=True,
                 tickmode="array",
                 tickvals=tick_vals,
                 tickformat="%b %d",
-                ticklabelstandoff=-25,   # ↓ smaller gap under axis
-                ticklen=2,             # shorter tick marks
+                ticklabelstandoff=-25,  # ↓ smaller gap under axis
+                ticklen=2,  # shorter tick marks
             )
     else:
         fig.update_xaxes(type="linear", showgrid=False, zeroline=False, automargin=True, nticks=6)

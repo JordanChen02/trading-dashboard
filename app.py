@@ -1,28 +1,26 @@
 # app.py (top of file)
-import streamlit as st
-# (other imports are fine above or below — imports don’t matter)
-
-import pandas as pd
-import numpy as np
-import plotly.express as px
-from pathlib import Path
-from src.utils import ensure_journal_store, load_journal_index, create_journal, DATA_DIR
-import json  # read/write sidecar metadata for notes/tags
 import calendar as _cal
-import plotly.graph_objects as go
-import src.views.calendar_panel as cal_view
+import json  # read/write sidecar metadata for notes/tags
+from pathlib import Path
 
+import numpy as np
+import pandas as pd
+import plotly.graph_objects as go
+import streamlit as st
 
 # 👇 our modules
 from src.io import load_trades, validate
 from src.metrics import add_pnl
-from src.views.overview import render_overview
-from src.charts.equity import plot_equity
-from src.views.performance import render as render_performance
-from src.charts.drawdown import plot_underwater
+from src.state import ensure_defaults
 from src.theme import BLUE_FILL
-from src.theme import BG, RED, RED_ALPHA, HLINE
+from src.utils import create_journal, ensure_journal_store, load_journal_index
+from src.views.overview import render_overview
+from src.views.performance import render as render_performance
 
+# (other imports are fine above or below — imports don’t matter)
+
+
+ensure_defaults()
 
 st.set_page_config(
     page_title="Trading Dashboard — MVP",
@@ -32,10 +30,7 @@ st.set_page_config(
 )
 
 # Make theme color available to CSS as a custom property
-st.markdown(
-    f"<style>:root{{--blue-fill:{BLUE_FILL};}}</style>",
-    unsafe_allow_html=True
-)
+st.markdown(f"<style>:root{{--blue-fill:{BLUE_FILL};}}</style>", unsafe_allow_html=True)
 
 
 # default month in session (first of current month)
@@ -49,7 +44,8 @@ with h_left:
 
 # ---------- MONTH PICKER (popover trigger with calendar icon) ----------
 with h_month:
-    st.markdown("""
+    st.markdown(
+        """
     <style>
     :root { --brand:#3579ba; }
     .month-trigger button{
@@ -77,7 +73,9 @@ with h_month:
     }
     .month-pop { min-width: 360px; }
     </style>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
 
     # Build a label like: "Sep 1, 2025 - Sep 30, 2025"
     _ms = pd.Timestamp(st.session_state["_cal_month_start"]).normalize().replace(day=1)
@@ -97,16 +95,17 @@ with h_month:
             "Pick month",
             value=st.session_state["_cal_month_start"].to_pydatetime(),
             format="YYYY-MM-DD",
-            key="cal_month_input"
+            key="cal_month_input",
         )
         # normalize to first-of-month
         st.session_state["_cal_month_start"] = pd.to_datetime(_picked).normalize().replace(day=1)
-        st.markdown('</div>', unsafe_allow_html=True)  # close .month-pop
-    st.markdown('</div>', unsafe_allow_html=True)      # close .month-trigger
+        st.markdown("</div>", unsafe_allow_html=True)  # close .month-pop
+    st.markdown("</div>", unsafe_allow_html=True)  # close .month-trigger
 
 # ---------- UPLOAD (unchanged, still a popover) ----------
 with h_upload:
-    st.markdown("""
+    st.markdown(
+        """
     <style>
     :root { --brand:#3579ba; }
     .upload-trigger button{
@@ -139,7 +138,9 @@ with h_upload:
       width: 100% !important; min-width: 600px; padding-right: 200px;
     }
     </style>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
 
     st.markdown('<div class="upload-trigger">', unsafe_allow_html=True)
     up = st.popover("Upload", use_container_width=False)
@@ -157,11 +158,14 @@ with h_upload:
         if st.session_state["_uploaded_files"]:
             _names = list(st.session_state["_uploaded_files"].keys())
             _sel_ix = _names.index(st.session_state.get("_selected_upload", _names[0]))
-            _sel = st.selectbox("Uploaded files", options=_names, index=_sel_ix, key="uploaded_files_select")
+            _sel = st.selectbox(
+                "Uploaded files", options=_names, index=_sel_ix, key="uploaded_files_select"
+            )
             st.session_state["_selected_upload"] = _sel
 
             if st.button("Use this file", use_container_width=True):
                 import io
+
                 file = io.BytesIO(st.session_state["_uploaded_files"][_sel])
                 file.name = _sel
                 st.session_state["_menu_file_obj"] = file
@@ -170,10 +174,8 @@ with h_upload:
         else:
             st.caption("No uploads yet.")
 
-        st.markdown('</div>', unsafe_allow_html=True)  # close .upload-pop
-    st.markdown('</div>', unsafe_allow_html=True)      # close .upload-trigger
-
-
+        st.markdown("</div>", unsafe_allow_html=True)  # close .upload-pop
+    st.markdown("</div>", unsafe_allow_html=True)  # close .upload-trigger
 
 
 # ===================== SIDEBAR: Journals (UI only) =====================
@@ -182,7 +184,8 @@ with st.sidebar:
     # ===== Brand header =====
     BRAND = "Wavemark"  # <— change to taste
 
-    st.markdown("""
+    st.markdown(
+        """
     <style>
     .brand-row{
     display:flex; align-items:center; justify-content:space-between;
@@ -197,17 +200,21 @@ with st.sidebar:
     font-weight:700; font-size: 20px; color:#3579ba; opacity:.9;
     }
     </style>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
 
-    st.markdown(f'''
+    st.markdown(
+        f"""
     <div class="brand-row">
     <div class="brand-name">{BRAND}<span class="brand-accent">.</span></div>
     <div class="brand-burger">≡</div>
     </div>
-    ''', unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
 
     # st.markdown("## Navigation")
-
 
     # Keep selected tab in session; default to Dashboard
     _current = st.session_state.get("nav", "Dashboard")
@@ -219,12 +226,13 @@ with st.sidebar:
         _options,
         index=_options.index(_current),
         label_visibility="collapsed",
-        key="nav_radio"
+        key="nav_radio",
     )
     st.session_state["nav"] = nav  # normalize key we use elsewhere
 
     # --- TradingView-like styling for the radio group + line icons ---
-    st.markdown("""
+    st.markdown(
+        """
     <style>
     :root { --brand:#3579ba; }   /* theme blue you chose */
 
@@ -339,14 +347,11 @@ with st.sidebar:
     </svg>");
     }
     </style>
-    """, unsafe_allow_html=True)
-
+    """,
+        unsafe_allow_html=True,
+    )
 
     st.divider()
-
-
-
-
 
     st.header("Journals")
 
@@ -427,8 +432,8 @@ if issues:
 df = add_pnl(df)
 
 # In-session notes store: maps original df index -> note text
-if "_trade_notes" not in st.session_state:            # if key not present in the dict
-    st.session_state["_trade_notes"] = {}             # {} creates an empty dictionary
+if "_trade_notes" not in st.session_state:  # if key not present in the dict
+    st.session_state["_trade_notes"] = {}  # {} creates an empty dictionary
 # In-session tags store: maps original df index -> tag (e.g., "A+", "A", "B", "C")
 if "_trade_tags" not in st.session_state:
     st.session_state["_trade_tags"] = {}
@@ -440,7 +445,9 @@ if isinstance(source_label, str) and source_label.startswith("journal:") and sel
     idx = load_journal_index()
     _rec = next((j for j in idx.get("journals", []) if j["id"] == sel_id), None)
     if _rec:
-        _journal_meta_path = Path(_rec["path"]).with_suffix(".meta.json")  # e.g., trades.csv -> trades.meta.json
+        _journal_meta_path = Path(_rec["path"]).with_suffix(
+            ".meta.json"
+        )  # e.g., trades.csv -> trades.meta.json
         st.session_state["_journal_meta_path"] = str(_journal_meta_path)
 
         # Load once per run if present; guard with a flag
@@ -449,12 +456,17 @@ if isinstance(source_label, str) and source_label.startswith("journal:") and sel
                 with open(_journal_meta_path, "r", encoding="utf-8") as f:
                     _meta = json.load(f)  # { "notes": {idx: "..."}, "tags": {idx: "A"} }
                 # merge into session stores; keys may come back as strings → cast to int
-                st.session_state["_trade_notes"].update({int(k): v for k, v in _meta.get("notes", {}).items()})
-                st.session_state["_trade_tags"].update({int(k): v for k, v in _meta.get("tags", {}).items()})
+                st.session_state["_trade_notes"].update(
+                    {int(k): v for k, v in _meta.get("notes", {}).items()}
+                )
+                st.session_state["_trade_tags"].update(
+                    {int(k): v for k, v in _meta.get("tags", {}).items()}
+                )
                 st.session_state["_meta_loaded"] = True
                 st.toast("Loaded journal notes/tags from disk")
             except Exception as e:
                 st.warning(f"Couldn't read journal metadata: {e}")
+
 
 def _persist_journal_meta():
     """Write session notes/tags to sidecar JSON if a journal is selected."""
@@ -464,7 +476,7 @@ def _persist_journal_meta():
     try:
         payload = {
             "notes": st.session_state.get("_trade_notes", {}),
-            "tags":  st.session_state.get("_trade_tags", {}),
+            "tags": st.session_state.get("_trade_tags", {}),
         }
         with open(_mp, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2)
@@ -477,10 +489,10 @@ def _persist_journal_meta():
 # Recreate the sidebar expander now that df is available
 with st.sidebar.expander("Filters", expanded=True):
     symbols = sorted(df["symbol"].dropna().unique().tolist()) if "symbol" in df.columns else []
-    sides   = sorted(df["side"].dropna().unique().tolist())   if "side"   in df.columns else []
+    sides = sorted(df["side"].dropna().unique().tolist()) if "side" in df.columns else []
 
     sel_symbols = st.multiselect("Symbol", symbols, default=symbols if symbols else [])
-    sel_sides   = st.multiselect("Side",   sides,   default=sides   if sides   else [])
+    sel_sides = st.multiselect("Side", sides, default=sides if sides else [])
     # --- Tag filter (A+/A/B/C) ---
     # We gather possible tags from the DataFrame if present, plus any in-session tags.
     _tags_present = set()
@@ -499,7 +511,7 @@ with st.sidebar.expander("Filters", expanded=True):
         "Tag",
         options=tag_options,
         default=tag_options if tag_options else [],
-        help="Quick grades you’ve applied to trades (A+, A, B, C)."
+        help="Quick grades you’ve applied to trades (A+, A, B, C).",
     )
 
 # Apply filters
@@ -543,19 +555,19 @@ else:  # "count as wins"
 
 # --- Basic KPIs ---
 profits = df.loc[df["pnl"] > 0, "pnl"]
-losses  = df.loc[df["pnl"] < 0, "pnl"]
+losses = df.loc[df["pnl"] < 0, "pnl"]
 
-profit_sum = float(profits.sum())                # ≥ 0
-loss_sum   = float(losses.sum())                 # ≤ 0 or 0
+profit_sum = float(profits.sum())  # ≥ 0
+loss_sum = float(losses.sum())  # ≤ 0 or 0
 
 profit_factor = (profit_sum / abs(loss_sum)) if loss_sum != 0 else float("inf")
-avg_win       = float(profits.mean()) if len(profits) else 0.0
-avg_loss      = float(losses.mean())  if len(losses)  else 0.0  # negative if any losses
+avg_win = float(profits.mean()) if len(profits) else 0.0
+avg_loss = float(losses.mean()) if len(losses) else 0.0  # negative if any losses
 
 # Expectancy per trade (uses avg_loss as negative)
-win_rate_frac  = (win_rate / 100.0)
+win_rate_frac = win_rate / 100.0
 loss_rate_frac = 1.0 - win_rate_frac
-expectancy     = win_rate_frac * avg_win + loss_rate_frac * avg_loss
+expectancy = win_rate_frac * avg_win + loss_rate_frac * avg_loss
 
 # --- Equity curve + Drawdown from starting equity ---
 df_ec = df.copy().reset_index(drop=True)
@@ -567,12 +579,12 @@ df["equity_peak"] = df["equity"].cummax()
 df["dd_abs"] = df["equity"] - df["equity_peak"]  # ≤ 0
 df["dd_pct"] = np.where(df["equity_peak"] > 0, (df["equity"] / df["equity_peak"]) - 1.0, 0.0)
 
-max_dd_abs = float(df["dd_abs"].min())            # most negative dollar drawdown
-max_dd_pct = float(df["dd_pct"].min()) * 100.0    # most negative percent drawdown
+max_dd_abs = float(df["dd_abs"].min())  # most negative dollar drawdown
+max_dd_pct = float(df["dd_pct"].min()) * 100.0  # most negative percent drawdown
 
 # --- Current balance & Net PnL ---
 current_balance = float(df["equity"].iloc[-1]) if len(df) else start_equity
-net_pnl         = float(df["cum_pnl"].iloc[-1]) if len(df) else 0.0
+net_pnl = float(df["cum_pnl"].iloc[-1]) if len(df) else 0.0
 
 
 def winrate_half_donut(wr: float, height: int = 110, hole: float = 0.72, half: str = "bottom"):
@@ -581,29 +593,32 @@ def winrate_half_donut(wr: float, height: int = 110, hole: float = 0.72, half: s
     `half`: "bottom" (default) or "top"
     """
     import plotly.graph_objects as go
+
     wr = max(0.0, min(1.0, float(wr)))
 
     # wins + losses fill one half; ghost hides the other half
     wins, losses, ghost = wr, 1.0 - wr, 1.0
-    start = 270 if half.lower() == "bottom" else 90   # 180 = bottom half, 0 = top half
+    start = 270 if half.lower() == "bottom" else 90  # 180 = bottom half, 0 = top half
 
-    fig = go.Figure(go.Pie(
-        values=[wins, losses, ghost],    # keep this order
-        hole=hole,
-        rotation=start,                  # <- horizontal half control
-        direction="clockwise",
-        sort=False,                      # <- IMPORTANT so order doesn’t shuffle
-        textinfo="none",
-        hoverinfo="skip",
-        marker=dict(
-            colors=["#2E86C1", "#E57373", "rgba(0,0,0,0)"],
-            line=dict(width=0),
-        ),
-        showlegend=False,
-    ))
+    fig = go.Figure(
+        go.Pie(
+            values=[wins, losses, ghost],  # keep this order
+            hole=hole,
+            rotation=start,  # <- horizontal half control
+            direction="clockwise",
+            sort=False,  # <- IMPORTANT so order doesn’t shuffle
+            textinfo="none",
+            hoverinfo="skip",
+            marker=dict(
+                colors=["#2E86C1", "#E57373", "rgba(0,0,0,0)"],
+                line=dict(width=0),
+            ),
+            showlegend=False,
+        )
+    )
     fig.update_traces(domain=dict(x=[0, 1], y=[0, 1]))
     fig.update_layout(
-        height=height,                   # lower height => looks wider
+        height=height,  # lower height => looks wider
         margin=dict(l=0, r=0, t=0, b=0),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
@@ -617,7 +632,18 @@ tab_overview, tab_perf, tab_calendar = st.tabs(["Overview", "Performance", "Cale
 
 # ===================== OVERVIEW KPI CARDS (Timeframe-aware) =====================
 # Try to detect a date column once so we can filter by timeframe
-_possible_date_cols = ["date", "Date", "timestamp", "Timestamp", "time", "Time", "datetime", "Datetime", "entry_time", "exit_time"]
+_possible_date_cols = [
+    "date",
+    "Date",
+    "timestamp",
+    "Timestamp",
+    "time",
+    "Time",
+    "datetime",
+    "Datetime",
+    "entry_time",
+    "exit_time",
+]
 _date_col = next((c for c in _possible_date_cols if c in df.columns), None)
 _dt_full = pd.to_datetime(df[_date_col], errors="coerce") if _date_col is not None else None
 
@@ -664,13 +690,13 @@ if cal_sel is not None and _date_col is not None and _date_col in df.columns and
 
 # --- Recompute KPI ingredients for the view ---
 pnl_v = pd.to_numeric(df_view["pnl"], errors="coerce").fillna(0.0)
-wins_mask_v   = pnl_v > 0
+wins_mask_v = pnl_v > 0
 losses_mask_v = pnl_v < 0
-bes_mask_v    = pnl_v == 0
+bes_mask_v = pnl_v == 0
 
-wins_v   = int(wins_mask_v.sum())
+wins_v = int(wins_mask_v.sum())
 losses_v = int(losses_mask_v.sum())
-total_v  = int(len(df_view))
+total_v = int(len(df_view))
 
 # Win-rate depends on your breakeven policy
 if be_policy == "be excluded from win-rate":
@@ -681,9 +707,9 @@ elif be_policy == "count as losses":
 else:  # "count as wins"
     win_rate_v = (wins_v + int(bes_mask_v.sum())) / total_v if total_v > 0 else 0.0
 
-avg_win_v  = pnl_v[wins_mask_v].mean()  if wins_v   > 0 else 0.0
+avg_win_v = pnl_v[wins_mask_v].mean() if wins_v > 0 else 0.0
 avg_loss_v = pnl_v[losses_mask_v].mean() if losses_v > 0 else 0.0  # negative if any losses
-avg_win_loss_ratio_v = (abs(avg_win_v / avg_loss_v) if avg_loss_v != 0 else float("inf"))
+avg_win_loss_ratio_v = abs(avg_win_v / avg_loss_v) if avg_loss_v != 0 else float("inf")
 
 # Daily Win Rate inside the selected timeframe (if a date column exists)
 _daily_wr_display = "—%"
@@ -694,6 +720,7 @@ if _date_col is not None and total_v > 0:
     if len(_daily_pnl_v) > 0:
         _daily_wr_v = float((_daily_pnl_v > 0).mean() * 100.0)
         _daily_wr_display = f"{_daily_wr_v:.1f}%"
+
 
 # --- Helper: render active filters banner ---
 def render_active_filters(key_suffix: str = ""):
@@ -724,16 +751,17 @@ def render_active_filters(key_suffix: str = ""):
                 st.toast("Calendar filter cleared")
                 st.rerun()
 
+
 # Apply in-session notes to df/df_view so the 'note' column reflects saved edits
-_notes_map = st.session_state.get("_trade_notes", {})           # .get returns {} if missing
+_notes_map = st.session_state.get("_trade_notes", {})  # .get returns {} if missing
 if len(_notes_map) > 0:
     # Make sure a 'note' column exists
     if "note" not in df.columns:
         df["note"] = ""
     # Update by original index keys
-    for _idx, _txt in _notes_map.items():                       # .items() iterates (key, value)
-        if _idx in df.index:                                    # guard against stale indices
-            df.at[_idx, "note"] = _txt                          # .at is fast scalar setter
+    for _idx, _txt in _notes_map.items():  # .items() iterates (key, value)
+        if _idx in df.index:  # guard against stale indices
+            df.at[_idx, "note"] = _txt  # .at is fast scalar setter
     # Recompute df_view from df with the same mask (cheap & safe)
     df_view = df.loc[df_view.index]
 
@@ -764,17 +792,14 @@ with tab_overview:
     )
 
 
-
-   
-
 with tab_perf:
     render_active_filters("perf")
     render_performance(df_view, start_equity, _date_col, tf, win_rate_v, avg_win_v, avg_loss_v)
 
 
-
 with tab_calendar:
     import calendar as _cal
+
     import plotly.graph_objects as go
 
     st.subheader("Calendar — Daily PnL & Trade Count")
@@ -788,13 +813,11 @@ with tab_calendar:
         _today = pd.Timestamp.today().normalize()
         _default_month = _today.replace(day=1)
         _picked = st.date_input(
-            "Select a month",
-            value=_default_month.to_pydatetime(),
-            format="YYYY-MM-DD"
+            "Select a month", value=_default_month.to_pydatetime(), format="YYYY-MM-DD"
         )
         _picked = pd.to_datetime(_picked)
         _month_start = _picked.replace(day=1)
-        _month_end   = (_month_start + pd.offsets.MonthEnd(1)).normalize()
+        _month_end = (_month_start + pd.offsets.MonthEnd(1)).normalize()
 
         # ---- Aggregate df_view by day for the selected month ----
         _dt = pd.to_datetime(df_view[_date_col], errors="coerce")
@@ -804,31 +827,36 @@ with tab_calendar:
 
         _daily_stats = (
             _dfm.assign(_pnl=pd.to_numeric(_dfm["pnl"], errors="coerce").fillna(0.0))
-              .groupby("_day")
-              .agg(NetPnL=("_pnl", "sum"), Trades=("pnl", "count"))
-              .reset_index()
+            .groupby("_day")
+            .agg(NetPnL=("_pnl", "sum"), Trades=("pnl", "count"))
+            .reset_index()
         )
-        _daily_map = {row["_day"]: (float(row["NetPnL"]), int(row["Trades"])) for _, row in _daily_stats.iterrows()}
+        _daily_map = {
+            row["_day"]: (float(row["NetPnL"]), int(row["Trades"]))
+            for _, row in _daily_stats.iterrows()
+        }
 
         # ---- Build calendar grid meta ----
-        _first_weekday, _n_days = _cal.monthrange(_month_start.year, _month_start.month)  # Mon=0..Sun=6
+        _first_weekday, _n_days = _cal.monthrange(
+            _month_start.year, _month_start.month
+        )  # Mon=0..Sun=6
         _leading = _first_weekday
         _total_slots = _leading + _n_days
         _rows = (_total_slots + 6) // 7  # ceil div by 7
 
         # ---------- THEME TOKENS ----------
-        _panel_bg    = "#0b0f19"   # page/panel bg
-        _cell_bg     = "#101621"   # day cell background
-        _grid_line   = "#2a3444"   # subtle grid lines
-        _txt_main    = "#e5e7eb"   # main text
-        _txt_muted   = "#9ca3af"   # muted text
-        _pnl_pos     = "#22c55e"   # green
-        _pnl_neg     = "#ef4444"   # red
-        _pnl_zero    = _txt_main   # neutral
-        _dash_accent = "#1f2937"   # outer frame border
-        _total_bg    = "#0d1320"   # TOTAL column bg
-        _total_border= "#3a4557"   # TOTAL column border
-        _total_hdr   = "#cbd5e1"   # TOTAL header color
+        _panel_bg = "#0b0f19"  # page/panel bg
+        _cell_bg = "#101621"  # day cell background
+        _grid_line = "#2a3444"  # subtle grid lines
+        _txt_main = "#e5e7eb"  # main text
+        _txt_muted = "#9ca3af"  # muted text
+        _pnl_pos = "#22c55e"  # green
+        _pnl_neg = "#ef4444"  # red
+        _pnl_zero = _txt_main  # neutral
+        _dash_accent = "#1f2937"  # outer frame border
+        _total_bg = "#0d1320"  # TOTAL column bg
+        _total_border = "#3a4557"  # TOTAL column border
+        _total_hdr = "#cbd5e1"  # TOTAL header color
 
         # ---------- HELPERS ----------
         def _slot_in_month(slot_idx: int) -> bool:
@@ -862,12 +890,19 @@ with tab_calendar:
         # weekday header row (above grid) — include "Total" column
         _weekday_labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun", "Total"]
         for c, label in enumerate(_weekday_labels):
-            annos.append(dict(
-                x=c + 0.5, y=-0.35, xref="x", yref="y",
-                text=label, showarrow=False,
-                font=dict(size=12, color=_total_hdr if label == "Total" else _txt_muted),
-                xanchor="center", yanchor="middle"
-            ))
+            annos.append(
+                dict(
+                    x=c + 0.5,
+                    y=-0.35,
+                    xref="x",
+                    yref="y",
+                    text=label,
+                    showarrow=False,
+                    font=dict(size=12, color=_total_hdr if label == "Total" else _txt_muted),
+                    xanchor="center",
+                    yanchor="middle",
+                )
+            )
 
         # rounded outer container (now 8 columns wide to include totals)
         total_w, total_h = 8, _rows
@@ -882,11 +917,15 @@ with tab_calendar:
             f"V{-1 + _corner_r} "
             f"Q0,-1 {_corner_r},-1 Z"
         )
-        shapes.append(dict(
-            type="path", path=path,
-            line=dict(color=_dash_accent, width=1.5),
-            fillcolor=_panel_bg, layer="below"
-        ))
+        shapes.append(
+            dict(
+                type="path",
+                path=path,
+                line=dict(color=_dash_accent, width=1.5),
+                fillcolor=_panel_bg,
+                layer="below",
+            )
+        )
 
         # cells (7 day columns + 1 total column)
         for r_idx in range(_rows):
@@ -895,14 +934,22 @@ with tab_calendar:
                 y0, y1 = r_idx, r_idx + 1
 
                 # TOTAL column styled differently
-                is_total_col = (c_idx == 7)
-                shapes.append(dict(
-                    type="rect", x0=x0, x1=x1, y0=y0, y1=y1,
-                    line=dict(color=_total_border if is_total_col else _grid_line,
-                              width=1.5 if is_total_col else 1),
-                    fillcolor=_total_bg if is_total_col else _cell_bg,
-                    layer="below"
-                ))
+                is_total_col = c_idx == 7
+                shapes.append(
+                    dict(
+                        type="rect",
+                        x0=x0,
+                        x1=x1,
+                        y0=y0,
+                        y1=y1,
+                        line=dict(
+                            color=_total_border if is_total_col else _grid_line,
+                            width=1.5 if is_total_col else 1,
+                        ),
+                        fillcolor=_total_bg if is_total_col else _cell_bg,
+                        layer="below",
+                    )
+                )
 
                 # day columns (0..6)
                 if not is_total_col:
@@ -912,13 +959,19 @@ with tab_calendar:
                         pnl_val, trade_ct = _daily_map.get(d, (0.0, 0))
 
                         # --- day number (TOP-LEFT) ---
-                        annos.append(dict(
-                            x=x0 + 0.08, y=y0 + 0.15, xref="x", yref="y",
-                            text=str((slot_idx - _leading + 1)),
-                            showarrow=False,
-                            font=dict(size=12, color=_txt_muted),
-                            xanchor="left", yanchor="top"
-                        ))
+                        annos.append(
+                            dict(
+                                x=x0 + 0.08,
+                                y=y0 + 0.15,
+                                xref="x",
+                                yref="y",
+                                text=str((slot_idx - _leading + 1)),
+                                showarrow=False,
+                                font=dict(size=12, color=_txt_muted),
+                                xanchor="left",
+                                yanchor="top",
+                            )
+                        )
 
                         # --- PnL (CENTER, larger) ---
                         if trade_ct == 0:
@@ -926,22 +979,44 @@ with tab_calendar:
                             pnl_col = _txt_muted
                         else:
                             pnl_txt = f"${pnl_val:,.0f}"
-                            pnl_col = (_pnl_pos if pnl_val > 0 else (_pnl_neg if pnl_val < 0 else _pnl_zero))
-                        annos.append(dict(
-                            x=x0 + 0.5, y=y0 + 0.48, xref="x", yref="y",
-                            text=pnl_txt, showarrow=False,
-                            font=dict(size=20, color=pnl_col),
-                            xanchor="center", yanchor="middle"
-                        ))
+                            pnl_col = (
+                                _pnl_pos
+                                if pnl_val > 0
+                                else (_pnl_neg if pnl_val < 0 else _pnl_zero)
+                            )
+                        annos.append(
+                            dict(
+                                x=x0 + 0.5,
+                                y=y0 + 0.48,
+                                xref="x",
+                                yref="y",
+                                text=pnl_txt,
+                                showarrow=False,
+                                font=dict(size=20, color=pnl_col),
+                                xanchor="center",
+                                yanchor="middle",
+                            )
+                        )
 
                         # --- trades (BELOW center) ---
-                        trades_txt = "—" if trade_ct == 0 else (f"{trade_ct} trade" if trade_ct == 1 else f"{trade_ct} trades")
-                        annos.append(dict(
-                            x=x0 + 0.5, y=y0 + 0.78, xref="x", yref="y",
-                            text=trades_txt, showarrow=False,
-                            font=dict(size=11, color=_txt_muted),
-                            xanchor="center", yanchor="top"
-                        ))
+                        trades_txt = (
+                            "—"
+                            if trade_ct == 0
+                            else (f"{trade_ct} trade" if trade_ct == 1 else f"{trade_ct} trades")
+                        )
+                        annos.append(
+                            dict(
+                                x=x0 + 0.5,
+                                y=y0 + 0.78,
+                                xref="x",
+                                yref="y",
+                                text=trades_txt,
+                                showarrow=False,
+                                font=dict(size=11, color=_txt_muted),
+                                xanchor="center",
+                                yanchor="top",
+                            )
+                        )
 
                 # totals column (c_idx == 7)
                 else:
@@ -952,21 +1027,41 @@ with tab_calendar:
                         tot_pnl_col = _txt_muted
                     else:
                         tot_pnl_txt = f"${pnl_sum:,.0f}"
-                        tot_pnl_col = (_pnl_pos if pnl_sum > 0 else (_pnl_neg if pnl_sum < 0 else _pnl_zero))
-                    annos.append(dict(
-                        x=x0 + 0.5, y=y0 + 0.48, xref="x", yref="y",
-                        text=tot_pnl_txt, showarrow=False,
-                        font=dict(size=16, color=tot_pnl_col),
-                        xanchor="center", yanchor="middle"
-                    ))
+                        tot_pnl_col = (
+                            _pnl_pos if pnl_sum > 0 else (_pnl_neg if pnl_sum < 0 else _pnl_zero)
+                        )
+                    annos.append(
+                        dict(
+                            x=x0 + 0.5,
+                            y=y0 + 0.48,
+                            xref="x",
+                            yref="y",
+                            text=tot_pnl_txt,
+                            showarrow=False,
+                            font=dict(size=16, color=tot_pnl_col),
+                            xanchor="center",
+                            yanchor="middle",
+                        )
+                    )
                     # Trades total (below center)
-                    tot_trades_txt = "—" if trade_sum == 0 else (f"{trade_sum} trade" if trade_sum == 1 else f"{trade_sum} trades")
-                    annos.append(dict(
-                        x=x0 + 0.5, y=y0 + 0.78, xref="x", yref="y",
-                        text=tot_trades_txt, showarrow=False,
-                        font=dict(size=11, color=_txt_muted),
-                        xanchor="center", yanchor="top"
-                    ))
+                    tot_trades_txt = (
+                        "—"
+                        if trade_sum == 0
+                        else (f"{trade_sum} trade" if trade_sum == 1 else f"{trade_sum} trades")
+                    )
+                    annos.append(
+                        dict(
+                            x=x0 + 0.5,
+                            y=y0 + 0.78,
+                            xref="x",
+                            yref="y",
+                            text=tot_trades_txt,
+                            showarrow=False,
+                            font=dict(size=11, color=_txt_muted),
+                            xanchor="center",
+                            yanchor="top",
+                        )
+                    )
 
         # ---------- BUILD FIGURE ----------
         fig_cal = go.Figure()
@@ -977,13 +1072,20 @@ with tab_calendar:
             annotations=annos,
             xaxis=dict(
                 range=[0, 8],  # 7 days + 1 TOTAL column
-                showgrid=False, zeroline=False,
-                tickmode="array", tickvals=[], ticktext=[], fixedrange=True
+                showgrid=False,
+                zeroline=False,
+                tickmode="array",
+                tickvals=[],
+                ticktext=[],
+                fixedrange=True,
             ),
             yaxis=dict(
                 range=[_rows, -1],  # leave -1 for header row
-                showgrid=False, zeroline=False,
-                tickvals=[], ticktext=[], fixedrange=True
+                showgrid=False,
+                zeroline=False,
+                tickvals=[],
+                ticktext=[],
+                fixedrange=True,
             ),
             margin=dict(l=10, r=10, t=10, b=16),
         )
@@ -991,7 +1093,6 @@ with tab_calendar:
         _cal_h = 160 + _rows * 120
         fig_cal.update_layout(height=_cal_h)
         st.session_state["_cal_height"] = int(_cal_h)
-
 
         # Month title
         _title = _month_start.strftime("%B %Y")
@@ -1011,7 +1112,7 @@ with tab_calendar:
                 value=_month_start.to_pydatetime(),
                 min_value=_month_start.to_pydatetime(),
                 max_value=_month_end.to_pydatetime(),
-                key="cal_day_input"
+                key="cal_day_input",
             )
             if st.button("Apply Day Filter", use_container_width=True):
                 st.session_state._cal_filter = ("day", pd.to_datetime(_day_pick).date())
@@ -1045,7 +1146,7 @@ with tab_calendar:
                 "Pick a week",
                 options=list(range(len(_week_starts))),
                 format_func=lambda i: f"Week of {pd.Timestamp(_week_starts[i]).strftime('%b %d')}",
-                key="cal_week_sel"
+                key="cal_week_sel",
             )
             if st.button("Apply Week Filter", use_container_width=True):
                 ws = pd.Timestamp(_week_starts[_week_ix]).date()

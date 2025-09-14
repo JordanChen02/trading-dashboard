@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 import pandas as pd
+
 
 def add_pnl(df: pd.DataFrame) -> pd.DataFrame:
     """Compute per-trade PnL and return a new DataFrame (non-mutating)."""
