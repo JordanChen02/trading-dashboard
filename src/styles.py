@@ -131,65 +131,88 @@ def inject_upload_css(brand_color: str = BLUE, hover_fill: str = BLUE_FILL) -> N
 
 
 def inject_topbar_css(brand_color: str = BLUE, hover_fill: str = BLUE_FILL) -> None:
+    brand_enc = brand_color.replace("#", "%23")  # URL-encode for inline SVG
+
     st.markdown(
         f"""
     <style>
     :root {{ --brand:{brand_color}; --blue-fill:{hover_fill}; }}
 
-    /* Generic icon button */
+    /* Generic icon button (no border/outline) */
     .icon-btn button {{
       background: transparent !important;
-      border: 1px solid #233045 !important;
+      border: 0 !important;
       color: #d5deed !important;
       padding: 6px 10px !important;
       border-radius: 10px !important;
       font-weight: 600;
       min-width: 40px;
+      height: 40px;
     }}
     .icon-btn button:hover {{ background: var(--blue-fill) !important; }}
     .icon-btn button:focus {{ box-shadow:none !important; outline:none !important; }}
+
+    /* Render the icon via a background-image on the button itself */
     .icon-btn button::before {{
-      content:"";
-      width:16px; height:16px; display:inline-block;
-      background-color: var(--brand);
-      -webkit-mask-repeat:no-repeat; -webkit-mask-position:center; -webkit-mask-size:contain;
-      mask-repeat:no-repeat; mask-position:center; mask-size:contain;
+      content: "";
+      width: 18px; height: 18px; display: inline-block;
+      margin: 0; vertical-align: middle;
+      background-repeat: no-repeat; background-position: center; background-size: contain;
     }}
 
-    /* Per-icon masks (inline SVG) */
+    /* Globe */
     .icon-btn.globe button::before {{
-      -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='black' d='M12 2a10 10 0 1 0 0 20a10 10 0 0 0 0-20m-1 2.05v3.1a7.98 7.98 0 0 0-5.46 3.83H4.06A8.03 8.03 0 0 1 11 4.05M4.06 11h1.48A7.98 7.98 0 0 0 11 14.85v3.1A8.03 8.03 0 0 1 4.06 11m9.94 6.95v-3.1A7.98 7.98 0 0 0 18.46 11h1.48A8.03 8.03 0 0 1 14 17.95M18.46 10A7.98 7.98 0 0 0 14 6.15V4.05A8.03 8.03 0 0 1 19.94 10Z'/></svg>");
-              mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='black' d='M12 2a10 10 0 1 0 0 20a10 10 0 0 0 0-20m-1 2.05v3.1a7.98 7.98 0 0 0-5.46 3.83H4.06A8.03 8.03 0 0 1 11 4.05M4.06 11h1.48A7.98 7.98 0 0 0 11 14.85v3.1A8.03 8.03 0 0 1 4.06 11m9.94 6.95v-3.1A7.98 7.98 0 0 0 18.46 11h1.48A8.03 8.03 0 0 1 14 17.95M18.46 10A7.98 7.98 0 0 0 14 6.15V4.05A8.03 8.03 0 0 1 19.94 10Z'/></svg>");
-    }}
-    .icon-btn.bell button::before {{
-      -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='black' d='M12 22a2 2 0 0 0 2-2H10a2 2 0 0 0 2 2m6-6v-5a6 6 0 0 0-5-5.91V4a1 1 0 1 0-2 0v1.09A6 6 0 0 0 6 11v5l-2 2v1h16v-1z'/></svg>");
-              mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='black' d='M12 22a2 2 0 0 0 2-2H10a2 2 0 0 0 2 2m6-6v-5a6 6 0 0 0-5-5.91V4a1 1 0 1 0-2 0v1.09A6 6 0 0 0 6 11v5l-2 2v1h16v-1z'/></svg>");
-    }}
-    .icon-btn.fullscreen button::before {{
-      -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='black' d='M7 14H5v5h5v-2H7v-3m0-4h3V5H5v5h2m10 7h-3v2h5v-5h-2v3m0-7h2V5h-5v2h3v3Z'/></svg>");
-              mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='black' d='M7 14H5v5h5v-2H7v-3m0-4h3V5H5v5h2m10 7h-3v2h5v-5h-2v3m0-7h2V5h-5v2h3v3Z'/></svg>");
-    }}
-    .icon-btn.theme button::before {{
-      -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='black' d='M12 3a1 1 0 0 1 1 1v2a1 1 0 1 1-2 0V4a1 1 0 0 1 1-1m7 8a7 7 0 1 1-7-7a7 7 0 0 1 7 7m1 0a8 8 0 1 0-8 8a8 8 0 0 0 8-8Z'/></svg>");
-              mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='black' d='M12 3a1 1 0 0 1 1 1v2a1 1 0 1 1-2 0V4a1 1 0 0 1 1-1m7 8a7 7 0 1 1-7-7a7 7 0 0 1 7 7m1 0a8 8 0 1 0-8 8a8 8 0 0 0 8-8Z'/></svg>");
+      background-image: url("data:image/svg+xml;utf8,\
+      <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'>\
+        <path fill='{brand_enc}' d='M12 2a10 10 0 1 0 0 20a10 10 0 0 0 0-20m-1 2.05v3.1a7.98 7.98 0 0 0-5.46 3.83H4.06A8.03 8.03 0 0 1 11 4.05M4.06 11h1.48A7.98 7.98 0 0 0 11 14.85v3.1A8.03 8.03 0 0 1 4.06 11m9.94 6.95v-3.1A7.98 7.98 0 0 0 18.46 11h1.48A8.03 8.03 0 0 1 14 17.95M18.46 10A7.98 7.98 0 0 0 14 6.15V4.05A8.03 8.03 0 0 1 19.94 10Z'/>\
+      </svg>");
     }}
 
-    /* Profile trigger (avatar circle) */
+    /* Bell */
+    .icon-btn.bell button::before {{
+      background-image: url("data:image/svg+xml;utf8,\
+      <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'>\
+        <path fill='{brand_enc}' d='M12 22a2 2 0 0 0 2-2H10a2 2 0 0 0 2 2m6-6v-5a6 6 0 0 0-5-5.91V4a1 1 0 1 0-2 0v1.09A6 6 0 0 0 6 11v5l-2 2v1h16v-1z'/>\
+      </svg>");
+    }}
+
+    /* Fullscreen */
+    .icon-btn.fullscreen button::before {{
+      background-image: url("data:image/svg+xml;utf8,\
+      <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'>\
+        <path fill='{brand_enc}' d='M7 14H5v5h5v-2H7v-3m0-4h3V5H5v5h2m10 7h-3v2h5v-5h-2v3m0-7h2V5h-5v2h3v3Z'/>\
+      </svg>");
+    }}
+
+    /* Theme (sun icon) */
+    .icon-btn.theme button::before {{
+      background-image: url("data:image/svg+xml;utf8,\
+      <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'>\
+        <path fill='{brand_enc}' d='M12 3a1 1 0 0 1 1 1v2a1 1 0 1 1-2 0V4a1 1 0 0 1 1-1m7 8a7 7 0 1 1-7-7a7 7 0 0 1 7 7m1 0a8 8 0 1 0-8 8a8 8 0 0 0 8-8Z'/>\
+      </svg>");
+    }}
+
+    /* Profile trigger (avatar circle, also borderless) */
     .profile-trigger button {{
       background: transparent !important;
-      border: 1px solid #233045 !important;
+      border: 0 !important;
       color: #d5deed !important;
       padding: 6px 10px !important;
       border-radius: 999px !important;
       width: 40px; height: 40px;
     }}
+    .profile-trigger button:hover {{ background: var(--blue-fill) !important; }}
+    .profile-trigger button:focus {{ box-shadow:none !important; outline:none !important; }}
     .profile-trigger button::before {{
-      content:"";
-      width:18px; height:18px; display:inline-block;
-      background-color: var(--brand);
-      -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='black' d='M12 2a5 5 0 1 1 0 10a5 5 0 0 1 0-10m0 12c-4.42 0-8 2.24-8 5v1h16v-1c0-2.76-3.58-5-8-5Z'/></svg>") no-repeat center / contain;
-              mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='black' d='M12 2a5 5 0 1 1 0 10a5 5 0 0 1 0-10m0 12c-4.42 0-8 2.24-8 5v1h16v-1c0-2.76-3.58-5-8-5Z'/></svg>") no-repeat center / contain;
+      content: "";
+      width: 18px; height: 18px; display: inline-block;
+      background-repeat: no-repeat; background-position: center; background-size: contain;
+      background-image: url("data:image/svg+xml;utf8,\
+      <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'>\
+        <path fill='{brand_enc}' d='M12 2a5 5 0 1 1 0 10a5 5 0 0 1 0-10m0 12c-4.42 0-8 2.24-8 5v1h16v-1c0-2.76-3.58-5-8-5Z'/>\
+      </svg>");
     }}
+
     .profile-pop {{ min-width: 360px; }}
     </style>
     """,

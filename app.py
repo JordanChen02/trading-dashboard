@@ -12,7 +12,7 @@ import streamlit as st
 from src.io import load_trades, validate
 from src.metrics import add_pnl
 from src.state import ensure_defaults
-from src.styles import inject_filters_css, inject_topbar_css, inject_upload_css
+from src.styles import inject_topbar_css, inject_upload_css
 from src.theme import BLUE_FILL
 from src.utils import create_journal, ensure_journal_store, load_journal_index
 from src.views.overview import render_overview
@@ -42,39 +42,43 @@ if "_cal_month_start" not in st.session_state:
 t_left, t_globe, t_bell, t_full, t_theme, t_profile = st.columns([12, 1, 1, 1, 1, 2], gap="small")
 
 with t_left:
-    st.title("Trading Dashboard — MVP")
+    st.empty()
 
 inject_topbar_css()
 
 with t_globe:
-    st.markdown('<div class="icon-btn globe">', unsafe_allow_html=True)
-    if st.button(" ", key="btn_globe"):
-        st.toast("Region/language menu (placeholder)")
-    st.markdown("</div>", unsafe_allow_html=True)
+    try:
+        st.button("", key="btn_globe", icon=":material/language:")
+    except TypeError:
+        st.button("🌐", key="btn_globe")  # fallback for older Streamlit
 
 with t_bell:
-    st.markdown('<div class="icon-btn bell">', unsafe_allow_html=True)
-    if st.button(" ", key="btn_bell"):
-        st.toast("Notifications (placeholder)")
-    st.markdown("</div>", unsafe_allow_html=True)
+    try:
+        st.button("", key="btn_bell", icon=":material/notifications:")
+    except TypeError:
+        st.button("🔔", key="btn_bell")
 
 with t_full:
-    st.markdown('<div class="icon-btn fullscreen">', unsafe_allow_html=True)
-    if st.button(" ", key="btn_fullscreen"):
-        st.toast("Fullscreen toggle (placeholder)")
-    st.markdown("</div>", unsafe_allow_html=True)
+    try:
+        st.button("", key="btn_full", icon=":material/fullscreen:")
+    except TypeError:
+        st.button("⛶", key="btn_full")
 
 with t_theme:
-    st.markdown('<div class="icon-btn theme">', unsafe_allow_html=True)
-    if st.button(" ", key="btn_theme"):
-        st.toast("Theme toggle (placeholder)")
-    st.markdown("</div>", unsafe_allow_html=True)
+    try:
+        st.button("", key="btn_theme", icon=":material/light_mode:")  # or :material/dark_mode:
+    except TypeError:
+        st.button("☼", key="btn_theme")
 
 with t_profile:
-    # Profile popover with Upload inside
-    st.markdown('<div class="profile-trigger">', unsafe_allow_html=True)
-    pp = st.popover(" ", use_container_width=False)
+    try:
+        pp = st.popover("", icon=":material/account_circle:")
+    except TypeError:
+        pp = st.popover("🙂")  # fallback
     with pp:
+        # ... keep your upload menu contents exactly as before ...
+        pass
+
         st.markdown('<div class="profile-pop">', unsafe_allow_html=True)
 
         st.subheader("Account")
@@ -83,7 +87,7 @@ with t_profile:
             st.image("https://via.placeholder.com/64x64.png?text= ", width=48)
         with col_p2:
             st.caption("Signed in as")
-            st.write("**Trader Waves**")
+            st.write("**squintz**")
             if st.button("Settings ⚙️", use_container_width=True):
                 st.toast("Settings (placeholder)")
 
@@ -127,73 +131,44 @@ with t_profile:
 # -------- Divider between top toolbar and the control row --------
 st.divider()
 
-# ========== CONTROL ROW (Month picker + Filters), BELOW divider ==========
+# ===== CONTROL ROW (Title + Month + Filters) =====
 c_left, c_month, c_filters = st.columns([12, 2, 2], gap="small")
+with c_left:
+    st.title("Trading Dashboard — MVP")
 
-# MONTH PICKER (same UI as before, just moved here)
+# --- Month popover (with icon) ---
 with c_month:
-    st.markdown(
-        """
-    <style>
-    :root { --brand:#3579ba; }
-    .month-trigger button{
-      background: transparent !important;
-      border: 1px solid #233045 !important;
-      color: #d5deed !important;
-      padding: 6px 12px !important;
-      border-radius: 10px !important;
-      font-weight: 600;
-    }
-    .month-trigger button:hover{ background: var(--blue-fill) !important; }
-    .month-trigger button:focus{ box-shadow:none !important; outline:none !important; }
-    .month-trigger button::before{
-      content:"";
-      width:16px; height:16px; margin-right:8px;
-      display:inline-block; background-color: var(--brand);
-      -webkit-mask: url("data:image/svg+xml;utf8,\
-      <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'>\
-        <path fill='black' d='M7 2v2H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2V2h-2v2H9V2H7zm12 7H5v10h14V9z'/>\
-      </svg>") no-repeat center / contain;
-              mask: url("data:image/svg+xml;utf8,\
-      <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'>\
-        <path fill='black' d='M7 2v2H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2V2h-2v2H9V2H7zm12 7H5v10h14V9z'/>\
-      </svg>") no-repeat center / contain;
-    }
-    .month-pop { min-width: 360px; }
-    </style>
-    """,
-        unsafe_allow_html=True,
-    )
-
     _ms = pd.Timestamp(st.session_state["_cal_month_start"]).normalize().replace(day=1)
     _me = (_ms + pd.offsets.MonthEnd(1)).normalize()
 
     def _fmt(ts: pd.Timestamp) -> str:
         return f"{ts.strftime('%b')} {ts.day}, {ts.year}"
 
-    _lbl = f"{_fmt(_ms)} - {_fmt(_me)}"
+    _lbl = f"{_fmt(_ms)} - {_fmt(_me)}"  # e.g., "Sep 1, 2025 - Sep 30, 2025"
+    # If you prefer compact: _lbl = _ms.strftime("%b %Y")
 
-    st.markdown('<div class="month-trigger">', unsafe_allow_html=True)
-    mp = st.popover(_lbl, use_container_width=False)
+    try:
+        mp = st.popover(_lbl, icon=":material/calendar_month:", use_container_width=False)
+    except TypeError:
+        mp = st.popover(_lbl, use_container_width=False)  # fallback for older Streamlit
+
     with mp:
-        st.markdown('<div class="month-pop">', unsafe_allow_html=True)
-        _picked = st.date_input(
+        picked = st.date_input(
             "Pick month",
             value=st.session_state["_cal_month_start"].to_pydatetime(),
             format="YYYY-MM-DD",
             key="cal_month_input",
         )
-        st.session_state["_cal_month_start"] = pd.to_datetime(_picked).normalize().replace(day=1)
-        st.markdown("</div>", unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
+        st.session_state["_cal_month_start"] = pd.to_datetime(picked).normalize().replace(day=1)
 
-# FILTERS (same logic as before, just moved here)
+# --- Filters popover (with icon) ---
 with c_filters:
-    inject_filters_css()
-    st.markdown('<div class="filters-trigger">', unsafe_allow_html=True)
-    fp = st.popover("Filters", use_container_width=False)
+    try:
+        fp = st.popover("Filters", icon=":material/filter_list:", use_container_width=False)
+    except TypeError:
+        fp = st.popover("Filters", use_container_width=False)
+
     with fp:
-        st.markdown('<div class="filters-pop">', unsafe_allow_html=True)
         st.caption("Filters live in the left sidebar. Quick actions:")
         colA, colB = st.columns(2, gap="small")
         with colA:
@@ -204,8 +179,6 @@ with c_filters:
                 st.session_state._cal_filter = None
                 st.toast("Calendar filter cleared")
                 st.rerun()
-        st.markdown("</div>", unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
 
 
 # ===================== SIDEBAR: Journals (UI only) =====================
