@@ -12,7 +12,7 @@ import streamlit as st
 from src.io import load_trades, validate
 from src.metrics import add_pnl
 from src.state import ensure_defaults
-from src.styles import inject_filters_css, inject_upload_css
+from src.styles import inject_filters_css, inject_topbar_css, inject_upload_css
 from src.theme import BLUE_FILL
 from src.utils import create_journal, ensure_journal_store, load_journal_index
 from src.views.overview import render_overview
@@ -38,13 +38,100 @@ st.markdown(f"<style>:root{{--blue-fill:{BLUE_FILL};}}</style>", unsafe_allow_ht
 if "_cal_month_start" not in st.session_state:
     st.session_state["_cal_month_start"] = pd.Timestamp.today().normalize().replace(day=1)
 
-h_left, h_month, h_upload, h_filters = st.columns([12, 2, 2, 2], gap="small")
+# ========== TOP TOOLBAR (right-aligned icons) ==========
+t_left, t_globe, t_bell, t_full, t_theme, t_profile = st.columns([12, 1, 1, 1, 1, 2], gap="small")
 
-with h_left:
+with t_left:
     st.title("Trading Dashboard — MVP")
 
-# ---------- MONTH PICKER (popover trigger with calendar icon) ----------
-with h_month:
+inject_topbar_css()
+
+with t_globe:
+    st.markdown('<div class="icon-btn globe">', unsafe_allow_html=True)
+    if st.button(" ", key="btn_globe"):
+        st.toast("Region/language menu (placeholder)")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+with t_bell:
+    st.markdown('<div class="icon-btn bell">', unsafe_allow_html=True)
+    if st.button(" ", key="btn_bell"):
+        st.toast("Notifications (placeholder)")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+with t_full:
+    st.markdown('<div class="icon-btn fullscreen">', unsafe_allow_html=True)
+    if st.button(" ", key="btn_fullscreen"):
+        st.toast("Fullscreen toggle (placeholder)")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+with t_theme:
+    st.markdown('<div class="icon-btn theme">', unsafe_allow_html=True)
+    if st.button(" ", key="btn_theme"):
+        st.toast("Theme toggle (placeholder)")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+with t_profile:
+    # Profile popover with Upload inside
+    st.markdown('<div class="profile-trigger">', unsafe_allow_html=True)
+    pp = st.popover(" ", use_container_width=False)
+    with pp:
+        st.markdown('<div class="profile-pop">', unsafe_allow_html=True)
+
+        st.subheader("Account")
+        col_p1, col_p2 = st.columns([1, 3])
+        with col_p1:
+            st.image("https://via.placeholder.com/64x64.png?text= ", width=48)
+        with col_p2:
+            st.caption("Signed in as")
+            st.write("**Trader Waves**")
+            if st.button("Settings ⚙️", use_container_width=True):
+                st.toast("Settings (placeholder)")
+
+        st.divider()
+        st.subheader("Data")
+        inject_upload_css()
+        st.markdown('<div class="upload-pop">', unsafe_allow_html=True)
+
+        if "_uploaded_files" not in st.session_state:
+            st.session_state["_uploaded_files"] = {}
+
+        _newfile = st.file_uploader("Browse file", type=["csv"], key="file_menu")
+        if _newfile is not None:
+            st.session_state["_uploaded_files"][_newfile.name] = _newfile.read()
+            st.toast(f"Saved '{_newfile.name}'")
+            st.session_state["_selected_upload"] = _newfile.name
+
+        if st.session_state["_uploaded_files"]:
+            _names = list(st.session_state["_uploaded_files"].keys())
+            _sel_ix = _names.index(st.session_state.get("_selected_upload", _names[0]))
+            _sel = st.selectbox(
+                "Uploaded files", options=_names, index=_sel_ix, key="uploaded_files_select"
+            )
+            st.session_state["_selected_upload"] = _sel
+
+            if st.button("Use this file", use_container_width=True):
+                import io
+
+                file = io.BytesIO(st.session_state["_uploaded_files"][_sel])
+                file.name = _sel
+                st.session_state["_menu_file_obj"] = file
+                st.toast(f"Using '{_sel}' as current dataset")
+                st.rerun()
+        else:
+            st.caption("No uploads yet.")
+
+        st.markdown("</div>", unsafe_allow_html=True)  # close .upload-pop
+        st.markdown("</div>", unsafe_allow_html=True)  # close .profile-pop
+    st.markdown("</div>", unsafe_allow_html=True)  # close .profile-trigger
+
+# -------- Divider between top toolbar and the control row --------
+st.divider()
+
+# ========== CONTROL ROW (Month picker + Filters), BELOW divider ==========
+c_left, c_month, c_filters = st.columns([12, 2, 2], gap="small")
+
+# MONTH PICKER (same UI as before, just moved here)
+with c_month:
     st.markdown(
         """
     <style>
@@ -78,12 +165,10 @@ with h_month:
         unsafe_allow_html=True,
     )
 
-    # Build a label like: "Sep 1, 2025 - Sep 30, 2025"
     _ms = pd.Timestamp(st.session_state["_cal_month_start"]).normalize().replace(day=1)
     _me = (_ms + pd.offsets.MonthEnd(1)).normalize()
 
     def _fmt(ts: pd.Timestamp) -> str:
-        # Avoid %-d vs %#d OS differences: format day via attribute
         return f"{ts.strftime('%b')} {ts.day}, {ts.year}"
 
     _lbl = f"{_fmt(_ms)} - {_fmt(_me)}"
@@ -98,75 +183,29 @@ with h_month:
             format="YYYY-MM-DD",
             key="cal_month_input",
         )
-        # normalize to first-of-month
         st.session_state["_cal_month_start"] = pd.to_datetime(_picked).normalize().replace(day=1)
-        st.markdown("</div>", unsafe_allow_html=True)  # close .month-pop
-    st.markdown("</div>", unsafe_allow_html=True)  # close .month-trigger
+        st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
-# ---------- UPLOAD (unchanged, still a popover) ----------
-with h_upload:
-    inject_upload_css()
-
-    st.markdown('<div class="upload-trigger">', unsafe_allow_html=True)
-    up = st.popover("Upload", use_container_width=False)
-    with up:
-        st.markdown('<div class="upload-pop">', unsafe_allow_html=True)
-        if "_uploaded_files" not in st.session_state:
-            st.session_state["_uploaded_files"] = {}
-
-        _newfile = st.file_uploader("Browse file", type=["csv"], key="file_menu")
-        if _newfile is not None:
-            st.session_state["_uploaded_files"][_newfile.name] = _newfile.read()
-            st.toast(f"Saved '{_newfile.name}'")
-            st.session_state["_selected_upload"] = _newfile.name
-
-        if st.session_state["_uploaded_files"]:
-            _names = list(st.session_state["_uploaded_files"].keys())
-            _sel_ix = _names.index(st.session_state.get("_selected_upload", _names[0]))
-            _sel = st.selectbox(
-                "Uploaded files", options=_names, index=_sel_ix, key="uploaded_files_select"
-            )
-            st.session_state["_selected_upload"] = _sel
-
-            if st.button("Use this file", use_container_width=True):
-                import io
-
-                file = io.BytesIO(st.session_state["_uploaded_files"][_sel])
-                file.name = _sel
-                st.session_state["_menu_file_obj"] = file
-                st.toast(f"Using '{_sel}' as current dataset")
-                st.rerun()
-        else:
-            st.caption("No uploads yet.")
-
-        st.markdown("</div>", unsafe_allow_html=True)  # close .upload-pop
-    st.markdown("</div>", unsafe_allow_html=True)  # close .upload-trigger
-
-
-# ---------- FILTERS TRIGGER (popover; sits next to Upload) ----------
-with h_filters:
+# FILTERS (same logic as before, just moved here)
+with c_filters:
     inject_filters_css()
-
     st.markdown('<div class="filters-trigger">', unsafe_allow_html=True)
     fp = st.popover("Filters", use_container_width=False)
     with fp:
         st.markdown('<div class="filters-pop">', unsafe_allow_html=True)
-
         st.caption("Filters live in the left sidebar. Quick actions:")
         colA, colB = st.columns(2, gap="small")
-
         with colA:
             if st.button("Open Sidebar", use_container_width=True):
                 st.toast("Filters are in the left sidebar (expanded).")
-
         with colB:
             if st.button("Clear Calendar Filter", use_container_width=True):
                 st.session_state._cal_filter = None
                 st.toast("Calendar filter cleared")
                 st.rerun()
-
-        st.markdown("</div>", unsafe_allow_html=True)  # close .filters-pop
-    st.markdown("</div>", unsafe_allow_html=True)  # close .filters-trigger
+        st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 # ===================== SIDEBAR: Journals (UI only) =====================
@@ -405,7 +444,7 @@ else:
 
 # If we still don't have data, bail out gently
 if df is None:
-    st.info("Use the ☰ menu (top-right) to upload a CSV, or create/select a journal.")
+    st.info("Use the profile menu (top-right) to upload a CSV, or create/select a journal.")
     st.stop()
 
 
