@@ -14,6 +14,7 @@ from src.theme import BLUE  # to pass the brand color
 from src.kpis import profit_factor
 from src.data.equity import build_equity, resample_equity_daily
 from src.styles import inject_overview_css
+from src.utils import ui_key
 
 
 
@@ -93,7 +94,7 @@ def render_overview(
                     font=dict(size=30, color="#e5e7eb", family="Inter, system-ui, sans-serif"),
                     align="center"
                 )
-                st.plotly_chart(fig_win, use_container_width=True)
+                st.plotly_chart(fig_win, use_container_width=True, key=ui_key("OV", "kpi_win_rate"))
 
         with kpi_row1[1]:
             with st.container(border=True):
@@ -176,7 +177,7 @@ def render_overview(
                     font=dict(size=28, color="#e5e7eb", family="Inter, system-ui, sans-serif"),
                     align="center"
                 )
-                st.plotly_chart(fig_pf, use_container_width=True)
+                st.plotly_chart(fig_pf, use_container_width=True, key=ui_key("OV", "kpi_profit_factor"))
 
         # RIGHT: Long vs Short — pillbar
         with kpi_row2[1]:
@@ -269,7 +270,7 @@ def render_overview(
                             height=590,
                         )
                         # Use a unique key prefix so it won't collide with other tabs
-                        st.plotly_chart(fig_eq, use_container_width=True, key=f"ov_eq_curve_{_label}")
+                        st.plotly_chart(fig_eq, use_container_width=True, key=ui_key("OV", f"eq_curve_{_label}"))
 
         # === Right column top row (split in 2) ===
         with s_right:
@@ -301,7 +302,7 @@ def render_overview(
                     # ---- Chart ----
                     mode = st.session_state.get("_dpnl_mode", "Daily")  # safety fallback
                     fig_pnl = plot_pnl(df_view, date_col, mode=mode, height=250)
-                    st.plotly_chart(fig_pnl, use_container_width=True, key=f"ov_pnl_{mode}")
+                    st.plotly_chart(fig_pnl, use_container_width=True, key=ui_key("OV", f"pnl_{mode}"))
 
 
             # --- Right column bottom: Calendar panel ---
@@ -342,9 +343,9 @@ def render_overview(
     with btn_col:
         clicked = False
         try:
-            clicked = st.button("Filters", key="filters_btn", icon=":material/filter_list:", use_container_width=True)
+            clicked = st.button("Filters", key=ui_key("OV", "filters_btn"), icon=":material/filter_list:", use_container_width=True)
         except TypeError:
-            clicked = st.button("🔎 Filters", key="filters_btn", use_container_width=True)
+            clicked = st.button("🔎 Filters", key=ui_key("OV", "filters_btn"), use_container_width=True)
 
         if clicked:
             st.toast("Filters are in the left sidebar.")

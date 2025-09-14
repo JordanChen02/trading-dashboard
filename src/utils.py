@@ -122,3 +122,11 @@ def create_journal(name: str) -> dict:
     idx["journals"].append(record)
     save_journal_index(idx)
     return record
+
+# --- UI keys ---------------------------------------------------------------
+def ui_key(view: str, name: str) -> str:
+    """
+    Standardize Streamlit widget/chart keys. Example:
+    ui_key("OV", "pnl_Daily") -> "OV__pnl_Daily"
+    """
+    return f"{view.upper()}__{name}"

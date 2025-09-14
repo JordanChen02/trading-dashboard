@@ -7,6 +7,7 @@ import streamlit as st
 from src.charts.drawdown import plot_underwater
 from src.data.equity import build_equity
 from src.kpis import profit_factor, expectancy, longest_run
+from src.utils import ui_key
 
 
 def render(
@@ -107,8 +108,8 @@ def render(
     # -------- Underwater (Drawdown %) [timeframe-aware] --------
     st.markdown("#### Underwater (Drawdown %)")
 
-    show_vline = st.checkbox("Show Max DD vertical line", value=True, key="uw_show_maxdd_vline")
-    show_label = st.checkbox("Show Max DD label", value=True, key="uw_show_maxdd_label")
+    show_vline = st.checkbox("Show Max DD vertical line", value=True, key=ui_key("PERF", "uw_show_maxdd_vline"))
+    show_label = st.checkbox("Show Max DD label", value=True, key=ui_key("PERF", "uw_show_maxdd_label"))
 
     fig_dd, dd_stats = plot_underwater(
         df_view,
@@ -120,7 +121,7 @@ def render(
     )
 
     st.caption(f"Current DD: **{dd_stats['current_dd_pct']:.2f}%**  (${dd_stats['current_dd_abs']:,.0f})")
-    st.plotly_chart(fig_dd, use_container_width=True)
+    st.plotly_chart(fig_dd, use_container_width=True, key=ui_key("PERF", "underwater"))
     st.caption(dd_stats['recover_msg'])
 
     st.divider()
@@ -149,7 +150,7 @@ def render(
         fig_daily.add_hline(y=0, line_width=1, line_dash="dot", opacity=0.6)
         fig_daily.update_layout(height=220, margin=dict(l=10, r=10, t=10, b=10), showlegend=False)
         fig_daily.update_yaxes(tickprefix="$", separatethousands=True)
-        st.plotly_chart(fig_daily, use_container_width=True)
+        st.plotly_chart(fig_daily, use_container_width=True, key=ui_key("PERF", "daily_pnl"))
     else:
         st.caption("No date/timestamp column found — Daily Net PnL is unavailable for this dataset.")
 
