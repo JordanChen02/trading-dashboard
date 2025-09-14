@@ -13,6 +13,8 @@ from src.components.winstreak import render_winstreak
 from src.theme import BLUE  # to pass the brand color
 from src.kpis import profit_factor
 from src.data.equity import build_equity, resample_equity_daily
+from src.styles import inject_overview_css
+
 
 
 def render_overview(
@@ -28,6 +30,11 @@ def render_overview(
     wins_mask_v: pd.Series,
     losses_mask_v: pd.Series,
 ) -> None:
+    
+    inject_overview_css()
+
+
+
     """Renders the full Overview tab (left/right split, KPIs, equity curve tabs, daily/weekly PnL, win streak, calendar, filter button)."""
 
     # ======= LAYOUT FRAME: 40/60 main split (left=40%, right=60%) =======
@@ -45,47 +52,6 @@ def render_overview(
             if "side" in df_view.columns else pd.Series(dtype=float)
         )
 
-        st.markdown("""
-        <style>
-        /* Pull everything inside the KPI card up by N pixels */
-        .kpi-pack{
-          margin-top:12px;
-          margin-bottom:12px;   /* ← adds space at the bottom INSIDE the card */
-        }
-        .kpi-card-vh{ padding-bottom:18px; }
-        .kpi-number{ margin:1; line-height:1; }
-        .kpi-label{  margin:1.05; line-height:1.05; }
-        .pillbar{    margin-top:8px; }   /* keep a small gap above the bar */
-        /* vertical centering wrapper for KPI cards */
-        .kpi-card-vh{
-          min-height:130px;              /* adjust height to taste */
-          display:flex;
-          flex-direction:column;
-          justify-content:center;        /* vertical center */
-          align-items:center;            /* keep contents centered horizontally */
-          gap:8px;                       /* tight vertical spacing */
-        }
-
-        /* center the headline/label group */
-        .kpi-center{ text-align:center; margin:0; }
-
-        /* tighten text spacing so vertical centering is true */
-        .kpi-number{ font-size:32px; font-weight:800; line-height:1.5; margin:0; }
-        .kpi-label{  font-size:14px; color:#cbd5e1; line-height:1.2; margin:0; }
-
-        /* progress pill */
-        .pillbar{
-          width:100%;
-          height:18px;
-          background:#1b2433;
-          border-radius:999px;
-          overflow:hidden;
-          margin:1px 0 17px 0;  /* top | right | bottom | left */
-        }
-        .pillbar .win{  height:100%; background:#2E86C1; display:inline-block; }
-        .pillbar .loss{ height:100%; background:#2f3a52; display:inline-block; }
-        </style>
-        """, unsafe_allow_html=True)
 
         # === KPI GRID (2x2) ===
         kpi_row1 = st.columns([1, 1], gap="small")
@@ -245,18 +211,7 @@ def render_overview(
 
         # === Equity Curve (bottom of s_left) — with tabs and date x-axis ===
         with st.container(border=True):
-            st.markdown("""
-            <style>
-            div[data-testid="stTabs"] div[role="tablist"]{
-              justify-content: flex-end;
-              gap: 4px;
-              margin-top: -4px;
-            }
-            div[data-testid="stTabs"] button[role="tab"]{
-              padding: 4px 10px;
-            }
-            </style>
-            """, unsafe_allow_html=True)
+
 
             # Build equity (timeframe-aware), with daily resample when dates exist
             _has_date = (date_col is not None and date_col in df_view.columns and len(df_view) > 0)
