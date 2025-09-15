@@ -12,7 +12,12 @@ import streamlit as st
 from src.io import load_trades, validate
 from src.metrics import add_pnl
 from src.state import ensure_defaults
-from src.styles import inject_topbar_css, inject_upload_css
+from src.styles import (
+    inject_filters_css,
+    inject_header_layout_css,
+    inject_topbar_css,
+    inject_upload_css,
+)
 from src.theme import BLUE_FILL
 from src.utils import create_journal, ensure_journal_store, load_journal_index
 from src.views.overview import render_overview
@@ -29,6 +34,9 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+inject_header_layout_css()
+inject_header_layout_css()
+inject_filters_css()
 
 # Make theme color available to CSS as a custom property
 st.markdown(f"<style>:root{{--blue-fill:{BLUE_FILL};}}</style>", unsafe_allow_html=True)
@@ -39,9 +47,14 @@ if "_cal_month_start" not in st.session_state:
     st.session_state["_cal_month_start"] = pd.Timestamp.today().normalize().replace(day=1)
 
 # ========== TOP TOOLBAR (right-aligned icons) ==========
-t_left, t_globe, t_bell, t_full, t_theme, t_profile = st.columns([12, 1, 1, 1, 1, 2], gap="small")
+# ========== TOP TOOLBAR (right-aligned icons) ==========
+st.markdown('<div class="topbar">', unsafe_allow_html=True)
 
-with t_left:
+# Big spacer pushes icons to the far right
+t_spacer, t_globe, t_bell, t_full, t_theme, t_profile = st.columns(
+    [100, 1, 1, 1, 1, 1], gap="small"
+)
+with t_spacer:
     st.empty()
 
 inject_topbar_css()
@@ -50,7 +63,7 @@ with t_globe:
     try:
         st.button("", key="btn_globe", icon=":material/language:")
     except TypeError:
-        st.button("🌐", key="btn_globe")  # fallback for older Streamlit
+        st.button("🌐", key="btn_globe")
 
 with t_bell:
     try:
@@ -66,7 +79,7 @@ with t_full:
 
 with t_theme:
     try:
-        st.button("", key="btn_theme", icon=":material/light_mode:")  # or :material/dark_mode:
+        st.button("", key="btn_theme", icon=":material/light_mode:")
     except TypeError:
         st.button("☼", key="btn_theme")
 
@@ -74,11 +87,8 @@ with t_profile:
     try:
         pp = st.popover("", icon=":material/account_circle:")
     except TypeError:
-        pp = st.popover("🙂")  # fallback
+        pp = st.popover("🙂")
     with pp:
-        # ... keep your upload menu contents exactly as before ...
-        pass
-
         st.markdown('<div class="profile-pop">', unsafe_allow_html=True)
 
         st.subheader("Account")
@@ -126,7 +136,9 @@ with t_profile:
 
         st.markdown("</div>", unsafe_allow_html=True)  # close .upload-pop
         st.markdown("</div>", unsafe_allow_html=True)  # close .profile-pop
-    st.markdown("</div>", unsafe_allow_html=True)  # close .profile-trigger
+
+st.markdown("</div>", unsafe_allow_html=True)  # close .topbar
+
 
 # -------- Divider between top toolbar and the control row --------
 st.divider()
