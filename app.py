@@ -13,6 +13,7 @@ from src.io import load_trades, validate
 from src.metrics import add_pnl
 from src.state import ensure_defaults
 from src.styles import (
+    inject_botbar_css,
     inject_filters_css,
     inject_header_layout_css,
     inject_topbar_css,
@@ -35,8 +36,9 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 inject_header_layout_css()
-inject_header_layout_css()
 inject_filters_css()
+inject_topbar_css()
+inject_botbar_css()
 
 # Make theme color available to CSS as a custom property
 st.markdown(f"<style>:root{{--blue-fill:{BLUE_FILL};}}</style>", unsafe_allow_html=True)
@@ -47,12 +49,11 @@ if "_cal_month_start" not in st.session_state:
     st.session_state["_cal_month_start"] = pd.Timestamp.today().normalize().replace(day=1)
 
 # ========== TOP TOOLBAR (right-aligned icons) ==========
-# ========== TOP TOOLBAR (right-aligned icons) ==========
 st.markdown('<div class="topbar">', unsafe_allow_html=True)
 
 # Big spacer pushes icons to the far right
 t_spacer, t_globe, t_bell, t_full, t_theme, t_profile = st.columns(
-    [100, 1, 1, 1, 1, 1], gap="small"
+    [100, 3, 3, 3, 3, 3], gap="small"
 )
 with t_spacer:
     st.empty()
@@ -60,30 +61,35 @@ with t_spacer:
 inject_topbar_css()
 
 with t_globe:
+    st.markdown('<span class="tb"></span>', unsafe_allow_html=True)
     try:
         st.button("", key="btn_globe", icon=":material/language:")
     except TypeError:
         st.button("🌐", key="btn_globe")
 
 with t_bell:
+    st.markdown('<span class="tb"></span>', unsafe_allow_html=True)
     try:
         st.button("", key="btn_bell", icon=":material/notifications:")
     except TypeError:
         st.button("🔔", key="btn_bell")
 
 with t_full:
+    st.markdown('<span class="tb"></span>', unsafe_allow_html=True)
     try:
         st.button("", key="btn_full", icon=":material/fullscreen:")
     except TypeError:
         st.button("⛶", key="btn_full")
 
 with t_theme:
+    st.markdown('<span class="tb"></span>', unsafe_allow_html=True)
     try:
         st.button("", key="btn_theme", icon=":material/light_mode:")
     except TypeError:
         st.button("☼", key="btn_theme")
 
 with t_profile:
+    st.markdown('<span class="tb"></span>', unsafe_allow_html=True)
     try:
         pp = st.popover("", icon=":material/account_circle:")
     except TypeError:
@@ -144,12 +150,14 @@ st.markdown("</div>", unsafe_allow_html=True)  # close .topbar
 st.divider()
 
 # ===== CONTROL ROW (Title + Month + Filters) =====
+st.markdown('<div class="controls">', unsafe_allow_html=True)
 c_left, c_month, c_filters = st.columns([12, 2, 2], gap="small")
 with c_left:
     st.title("Trading Dashboard — MVP")
 
 # --- Month popover (with icon) ---
 with c_month:
+
     _ms = pd.Timestamp(st.session_state["_cal_month_start"]).normalize().replace(day=1)
     _me = (_ms + pd.offsets.MonthEnd(1)).normalize()
 
@@ -158,6 +166,8 @@ with c_month:
 
     _lbl = f"{_fmt(_ms)} - {_fmt(_me)}"  # e.g., "Sep 1, 2025 - Sep 30, 2025"
     # If you prefer compact: _lbl = _ms.strftime("%b %Y")
+
+    st.markdown('<span class="cb"></span>', unsafe_allow_html=True)
 
     try:
         mp = st.popover(_lbl, icon=":material/calendar_month:", use_container_width=False)
@@ -175,6 +185,9 @@ with c_month:
 
 # --- Filters popover (with icon) ---
 with c_filters:
+
+    st.markdown('<span class="cb"></span>', unsafe_allow_html=True)
+
     try:
         fp = st.popover("Filters", icon=":material/filter_list:", use_container_width=False)
     except TypeError:
@@ -1178,6 +1191,7 @@ with tab_calendar:
                 st.session_state._cal_filter = None
                 st.toast("Calendar filter cleared")
                 st.rerun()
+
 
 st.divider()
 st.subheader("Preview (first 50 rows)")

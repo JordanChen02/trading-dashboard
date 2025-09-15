@@ -124,6 +124,7 @@ def inject_upload_css(brand_color: str = BLUE, hover_fill: str = BLUE_FILL) -> N
     .upload-pop [data-testid="stFileUploaderDropzone"]{{
       width: 100% !important; min-width: 600px; padding-right: 200px;
     }}
+
     </style>
     """,
         unsafe_allow_html=True,
@@ -131,29 +132,37 @@ def inject_upload_css(brand_color: str = BLUE, hover_fill: str = BLUE_FILL) -> N
 
 
 def inject_topbar_css() -> None:
+    """Topbar (tb) = blue/large/borderless. Controls (cb) = outlined/neutral.
+    Strictly scoped to columns that CONTAIN the marker; no global styles."""
     st.markdown(
         f"""
     <style>
       :root {{ --blue-fill: {BLUE_FILL}; }}
-      /* Make icon-only toolbar buttons borderless and consistent */
-      .stButton > button[kind="secondary"] {{
+
+      /* ========== TOPBAR ONLY (columns that CONTAIN .tb marker) ========== */
+      div[data-testid="column"]:has(.tb) .stButton > button,
+      div[data-testid="column"]:has(.tb) .stPopover > div > button {{
         border: 0 !important;
         background: transparent !important;
-        padding: 6px 10px !important;
-        height: 40px; min-width: 40px;
-        border-radius: 10px !important;
+        box-shadow: none !important;
+        outline: none !important;
+        height: 48px;
+        min-width: 48px;
+        padding: 8px 12px !important;
+        border-radius: 12px !important;
+        margin: 0 6px !important;
+        color: {BLUE} !important;
+        font-size: 20px;  /* emoji fallback size */
       }}
-      .stButton > button[kind="secondary"]:hover {{
-        background: var(--blue-fill) !important;
+      /* Material icon SVGs in TOPBAR */
+      div[data-testid="column"]:has(.tb) [data-testid="stIcon"] svg,
+      div[data-testid="column"]:has(.tb) svg {{
+        width: 24px; height: 24px;
+        color: {BLUE} !important;
+        fill:  {BLUE} !important;
       }}
-      .stPopover > div > button[kind="secondary"] {{
-        /* same look for popover triggers used as icon buttons */
-        border: 0 !important;
-        background: transparent !important;
-        height: 40px; min-width: 40px;
-        border-radius: 10px !important;
-      }}
-      .stPopover > div > button[kind="secondary"]:hover {{
+      div[data-testid="column"]:has(.tb) .stButton > button:hover,
+      div[data-testid="column"]:has(.tb) .stPopover > div > button:hover {{
         background: var(--blue-fill) !important;
       }}
     </style>
@@ -162,32 +171,45 @@ def inject_topbar_css() -> None:
     )
 
 
-def inject_header_layout_css() -> None:
+def inject_botbar_css() -> None:
+    """CONTROLS ROW ONLY (columns we mark with .cb): outlined, neutral color."""
     st.markdown(
         """
     <style>
-      /* Tighter padding for our two header rows only */
+      /* Popover triggers ONLY in columns that contain our .cb marker (controls row) */
+      div[data-testid="column"]:has(> .cb) .stPopover > div > button {
+        border: 1px solid #233045 !important;   /* default outline */
+        background: transparent !important;
+        color: #d5deed !important;              /* neutral text/icon */
+        height: 40px !important;
+        min-width: 0 !important;
+        padding: 6px 12px !important;
+        border-radius: 10px !important;
+        margin: 0 8px !important;
+      }
+      /* Icons inside Calendar/Filters popovers in controls row */
+      div[data-testid="column"]:has(> .cb) [data-testid="stIcon"] svg,
+      div[data-testid="column"]:has(> .cb) svg {
+        width: 18px !important;
+        height: 18px !important;
+        color: #d5deed !important;
+        fill:  #d5deed !important;
+      }
+    </style>
+    """,
+        unsafe_allow_html=True,
+    )
+
+
+def inject_header_layout_css() -> None:
+    """(Optional) small padding tweak for header rows."""
+    st.markdown(
+        """
+    <style>
       .topbar [data-testid="column"] > div,
       .controls [data-testid="column"] > div {
         padding-left: 2px !important;
         padding-right: 2px !important;
-      }
-
-      /* Borderless, transparent icon buttons in the TOP toolbar only */
-      .topbar .stButton > button,
-      .topbar .stPopover > div > button {
-        border: 0 !important;
-        background: transparent !important;
-        box-shadow: none !important;
-        outline: none !important;
-        height: 40px; min-width: 40px;
-        padding: 6px 10px !important;
-        border-radius: 10px !important;
-        margin: 0 4px !important;    /* tighter spacing between icons */
-      }
-      .topbar .stButton > button:hover,
-      .topbar .stPopover > div > button:hover {
-        background: rgba(53, 121, 186, 0.18) !important;  /* subtle hover fill */
       }
     </style>
     """,
