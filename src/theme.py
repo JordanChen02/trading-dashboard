@@ -5,9 +5,9 @@ FG = "#e5e7eb"  # primary foreground text
 FG_MUTED = "#cbd5e1"  # captions, labels
 
 # ---- Primary hues ----
-BLUE = "#2E86C1"  # primary brand blue (lines, positive bars)
+BLUE = "#3AA4EB"  # primary brand blue (lines, positive bars)
 BLUE_LIGHT = "#9ecbff"  # legacy/alt blue (thin lines)
-BLUE_FILL = "rgba(53,121,186,0.18)"  # area fill above baseline
+BLUE_FILL = "#212C47"  # area fill above baseline
 
 # ---- Dark accents ----
 DARK = "#212C47"  # dark accent (below-baseline line, secondary fills)

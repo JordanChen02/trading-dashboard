@@ -132,41 +132,87 @@ def inject_upload_css(brand_color: str = BLUE, hover_fill: str = BLUE_FILL) -> N
 
 
 def inject_topbar_css() -> None:
-    """Topbar (tb) = blue/large/borderless. Controls (cb) = outlined/neutral.
-    Strictly scoped to columns that CONTAIN the marker; no global styles."""
+    """Topbar: blue icons, borderless buttons — column-scoped by marker.
+    Works on Streamlit DOMs that use either stColumn or column."""
     st.markdown(
         f"""
-    <style>
-      :root {{ --blue-fill: {BLUE_FILL}; }}
+<style>
+  /* === Base button (stButton + popover trigger) === */
+  div:is([data-testid="stColumn"], [data-testid="column"]):has(.tb, .tb-marker) [data-testid="stButton"] > button,
+  div:is([data-testid="stColumn"], [data-testid="column"]):has(.tb, .tb-marker) [data-testid="stPopover"] > div > button {{
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    outline: none !important;
 
-      /* ========== TOPBAR ONLY (columns that CONTAIN .tb marker) ========== */
-      div[data-testid="column"]:has(.tb) .stButton > button,
-      div[data-testid="column"]:has(.tb) .stPopover > div > button {{
-        border: 0 !important;
-        background: transparent !important;
-        box-shadow: none !important;
-        outline: none !important;
-        height: 48px;
-        min-width: 48px;
-        padding: 8px 12px !important;
-        border-radius: 12px !important;
-        margin: 0 6px !important;
-        color: {BLUE} !important;
-        font-size: 20px;  /* emoji fallback size */
-      }}
-      /* Material icon SVGs in TOPBAR */
-      div[data-testid="column"]:has(.tb) [data-testid="stIcon"] svg,
-      div[data-testid="column"]:has(.tb) svg {{
-        width: 24px; height: 24px;
-        color: {BLUE} !important;
-        fill:  {BLUE} !important;
-      }}
-      div[data-testid="column"]:has(.tb) .stButton > button:hover,
-      div[data-testid="column"]:has(.tb) .stPopover > div > button:hover {{
-        background: var(--blue-fill) !important;
-      }}
-    </style>
-    """,
+    height: 60px !important;
+    min-width: 60px !important;
+    padding: 12px !important;               /* equal padding centers the fill */
+    border-radius: 12px !important;
+    margin: 2 10px !important;               /* spacing between buttons */
+
+    color: {BLUE} !important;
+    font-size: 32px !important;             /* emoji fallback size */
+
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    line-height: 0 !important;              /* kill baseline quirk */
+    box-sizing: border-box !important;
+  }}
+
+  /* Hover fill */
+  div:is([data-testid="stColumn"], [data-testid="column"]):has(.tb, .tb-marker) [data-testid="stButton"] > button:hover,
+  div:is([data-testid="stColumn"], [data-testid="column"]):has(.tb, .tb-marker) [data-testid="stPopover"] > div > button:hover {{
+    background: {BLUE_FILL} !important;
+  }}
+
+  /* Icon size/color (Material SVGs) */
+  div:is([data-testid="stColumn"], [data-testid="column"]):has(.tb, .tb-marker) [data-testid="stButton"] svg,
+  div:is([data-testid="stColumn"], [data-testid="column"]):has(.tb, .tb-marker) [data-testid="stPopover"] svg {{
+    width: 32px; height: 32px;
+    color: {BLUE} !important;
+    fill:  {BLUE} !important;
+  }}
+  /* Non-profile buttons: nudge ONLY the icon/text left */
+  div:is([data-testid="stColumn"], [data-testid="column"]):has(.tb, .tb-marker)
+    [data-testid="stButton"] > button :where(svg, span, p) {{
+    transform: translateX(-2px);   /* adjust: -1px..-3px */
+  }}
+
+  /* Profile popover trigger: no nudge */
+  div:is([data-testid="stColumn"], [data-testid="column"]):has(.tb, .tb-marker)
+    [data-testid="stPopover"] > div > button :where(svg, span, p) {{
+    transform: none;
+  }}
+
+  /* Ensure SVGs aren’t baseline-aligned like text */
+  div:is([data-testid="stColumn"], [data-testid="column"]):has(.tb, .tb-marker) [data-testid="stButton"] > button svg,
+  div:is([data-testid="stColumn"], [data-testid="column"]):has(.tb, .tb-marker) [data-testid="stPopover"] > div > button svg {{
+    display: block !important;
+    margin: 0 !important;
+  }}
+
+  /* Emoji / text label size inside the button (affects 🌐 🔔 ⛶ ☼ fallbacks) */
+  div:is([data-testid="stColumn"], [data-testid="column"]):has(.tb, .tb-marker) [data-testid="stButton"] > button :where(span, p),
+  div:is([data-testid="stColumn"], [data-testid="column"]):has(.tb, .tb-marker) [data-testid="stPopover"] > div > button :where(span, p) {{
+    font-size: 28px !important;
+    line-height: 1 !important;
+    margin: 0 !important;
+  }}
+
+  /* Micro-nudge: shift NON-profile buttons (stButton) left so icon is visually centered in the hover fill */
+  div:is([data-testid="stColumn"], [data-testid="column"]):has(.tb, .tb-marker) [data-testid="stButton"] > button {{
+    transform: translateX(-2px);            /* adjust to taste: -1px..-3px */
+    will-change: transform;
+  }}
+
+  /* Keep the profile popover trigger centered */
+  div:is([data-testid="stColumn"], [data-testid="column"]):has(.tb, .tb-marker) [data-testid="stPopover"] > div > button {{
+    transform: none;
+  }}
+</style>
+""",
         unsafe_allow_html=True,
     )
 
@@ -211,6 +257,95 @@ def inject_header_layout_css() -> None:
         padding-left: 2px !important;
         padding-right: 2px !important;
       }
+    </style>
+    """,
+        unsafe_allow_html=True,
+    )
+
+
+def inject_isolated_ui_css() -> None:
+    """Isolate styles to exact widgets using the markdown container that has our marker, then the next widget."""
+    st.markdown(
+        f"""
+    <style>
+      :root {{ --blue-fill: {BLUE_FILL}; }}
+
+      /* ===== TOPBAR ONLY (marker is inside a markdown container) ===== */
+      div[data-testid="stMarkdownContainer"]:has(.tb-marker) ~ div[data-testid="stButton"] > button,
+      div[data-testid="stMarkdownContainer"]:has(.tb-marker) ~ div[data-testid="stPopover"] > div > button {{
+        border: 0 !important;
+        background: transparent !important;
+        box-shadow: none !important;
+        outline: none !important;
+        height: 48px; min-width: 48px;
+        padding: 8px 12px !important;
+        border-radius: 12px !important;
+        margin: 0 6px !important;
+      }}
+      div[data-testid="stMarkdownContainer"]:has(.tb-marker) ~ div[data-testid="stButton"] > button:hover,
+      div[data-testid="stMarkdownContainer"]:has(.tb-marker) ~ div[data-testid="stPopover"] > div > button:hover {{
+        background: var(--blue-fill) !important;
+      }}
+      /* Icon color/size in TOPBAR */
+      div[data-testid="stMarkdownContainer"]:has(.tb-marker) ~ div[data-testid="stButton"] svg,
+      div[data-testid="stMarkdownContainer"]:has(.tb-marker) ~ div[data-testid="stPopover"] svg {{
+        width: 24px; height: 24px;
+        color: {BLUE} !important;
+        fill:  {BLUE} !important;
+      }}
+
+      /* ===== TOPBAR CONTAINER (markerless fallback) ===== */
+      .topbar .stButton > button,
+      .topbar .stPopover > div > button {{
+        border: 0 !important;
+        background: transparent !important;
+        box-shadow: none !important;
+        outline: none !important;
+        height: 48px;
+        min-width: 48px;
+        padding: 8px 12px !important;
+        border-radius: 12px !important;
+        margin: 0 6px !important;
+        color: {BLUE} !important;
+        font-size: 20px;
+      }}
+      .topbar [data-testid="stIcon"] svg,
+      .topbar svg {{
+        width: 24px; height: 24px;
+        color: {BLUE} !important;
+        fill:  {BLUE} !important;
+      }}
+      .topbar .stButton > button:hover,
+      .topbar .stPopover > div > button:hover {{
+        background: var(--blue-fill) !important;
+      }}
+
+      /* ===== CONTROLS ROW ONLY (Calendar & Filters) ===== */
+      div[data-testid="stMarkdownContainer"]:has(.cal-marker) + div[data-testid="stPopover"] > div > button,
+      div[data-testid="stMarkdownContainer"]:has(.filters-marker) + div[data-testid="stPopover"] > div > button {{
+        border: 1px solid #233045 !important;
+        background: transparent !important;
+        color: #d5deed !important;
+        height: 40px; min-width: 0;
+        padding: 6px 12px !important;
+        border-radius: 10px !important;
+        margin: 0 8px !important;
+      }}
+      div[data-testid="stMarkdownContainer"]:has(.cal-marker) + div[data-testid="stPopover"] > div > button:hover,
+      div[data-testid="stMarkdownContainer"]:has(.filters-marker) + div[data-testid="stPopover"] > div > button:hover {{
+        background: var(--blue-fill) !important;
+      }}
+
+      /* Make ONLY the calendar icon blue */
+      div[data-testid="stMarkdownContainer"]:has(.cal-marker) + div[data-testid="stPopover"] [data-testid="stIcon"] svg {{
+        color: {BLUE} !important;
+        fill:  {BLUE} !important;
+      }}
+
+      /* Remove extra right gap so Filters hugs the right edge */
+      div[data-testid="stMarkdownContainer"]:has(.filters-marker) + div[data-testid="stPopover"] > div > button {{
+        margin-right: 0 !important;
+      }}
     </style>
     """,
         unsafe_allow_html=True,

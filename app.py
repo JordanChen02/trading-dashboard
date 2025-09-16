@@ -13,9 +13,9 @@ from src.io import load_trades, validate
 from src.metrics import add_pnl
 from src.state import ensure_defaults
 from src.styles import (
-    inject_botbar_css,
     inject_filters_css,
     inject_header_layout_css,
+    inject_isolated_ui_css,
     inject_topbar_css,
     inject_upload_css,
 )
@@ -37,11 +37,11 @@ st.set_page_config(
 )
 inject_header_layout_css()
 inject_filters_css()
+inject_isolated_ui_css()
 inject_topbar_css()
-inject_botbar_css()
 
 # Make theme color available to CSS as a custom property
-st.markdown(f"<style>:root{{--blue-fill:{BLUE_FILL};}}</style>", unsafe_allow_html=True)
+st.markdown(f"<style>:root {{ --blue-fill: {BLUE_FILL}; }}</style>", unsafe_allow_html=True)
 
 
 # default month in session (first of current month)
@@ -53,12 +53,10 @@ st.markdown('<div class="topbar">', unsafe_allow_html=True)
 
 # Big spacer pushes icons to the far right
 t_spacer, t_globe, t_bell, t_full, t_theme, t_profile = st.columns(
-    [100, 3, 3, 3, 3, 3], gap="small"
+    [100, 5, 5, 5, 5, 5], gap="small"
 )
 with t_spacer:
     st.empty()
-
-inject_topbar_css()
 
 with t_globe:
     st.markdown('<span class="tb"></span>', unsafe_allow_html=True)
@@ -167,7 +165,7 @@ with c_month:
     _lbl = f"{_fmt(_ms)} - {_fmt(_me)}"  # e.g., "Sep 1, 2025 - Sep 30, 2025"
     # If you prefer compact: _lbl = _ms.strftime("%b %Y")
 
-    st.markdown('<span class="cb"></span>', unsafe_allow_html=True)
+    st.markdown('<span class="cal-marker"></span>', unsafe_allow_html=True)
 
     try:
         mp = st.popover(_lbl, icon=":material/calendar_month:", use_container_width=False)
@@ -186,7 +184,7 @@ with c_month:
 # --- Filters popover (with icon) ---
 with c_filters:
 
-    st.markdown('<span class="cb"></span>', unsafe_allow_html=True)
+    st.markdown('<span class="filters-marker"></span>', unsafe_allow_html=True)
 
     try:
         fp = st.popover("Filters", icon=":material/filter_list:", use_container_width=False)
