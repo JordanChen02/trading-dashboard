@@ -21,6 +21,7 @@ from src.styles import (
 )
 from src.theme import BLUE_FILL
 from src.utils import create_journal, ensure_journal_store, load_journal_index
+from src.views.checklist import render as render_checklist
 from src.views.journal import render as render_journal
 from src.views.overview import render_overview
 from src.views.performance import render as render_performance
@@ -188,7 +189,7 @@ with st.sidebar:
     # st.markdown("## Navigation")
 
     # ===================== SIDEBAR: Navigation =====================
-    _options = ["Dashboard", "Journal", "Accounts"]
+    _options = ["Dashboard", "Journal", "Accounts", "Checklist"]
 
     # Ensure a default exactly once
     if "nav" not in st.session_state:
@@ -469,7 +470,9 @@ df = add_pnl(df)
 if st.session_state.get("nav", "Dashboard") == "Journal":
     render_journal(df)  # df is already loaded/validated above
     st.stop()  # prevent Dashboard tabs from rendering
-
+elif st.session_state["nav"] == "Checklist":
+    render_checklist(df)
+    st.stop()
 
 # In-session notes store: maps original df index -> note text
 if "_trade_notes" not in st.session_state:  # if key not present in the dict
