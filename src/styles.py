@@ -149,7 +149,7 @@ def inject_topbar_css() -> None:
     min-width: 60px !important;
     padding: 12px !important;               /* equal padding centers the fill */
     border-radius: 12px !important;
-    margin: 2 10px !important;               /* spacing between buttons */
+    margin: 2px 10px !important;               /* spacing between buttons */
 
     color: {BLUE} !important;
     font-size: 32px !important;             /* emoji fallback size */
@@ -222,8 +222,7 @@ def inject_botbar_css() -> None:
     st.markdown(
         """
     <style>
-      /* Popover triggers ONLY in columns that contain our .cb marker (controls row) */
-      div[data-testid="column"]:has(> .cb) .stPopover > div > button {
+      /* Popover triggers ONLY in columns that contain our .cb markdiv:is([data-testid="stColumn"], [data-testid="column"]):has(> .cb) .stPopover > div > button {
         border: 1px solid #233045 !important;   /* default outline */
         background: transparent !important;
         color: #d5deed !important;              /* neutral text/icon */
@@ -234,8 +233,8 @@ def inject_botbar_css() -> None:
         margin: 0 8px !important;
       }
       /* Icons inside Calendar/Filters popovers in controls row */
-      div[data-testid="column"]:has(> .cb) [data-testid="stIcon"] svg,
-      div[data-testid="column"]:has(> .cb) svg {
+      div:is([data-testid="stColumn"], [data-testid="column"]):has(> .cb) [data-testid="stIcon"] svg,
+      div:is([data-testid="stColumn"], [data-testid="column"]):has(> .cb) svg {
         width: 18px !important;
         height: 18px !important;
         color: #d5deed !important;
@@ -248,17 +247,83 @@ def inject_botbar_css() -> None:
 
 
 def inject_header_layout_css() -> None:
-    """(Optional) small padding tweak for header rows."""
+    """Global header/layout tweaks:
+    - Left-align tabs
+    - Tighten header spacing
+    - Column padding fixes for topbar/controls
+    - Right-align the Month + Filters pair
+    """
     st.markdown(
         """
-    <style>
-      .topbar [data-testid="column"] > div,
-      .controls [data-testid="column"] > div {
-        padding-left: 2px !important;
-        padding-right: 2px !important;
-      }
-    </style>
-    """,
+<style>
+/* ===== Tabs: left align + spacing ===== */
+div[data-testid="stTabs"] [role="tablist"] {
+  justify-content: flex-start !important;
+}
+div[data-testid="stTabs"] [role="tab"] {
+  margin-right: 16px !important;
+  flex: 0 0 auto !important;
+}
+div[data-testid="stTabs"] [role="tab"]:last-child {
+  margin-right: 0 !important;
+}
+
+/* ===== Column padding tighten for topbar & controls ===== */
+.topbar div:is([data-testid="stColumn"], [data-testid="column"]) > div,
+.controls div:is([data-testid="stColumn"], [data-testid="column"]) > div {
+  padding-left: 2px !important;
+  padding-right: 2px !important;
+}
+
+/* ===== Tighten vertical spacing around the title/controls row ===== */
+/* Target the row that contains the Month popover (cal-marker) */
+div[data-testid="stHorizontalBlock"]:has(
+  > div:is([data-testid="stColumn"], [data-testid="column"]) .cal-marker
+){
+  margin-top: -10px !important;     /* pull the row upward; tweak -6px … -16px */
+  margin-bottom: 20px !important;   /* add space under the row */
+  display: flex !important;         /* ensure it's a flex row */
+  align-items: center !important;
+}
+
+/* Remove extra top margin on the H1 inside that row */
+div[data-testid="stHorizontalBlock"]:has(
+  > div:is([data-testid="stColumn"], [data-testid="column"]) .cal-marker
+) [data-testid="stMarkdownContainer"] h1 {
+  margin-top: 0 !important;
+  line-height: 1.1 !important;
+}
+
+/* Optional: slightly tighter dividers across the page */
+hr {
+  margin-top: 6px !important;
+  margin-bottom: 8px !important;
+}
+
+/* ===== Right-align Month + Filters (final, safe) ===== */
+/* Push the Month column (the one with .cal-marker) all the way to the right */
+div[data-testid="stHorizontalBlock"]:has(
+  > div:is([data-testid="stColumn"], [data-testid="column"]) .cal-marker
+) > div:is([data-testid="stColumn"], [data-testid="column"]):has(.cal-marker) {
+  margin-left: auto !important;     /* this shoves the Month+Filters pair right */
+}
+
+/* Keep Filters snug to the edge: remove inner right padding on its column */
+div[data-testid="stHorizontalBlock"]:has(
+  > div:is([data-testid="stColumn"], [data-testid="column"]) .filters-marker
+) > div:is([data-testid="stColumn"], [data-testid="column"]):has(.filters-marker) > div {
+  padding-right: 0 !important;
+}
+
+/* Nice gap between Month and Filters buttons */
+div[data-testid="stHorizontalBlock"]:has(
+  > div:is([data-testid="stColumn"], [data-testid="column"]) .cal-marker
+) > div:is([data-testid="stColumn"], [data-testid="column"]):has(.cal-marker)
+  [data-testid="stPopover"] > div > button {
+  margin-right: 12px !important;    /* tweak to taste: 8–16px */
+}
+</style>
+""",
         unsafe_allow_html=True,
     )
 
