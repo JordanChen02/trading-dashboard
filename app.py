@@ -187,18 +187,21 @@ with st.sidebar:
 
     # st.markdown("## Navigation")
 
-    # Keep selected tab in session; default to Dashboard
-    _current = st.session_state.get("nav", "Dashboard")
+    # ===================== SIDEBAR: Navigation =====================
     _options = ["Dashboard", "Journal", "Accounts"]
 
-    # Render as a radio but style it as a flat list (no circles, full-bleed rows)
+    # Ensure a default exactly once
+    if "nav" not in st.session_state:
+        st.session_state["nav"] = "Dashboard"
+
+    # Radio is the single source of truth for nav
     nav = st.radio(
         "Go to:",
         _options,
-        index=_options.index(_current),
+        key="nav",  # <-- binds to st.session_state["nav"]
         label_visibility="collapsed",
-        key="nav",  # <— use 'nav' as the state key
     )
+    # DO NOT set st.session_state["nav"] = nav anywhere else
 
     # --- TradingView-like styling for the radio group + line icons ---
     st.markdown(
@@ -400,7 +403,7 @@ else:
                     "notes",
                 ]
                 df = pd.DataFrame(columns=empty_cols)
-                st.session_state["nav"] = "Journal"
+
             else:
                 import io
 
@@ -422,7 +425,7 @@ else:
                         "notes",
                     ]
                     df = pd.DataFrame(columns=empty_cols)
-                    st.session_state["nav"] = "Journal"
+
 # 3) Final safety: ensure df is always defined
 if df is None:
     df = pd.DataFrame(
