@@ -120,97 +120,128 @@ def render(df: pd.DataFrame) -> None:
 
     st.divider()
 
-    # ===== Template Items =====
-    active_name = st.session_state["active_setup"]
-    template = st.session_state["checklists"][active_name]
-    items = template.get("items", [])
+    # === Two-pane layout: left = checklist, right = chart examples ===
+    left_col, right_col = st.columns([7, 5], gap="large")
 
-    if not items:
-        st.info(
-            "This setup has no items yet. We’ll seed two placeholders when you add the first one."
-        )
-        if st.button("Seed placeholders", key="seed_items_btn"):
-            template["items"] = _default_template_items()
-            st.rerun()
-        return
+    # ------------- LEFT: Checklist editor -------------
+    with left_col:
+        # ===== Template Items =====
+        active_name = st.session_state["active_setup"]
+        template = st.session_state["checklists"][active_name]
+        items = template.get("items", [])
 
-    st.subheader("Items")
-
-    for idx, item in enumerate(items):
-        row_left, row_mid, row_add = st.columns([0.8, 3.2, 2.0], gap="small")
-        with row_left:
-            # Enabled checkbox (acts like the leading [ ] on each line)
-            enabled = st.checkbox(
-                "", value=item.get("enabled", True), key=f"itm_enabled_{item['id']}"
+        if not items:
+            st.info(
+                "This setup has no items yet. We’ll seed two placeholders when you add the first one."
             )
-            item["enabled"] = enabled
+            if st.button("Seed placeholders", key="seed_items_btn"):
+                template["items"] = _default_template_items()
+                st.rerun()
+        else:
+            st.subheader("Items")
 
-        with row_mid:
-            # Label + current control (dropdown for both Bias & Liquidity Sweep in MVP)
-            st.write(f"**{item['label']}**")
-            # For MVP we're using dropdowns for both, with options shown below. (Scale = 1..10 pre-seeded)
-            options = item.get("options", [])
-            if not isinstance(options, list):
-                options = []
-                item["options"] = options
+            for idx, item in enumerate(items):
+                # --- Top row: checkbox + BIG label (32px) ---
+                cb_col, label_col = st.columns([0.8, 11.2], gap="small")
 
-            # Render a dropdown to preview options (this is template-level, not responding)
-            # We store the chosen preview value to keep the widget stable; it doesn't affect the template
-            prev_key = f"preview_val_{item['id']}"
-            st.selectbox(
-                " ",
-                options or [""],
-                index=0 if options else 0,
-                key=prev_key,
-                label_visibility="collapsed",
-            )
-
-        with row_add:
-            # Inline "+ Add option" control per item (to extend the dropdown list)
-            with st.container(border=True):
-                st.caption("Add option")
-                # For scale: you might add 11, 12 later; for select: add new category text
-                if item["type"] == "scale":
-                    new_val = st.number_input(
-                        f"num_{item['id']}",
-                        value=None,
-                        min_value=1,
-                        step=1,
-                        placeholder="1-10",
-                        label_visibility="collapsed",
+                with cb_col:
+                    enabled = st.checkbox(
+                        "",
+                        value=item.get("enabled", True),
+                        key=f"itm_enabled_{item['id']}",
                     )
-                    add = st.button("＋", key=f"add_opt_{item['id']}", use_container_width=True)
-                    if add:
-                        if new_val is None:
-                            st.toast("Enter a number first")
-                        else:
-                            sval = str(int(new_val))
-                            if sval not in item["options"]:
-                                item["options"].append(sval)
-                                item["options"].sort(
-                                    key=lambda x: int(x) if str(x).isdigit() else 9999
-                                )
-                                st.rerun()
+                    item["enabled"] = enabled
+
+                with label_col:
+                    st.markdown(
+                        f"<span style='font-size:32px; font-weight:700; line-height:1'>{item['label']}</span>",
+                        unsafe_allow_html=True,
+                    )
+
+                # --- Preview control shown below the label ---
+                options = item.get("options", [])
+                if not isinstance(options, list):
+                    options = []
+                    item["options"] = options
+
+                st.selectbox(
+                    " ",
+                    options or [""],
+                    index=0 if options else 0,
+                    key=f"preview_val_{item['id']}",
+                    label_visibility="collapsed",
+                )
+
+                # --- Add option box (kept functional) ---
+                with st.container(border=True):
+                    st.caption("Add option")
+                    if item["type"] == "scale":
+                        new_val = st.number_input(
+                            f"num_{item['id']}",
+                            value=None,
+                            min_value=1,
+                            step=1,
+                            placeholder="1-10",
+                            label_visibility="collapsed",
+                        )
+                        if st.button("＋", key=f"add_opt_{item['id']}", use_container_width=True):
+                            if new_val is None:
+                                st.toast("Enter a number first")
                             else:
-                                st.toast("Already exists")
-                else:
-                    new_txt = st.text_input(
-                        f"txt_{item['id']}",
-                        value="",
-                        placeholder="e.g., External / Equal highs",
-                        label_visibility="collapsed",
-                    )
-                    add = st.button("＋", key=f"add_opt_{item['id']}", use_container_width=True)
-                    if add:
-                        val = (new_txt or "").strip()
-                        if not val:
-                            st.toast("Enter a value first")
-                        else:
-                            if val not in item["options"]:
+                                sval = str(int(new_val))
+                                if sval not in item["options"]:
+                                    item["options"].append(sval)
+                                    item["options"].sort(
+                                        key=lambda x: int(x) if str(x).isdigit() else 9999
+                                    )
+                                    st.rerun()
+                                else:
+                                    st.toast("Already exists")
+                    else:
+                        new_txt = st.text_input(
+                            f"txt_{item['id']}",
+                            value="",
+                            placeholder="e.g., External / Equal highs",
+                            label_visibility="collapsed",
+                        )
+                        if st.button("＋", key=f"add_opt_{item['id']}", use_container_width=True):
+                            val = (new_txt or "").strip()
+                            if not val:
+                                st.toast("Enter a value first")
+                            elif val not in item["options"]:
                                 item["options"].append(val)
                                 st.rerun()
                             else:
                                 st.toast("Already exists")
+
+                st.markdown("<div style='height:0.6rem'></div>", unsafe_allow_html=True)
+
+    # ------------- RIGHT: Chart Examples -------------
+    with right_col:
+        st.subheader("Chart Examples")
+        st.caption("Upload up to two reference images.")
+
+        u1, u2 = st.columns(2, gap="medium")
+
+        with u1:
+            img1 = st.file_uploader(
+                "Image 1",
+                type=["png", "jpg", "jpeg", "webp"],
+                key="chk_img_1",
+                label_visibility="collapsed",
+            )
+            if img1 is not None:
+                st.image(img1, use_container_width=True)
+
+        with u2:
+            img2 = st.file_uploader(
+                "Image 2",
+                type=["png", "jpg", "jpeg", "webp"],
+                key="chk_img_2",
+                label_visibility="collapsed",
+            )
+            if img2 is not None:
+                st.image(img2, use_container_width=True)
 
     st.divider()
     st.caption("This page defines the template only. Scoring & live use will come next.")
