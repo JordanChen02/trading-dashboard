@@ -21,6 +21,7 @@ from src.styles import (
 )
 from src.theme import BLUE_FILL
 from src.utils import create_journal, ensure_journal_store, load_journal_index
+from src.views.journal import render as render_journal
 from src.views.overview import render_overview
 from src.views.performance import render as render_performance
 
@@ -147,62 +148,6 @@ st.markdown("</div>", unsafe_allow_html=True)  # close .topbar
 # -------- Divider between top toolbar and the control row --------
 st.divider()
 
-# ===== CONTROL ROW (Title + Month + Filters) =====
-st.markdown('<div class="controls">', unsafe_allow_html=True)
-c_left, c_month, c_filters = st.columns([12, 2, 2], gap="small")
-with c_left:
-    st.title("Trading Dashboard — MVP")
-
-# --- Month popover (with icon) ---
-with c_month:
-
-    _ms = pd.Timestamp(st.session_state["_cal_month_start"]).normalize().replace(day=1)
-    _me = (_ms + pd.offsets.MonthEnd(1)).normalize()
-
-    def _fmt(ts: pd.Timestamp) -> str:
-        return f"{ts.strftime('%b')} {ts.day}, {ts.year}"
-
-    _lbl = f"{_fmt(_ms)} - {_fmt(_me)}"  # e.g., "Sep 1, 2025 - Sep 30, 2025"
-    # If you prefer compact: _lbl = _ms.strftime("%b %Y")
-
-    st.markdown('<span class="cal-marker"></span>', unsafe_allow_html=True)
-
-    try:
-        mp = st.popover(_lbl, icon=":material/calendar_month:", use_container_width=False)
-    except TypeError:
-        mp = st.popover(_lbl, use_container_width=False)  # fallback for older Streamlit
-
-    with mp:
-        picked = st.date_input(
-            "Pick month",
-            value=st.session_state["_cal_month_start"].to_pydatetime(),
-            format="YYYY-MM-DD",
-            key="cal_month_input",
-        )
-        st.session_state["_cal_month_start"] = pd.to_datetime(picked).normalize().replace(day=1)
-
-# --- Filters popover (with icon) ---
-with c_filters:
-
-    st.markdown('<span class="filters-marker"></span>', unsafe_allow_html=True)
-
-    try:
-        fp = st.popover("Filters", icon=":material/filter_list:", use_container_width=False)
-    except TypeError:
-        fp = st.popover("Filters", use_container_width=False)
-
-    with fp:
-        st.caption("Filters live in the left sidebar. Quick actions:")
-        colA, colB = st.columns(2, gap="small")
-        with colA:
-            if st.button("Open Sidebar", use_container_width=True):
-                st.toast("Filters are in the left sidebar (expanded).")
-        with colB:
-            if st.button("Clear Calendar Filter", use_container_width=True):
-                st.session_state._cal_filter = None
-                st.toast("Calendar filter cleared")
-                st.rerun()
-
 
 # ===================== SIDEBAR: Journals (UI only) =====================
 ensure_journal_store()
@@ -252,9 +197,8 @@ with st.sidebar:
         _options,
         index=_options.index(_current),
         label_visibility="collapsed",
-        key="nav_radio",
+        key="nav",  # <— use 'nav' as the state key
     )
-    st.session_state["nav"] = nav  # normalize key we use elsewhere
 
     # --- TradingView-like styling for the radio group + line icons ---
     st.markdown(
@@ -423,6 +367,7 @@ _menu_file = st.session_state.get("_menu_file_obj")
 if _menu_file is not None:
     source_label = f"uploaded: {getattr(_menu_file, 'name', 'file.csv')}"
     try:
+        _menu_file.seek(0)
         df = load_trades(_menu_file)
     except Exception as e:
         st.error(f"Could not read that file: {e}")
@@ -435,8 +380,68 @@ else:
         rec = next((j for j in idx.get("journals", []) if j["id"] == sel_id), None)
         if rec and Path(rec["path"]).exists():
             source_label = f"journal: {rec['name']}"
+            # ---- read file in a way that tolerates empty CSVs ----
             with open(rec["path"], "rb") as f:
-                df = load_trades(f)
+                _bytes = f.read()
+
+            # If empty file → show an empty Journal page instead of erroring
+            if not _bytes.strip():
+                empty_cols = [
+                    "trade_id",
+                    "symbol",
+                    "side",
+                    "entry_time",
+                    "exit_time",
+                    "entry_price",
+                    "exit_price",
+                    "qty",
+                    "fees",
+                    "session",
+                    "notes",
+                ]
+                df = pd.DataFrame(columns=empty_cols)
+                st.session_state["nav"] = "Journal"
+            else:
+                import io
+
+                try:
+                    df = load_trades(io.BytesIO(_bytes))
+                except Exception as e:
+                    st.warning(f"Journal file couldn’t be parsed ({e}). Opening Journal.")
+                    empty_cols = [
+                        "trade_id",
+                        "symbol",
+                        "side",
+                        "entry_time",
+                        "exit_time",
+                        "entry_price",
+                        "exit_price",
+                        "qty",
+                        "fees",
+                        "session",
+                        "notes",
+                    ]
+                    df = pd.DataFrame(columns=empty_cols)
+                    st.session_state["nav"] = "Journal"
+# 3) Final safety: ensure df is always defined
+if df is None:
+    df = pd.DataFrame(
+        columns=[
+            "trade_id",
+            "symbol",
+            "side",
+            "entry_time",
+            "exit_time",
+            "entry_price",
+            "exit_price",
+            "qty",
+            "fees",
+            "session",
+            "notes",
+        ]
+    )
+    source_label = "empty"
+
 
 # If we still don't have data, bail out gently
 if df is None:
@@ -456,6 +461,12 @@ if issues:
     st.stop()
 
 df = add_pnl(df)
+
+# ---- Router: open Journal page if selected ----
+if st.session_state.get("nav", "Dashboard") == "Journal":
+    render_journal(df)  # df is already loaded/validated above
+    st.stop()  # prevent Dashboard tabs from rendering
+
 
 # In-session notes store: maps original df index -> note text
 if "_trade_notes" not in st.session_state:  # if key not present in the dict
@@ -511,50 +522,62 @@ def _persist_journal_meta():
         st.warning(f"Couldn't save journal metadata: {e}")
 
 
-# ===================== FILTERS (render after df exists) =====================
-# Recreate the sidebar expander now that df is available
-with st.sidebar.expander("Filters", expanded=True):
-    symbols = sorted(df["symbol"].dropna().unique().tolist()) if "symbol" in df.columns else []
-    sides = sorted(df["side"].dropna().unique().tolist()) if "side" in df.columns else []
+# ===== CONTROL ROW (Title + Month + Filters) =====
+st.markdown('<div class="controls">', unsafe_allow_html=True)
+c_left, c_month, c_filters = st.columns([12, 2, 2], gap="small")
+with c_left:
+    st.title("Trading Dashboard — MVP")
 
-    sel_symbols = st.multiselect("Symbol", symbols, default=symbols if symbols else [])
-    sel_sides = st.multiselect("Side", sides, default=sides if sides else [])
-    # --- Tag filter (A+/A/B/C) ---
-    # We gather possible tags from the DataFrame if present, plus any in-session tags.
-    _tags_present = set()
-    if "tag" in df.columns:
-        _tags_present |= set(
-            df["tag"].dropna().astype(str).str.strip().tolist()
-        )  # |= is set-union assignment
+# --- Month popover (with icon) ---
+with c_month:
 
-    _tags_present |= set(st.session_state.get("_trade_tags", {}).values())
+    _ms = pd.Timestamp(st.session_state["_cal_month_start"]).normalize().replace(day=1)
+    _me = (_ms + pd.offsets.MonthEnd(1)).normalize()
 
-    # Keep only known tag grades in a nice order
-    _known_order = ["A+", "A", "B", "C"]
-    tag_options = [t for t in _known_order if t in _tags_present]
+    def _fmt(ts: pd.Timestamp) -> str:
+        return f"{ts.strftime('%b')} {ts.day}, {ts.year}"
 
-    sel_tags = st.multiselect(
-        "Tag",
-        options=tag_options,
-        default=tag_options if tag_options else [],
-        help="Quick grades you’ve applied to trades (A+, A, B, C).",
-    )
+    _lbl = f"{_fmt(_ms)} - {_fmt(_me)}"  # e.g., "Sep 1, 2025 - Sep 30, 2025"
+    # If you prefer compact: _lbl = _ms.strftime("%b %Y")
 
-# Apply filters
-df_filtered = df.copy()
-if "symbol" in df_filtered.columns and sel_symbols:
-    df_filtered = df_filtered[df_filtered["symbol"].isin(sel_symbols)]
-if "side" in df_filtered.columns and sel_sides:
-    df_filtered = df_filtered[df_filtered["side"].isin(sel_sides)]
-if "tag" in df_filtered.columns and sel_tags:
-    df_filtered = df_filtered[df_filtered["tag"].isin(sel_tags)]
+    st.markdown('<span class="cal-marker"></span>', unsafe_allow_html=True)
 
-if df_filtered.empty:
-    st.info("No rows match the current filters. Adjust filters in the sidebar.")
-    st.stop()
+    try:
+        mp = st.popover(_lbl, icon=":material/calendar_month:", use_container_width=False)
+    except TypeError:
+        mp = st.popover(_lbl, use_container_width=False)  # fallback for older Streamlit
 
-# From here on, keep your existing code but make it operate on the filtered data:
-df = df_filtered
+    with mp:
+        picked = st.date_input(
+            "Pick month",
+            value=st.session_state["_cal_month_start"].to_pydatetime(),
+            format="YYYY-MM-DD",
+            key="cal_month_input",
+        )
+        st.session_state["_cal_month_start"] = pd.to_datetime(picked).normalize().replace(day=1)
+
+# --- Filters popover (with icon) ---
+with c_filters:
+
+    st.markdown('<span class="filters-marker"></span>', unsafe_allow_html=True)
+
+    try:
+        fp = st.popover("Filters", icon=":material/filter_list:", use_container_width=False)
+    except TypeError:
+        fp = st.popover("Filters", use_container_width=False)
+
+    with fp:
+        st.caption("Filters live in the left sidebar. Quick actions:")
+        colA, colB = st.columns(2, gap="small")
+        with colA:
+            if st.button("Open Sidebar", use_container_width=True):
+                st.toast("Filters are in the left sidebar (expanded).")
+        with colB:
+            if st.button("Clear Calendar Filter", use_container_width=True):
+                st.session_state._cal_filter = None
+                st.toast("Calendar filter cleared")
+                st.rerun()
+
 
 # ===================== RUNTIME SETTINGS (no UI) =====================
 # Defaults for now; we'll move breakeven policy into Filters later

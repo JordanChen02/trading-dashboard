@@ -356,21 +356,3 @@ def render_overview(
                 st.markdown("<div style='margin-bottom:-32px'></div>", unsafe_allow_html=True)
 
     # ======= END LAYOUT FRAME =======
-
-    # ===================== CHARTS (card layout) =====================
-    _, btn_col = st.columns([8, 1], gap="small")
-    with btn_col:
-        clicked = False
-        try:
-            clicked = st.button(
-                "Filters",
-                key="filters_btn",
-                icon=":material/filter_list:",
-                use_container_width=True,
-            )
-        except TypeError:
-            clicked = st.button("🔎 Filters", key="filters_btn", use_container_width=True)
-
-        if clicked:
-            st.toast("Filters are in the left sidebar.")
-            st.session_state["_filters_prompted"] = True
