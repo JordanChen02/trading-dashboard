@@ -19,15 +19,59 @@ def _default_template_items() -> List[Dict[str, Any]]:
         {
             "id": _uuid(),
             "label": "Bias Confidence",
-            "type": "scale",  # scale | select | checkbox (future)
-            "options": [str(i) for i in range(1, 11)],  # 1..10 as strings for selectbox
+            "type": "scale",
+            "options": [str(i) for i in range(1, 11)],
             "enabled": True,
         },
         {
             "id": _uuid(),
             "label": "Liquidity Sweep",
             "type": "select",
-            "options": ["External liquidity", "Equal highs", "Equal lows", "Internal", "None"],
+            "options": [
+                "Equal High/Low",
+                "Data High/Low",
+                "External High/Low",
+                "ITH/ITL",
+                "Inducement FVG",
+                "Unfilled HTF FVG",
+                "None",
+            ],
+            "enabled": True,
+        },
+        {
+            "id": _uuid(),
+            "label": "Draw on Liquidity",
+            "type": "select",
+            "options": [
+                "External High/Low",
+                "Data High/Low",
+                "Equal High/Low",
+                "ITH/ITL",
+                "Inducement FVG",
+                "Unfilled HTF FVG",
+                "None",
+            ],
+            "enabled": True,
+        },
+        {
+            "id": _uuid(),
+            "label": "Momentum",
+            "type": "select",
+            "options": ["Yes", "No"],
+            "enabled": True,
+        },
+        {
+            "id": _uuid(),
+            "label": "Obvious FVG",
+            "type": "select",
+            "options": ["Yes", "No"],
+            "enabled": True,
+        },
+        {
+            "id": _uuid(),
+            "label": "Point of Interest / Delivery",
+            "type": "select",
+            "options": ["H4 FVG", "H1 FVG", "M15 FVG", "None"],
             "enabled": True,
         },
     ]
@@ -136,7 +180,7 @@ def render(df: pd.DataFrame) -> None:
                 template["items"] = _default_template_items()
                 st.rerun()
         else:
-            st.subheader("Items")
+            st.subheader("")
 
             for idx, item in enumerate(items):
                 # --- Top row: checkbox + BIG label (32px) ---
@@ -152,7 +196,7 @@ def render(df: pd.DataFrame) -> None:
 
                 with label_col:
                     st.markdown(
-                        f"<span style='font-size:32px; font-weight:700; line-height:1'>{item['label']}</span>",
+                        f"<span style='font-size:24px; font-weight:700; line-height:1'>{item['label']}</span>",
                         unsafe_allow_html=True,
                     )
 
