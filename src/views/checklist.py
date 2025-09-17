@@ -174,10 +174,13 @@ def render(df: pd.DataFrame) -> None:
                     )
 
                 with plus_col:
-                    # Tiny [+] opens a real popover (no key/use_container_width on your version)
-                    add_pop = st.popover("＋")
+                    # Single popover: add and manage options
+                    add_pop = st.popover(
+                        "＋"
+                    )  # your Streamlit doesn't accept key/use_container_width
 
                     with add_pop:
+                        # ---- Add option ----
                         st.caption("Add option")
                         if item["type"] == "scale":
                             new_val = st.number_input(
@@ -221,6 +224,28 @@ def render(df: pd.DataFrame) -> None:
                                     st.rerun()
                                 else:
                                     st.toast("Already exists")
+
+                        st.markdown(
+                            "<hr style='opacity:.15;margin:.5rem 0'>", unsafe_allow_html=True
+                        )
+
+                        # ---- Manage / delete existing options ----
+                        st.caption("Delete an option")
+                        opts = item.get("options", [])
+                        sel_key = f"del_sel_{item['id']}"
+                        if opts:
+                            sel = st.selectbox(" ", opts, key=sel_key, label_visibility="collapsed")
+                            if st.button(
+                                "Delete",
+                                key=f"del_btn_{item['id']}",
+                                use_container_width=True,
+                                help="Remove selected option",
+                            ):
+                                if sel in item["options"]:
+                                    item["options"].remove(sel)
+                                    st.rerun()
+                        else:
+                            st.write("No options yet.")
 
     # ------------- RIGHT: Chart Examples -------------
     with right_col:
