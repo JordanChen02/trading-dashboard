@@ -70,61 +70,59 @@ def render(df: pd.DataFrame) -> None:
     )
     st.caption("Template editor (MVP). Choose or create a setup, then adjust its items & options.")
 
-    # ===== Setup selector row =====
-    left, mid, right = st.columns([5, 2, 2])
-    with left:
-        setup_names = list(st.session_state["checklists"].keys())
-        active_idx = max(
-            (
-                setup_names.index(st.session_state["active_setup"])
-                if st.session_state["active_setup"] in setup_names
-                else 0
-            ),
-            0,
-        )
-        chosen = st.selectbox(
-            "Setup Checklist", setup_names, index=active_idx, key="checklist_setup_select"
-        )
-        if chosen != st.session_state["active_setup"]:
-            st.session_state["active_setup"] = chosen
-
-    with mid:
-        # Create new setup via popover to collect a name
-        try:
-            pop = st.popover("＋ New", use_container_width=True)
-        except TypeError:
-            # older Streamlit fallback
-            pop = st.container()
-            st.info("Enter a new setup name below to create it:")
-        with pop:
-            new_name = st.text_input("New setup name", key="new_setup_name")
-            create = st.button("Create", use_container_width=True, key="create_setup_btn")
-            if create:
-                name = (new_name or "").strip()
-                if not name:
-                    st.warning("Please enter a name.")
-                elif name in st.session_state["checklists"]:
-                    st.warning("That setup already exists.")
-                else:
-                    st.session_state["checklists"][name] = {
-                        "name": name,
-                        "items": _default_template_items(),
-                    }
-                    st.session_state["active_setup"] = name
-                    st.rerun()
-
-    with right:
-        # Placeholder for future scoring modal/page
-        st.button("Score Settings", use_container_width=True, key="score_settings_btn")
-        # (Later: open a modal/popover with per-option weights, must-haves, thresholds)
-
-    st.divider()
-
     # === Two-pane layout: left = checklist, right = chart examples ===
-    left_col, right_col = st.columns([7, 5], gap="large")
+    left_col, right_col = st.columns([5, 7], gap="large")
 
     # ------------- LEFT: Checklist editor -------------
     with left_col:
+        # ===== Setup selector row (inside LEFT pane) =====
+        row_l, row_m, row_r = st.columns([6, 2, 2])
+
+        with row_l:
+            setup_names = list(st.session_state["checklists"].keys())
+            active_idx = max(
+                (
+                    setup_names.index(st.session_state["active_setup"])
+                    if st.session_state["active_setup"] in setup_names
+                    else 0
+                ),
+                0,
+            )
+            chosen = st.selectbox(
+                "Setup Checklist", setup_names, index=active_idx, key="checklist_setup_select"
+            )
+            if chosen != st.session_state["active_setup"]:
+                st.session_state["active_setup"] = chosen
+                st.rerun()
+
+        with row_m:
+            try:
+                pop = st.popover("＋ New", use_container_width=True)
+            except TypeError:
+                pop = st.container()
+                st.info("Enter a new setup name below to create it:")
+            with pop:
+                new_name = st.text_input("New setup name", key="new_setup_name")
+                create = st.button("Create", use_container_width=True, key="create_setup_btn")
+                if create:
+                    name = (new_name or "").strip()
+                    if not name:
+                        st.warning("Please enter a name.")
+                    elif name in st.session_state["checklists"]:
+                        st.warning("That setup already exists.")
+                    else:
+                        st.session_state["checklists"][name] = {
+                            "name": name,
+                            "items": _default_template_items(),
+                        }
+                        st.session_state["active_setup"] = name
+                        st.rerun()
+
+        with row_r:
+            st.button(
+                "Score Settings", use_container_width=True, key="score_settings_btn"
+            )  # placeholder
+
         # ===== Template Items =====
         active_name = st.session_state["active_setup"]
         template = st.session_state["checklists"][active_name]
@@ -158,63 +156,71 @@ def render(df: pd.DataFrame) -> None:
                         unsafe_allow_html=True,
                     )
 
-                # --- Preview control shown below the label ---
-                options = item.get("options", [])
-                if not isinstance(options, list):
-                    options = []
-                    item["options"] = options
+                # --- Compact control row: dropdown + tiny popover [+] on the right ---
+                ctrl_col, plus_col = st.columns([10.5, 1.5], gap="small")
 
-                st.selectbox(
-                    " ",
-                    options or [""],
-                    index=0 if options else 0,
-                    key=f"preview_val_{item['id']}",
-                    label_visibility="collapsed",
-                )
+                with ctrl_col:
+                    options = item.get("options", [])
+                    if not isinstance(options, list):
+                        options = []
+                        item["options"] = options
 
-                # --- Add option box (kept functional) ---
-                with st.container(border=True):
-                    st.caption("Add option")
-                    if item["type"] == "scale":
-                        new_val = st.number_input(
-                            f"num_{item['id']}",
-                            value=None,
-                            min_value=1,
-                            step=1,
-                            placeholder="1-10",
-                            label_visibility="collapsed",
-                        )
-                        if st.button("＋", key=f"add_opt_{item['id']}", use_container_width=True):
-                            if new_val is None:
-                                st.toast("Enter a number first")
-                            else:
-                                sval = str(int(new_val))
-                                if sval not in item["options"]:
-                                    item["options"].append(sval)
-                                    item["options"].sort(
-                                        key=lambda x: int(x) if str(x).isdigit() else 9999
-                                    )
+                    st.selectbox(
+                        " ",
+                        options or [""],
+                        index=0 if options else 0,
+                        key=f"preview_val_{item['id']}",
+                        label_visibility="collapsed",
+                    )
+
+                with plus_col:
+                    # Tiny [+] opens a real popover (no key/use_container_width on your version)
+                    add_pop = st.popover("＋")
+
+                    with add_pop:
+                        st.caption("Add option")
+                        if item["type"] == "scale":
+                            new_val = st.number_input(
+                                f"num_{item['id']}",
+                                value=None,
+                                min_value=1,
+                                step=1,
+                                placeholder="1-10",
+                                label_visibility="collapsed",
+                            )
+                            if st.button(
+                                "Add", key=f"add_opt_{item['id']}", use_container_width=True
+                            ):
+                                if new_val is None:
+                                    st.toast("Enter a number first")
+                                else:
+                                    sval = str(int(new_val))
+                                    if sval not in item["options"]:
+                                        item["options"].append(sval)
+                                        item["options"].sort(
+                                            key=lambda x: int(x) if str(x).isdigit() else 9999
+                                        )
+                                        st.rerun()
+                                    else:
+                                        st.toast("Already exists")
+                        else:  # select-type
+                            new_txt = st.text_input(
+                                f"txt_{item['id']}",
+                                value="",
+                                placeholder="e.g., External / Equal highs",
+                                label_visibility="collapsed",
+                            )
+                            if st.button(
+                                "Add", key=f"add_opt_{item['id']}", use_container_width=True
+                            ):
+                                val = (new_txt or "").strip()
+                                if not val:
+                                    st.toast("Enter a value first")
+                                elif val not in item["options"]:
+                                    item["options"].append(val)
                                     st.rerun()
                                 else:
                                     st.toast("Already exists")
-                    else:
-                        new_txt = st.text_input(
-                            f"txt_{item['id']}",
-                            value="",
-                            placeholder="e.g., External / Equal highs",
-                            label_visibility="collapsed",
-                        )
-                        if st.button("＋", key=f"add_opt_{item['id']}", use_container_width=True):
-                            val = (new_txt or "").strip()
-                            if not val:
-                                st.toast("Enter a value first")
-                            elif val not in item["options"]:
-                                item["options"].append(val)
-                                st.rerun()
-                            else:
-                                st.toast("Already exists")
-
-                st.markdown("<div style='height:0.6rem'></div>", unsafe_allow_html=True)
 
     # ------------- RIGHT: Chart Examples -------------
     with right_col:
