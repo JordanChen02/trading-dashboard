@@ -34,7 +34,7 @@ def _default_template_items() -> List[Dict[str, Any]]:
                 "ITH/ITL",
                 "Inducement FVG",
                 "Unfilled HTF FVG",
-                "None",
+                "LRLR" "None",
             ],
             "enabled": True,
         },
@@ -49,7 +49,7 @@ def _default_template_items() -> List[Dict[str, Any]]:
                 "ITH/ITL",
                 "Inducement FVG",
                 "Unfilled HTF FVG",
-                "None",
+                "LRLR" "None",
             ],
             "enabled": True,
         },
@@ -95,30 +95,33 @@ def _ensure_state() -> None:
 def render(df: pd.DataFrame) -> None:
     _ensure_state()
 
-    # Header w/ simple SVG icon
-    st.markdown(
-        """
-        <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:0.25rem;">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
-               xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <path d="M9 11l3 3L22 4" stroke="currentColor" stroke-width="2"
-                  stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"
-                  stroke="currentColor" stroke-width="2"
-                  stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-          <h2 style="margin:0;">Checklist</h2>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    st.caption("Template editor (MVP). Choose or create a setup, then adjust its items & options.")
-
     # === Two-pane layout: left = checklist, right = chart examples ===
     left_col, right_col = st.columns([5, 7], gap="large")
 
     # ------------- LEFT: Checklist editor -------------
     with left_col:
+
+        # Header w/ simple SVG icon
+        st.markdown(
+            """
+            <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:0.25rem;">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+                xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <path d="M9 11l3 3L22 4" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"
+                    stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <h2 style="margin:0;">Checklist</h2>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.caption(
+            "Template editor (MVP). Choose or create a setup, then adjust its items & options."
+        )
+
         # ===== Setup selector row (inside LEFT pane) =====
         row_l, row_m, row_r = st.columns([6, 2, 2])
 
@@ -293,30 +296,91 @@ def render(df: pd.DataFrame) -> None:
 
     # ------------- RIGHT: Chart Examples -------------
     with right_col:
+        st.markdown("<div style='margin-top:-0.75rem'></div>", unsafe_allow_html=True)
         st.subheader("Chart Examples")
-        st.caption("Upload up to two reference images.")
+        st.caption("Upload up to two reference images or paste image URLs.")
 
-        u1, u2 = st.columns(2, gap="medium")
+        # ensure state
+        if "chart_examples" not in st.session_state:
+            st.session_state["chart_examples"] = [
+                {"img_bytes": None, "img_url": "https://www.tradingview.com/x/RMJesEwo/"},
+                {"img_bytes": None, "img_url": ""},
+            ]
 
-        with u1:
-            img1 = st.file_uploader(
-                "Image 1",
-                type=["png", "jpg", "jpeg", "webp"],
-                key="chk_img_1",
-                label_visibility="collapsed",
-            )
-            if img1 is not None:
-                st.image(img1, use_container_width=True)
+        def _render_chart_card(i: int, title: str):
+            state = st.session_state["chart_examples"][i]
+            with st.container(border=True):
+                # header: title + actions
+                h_l, h_r = st.columns([8.5, 1.5])
+                with h_l:
+                    st.markdown(f"**{title}**")
+                with h_r:
+                    # small actions popover
+                    menu = st.popover("⋯")
+                    with menu:
+                        st.caption("Manage")
+                        # choose source
+                        src = st.radio(
+                            "Source",
+                            ["Upload", "URL"],
+                            index=0,
+                            horizontal=True,
+                            key=f"ce_src_{i}",
+                        )
 
-        with u2:
-            img2 = st.file_uploader(
-                "Image 2",
-                type=["png", "jpg", "jpeg", "webp"],
-                key="chk_img_2",
-                label_visibility="collapsed",
-            )
-            if img2 is not None:
-                st.image(img2, use_container_width=True)
+                        if src == "Upload":
+                            up = st.file_uploader(
+                                "Upload image",
+                                type=["png", "jpg", "jpeg", "webp"],
+                                key=f"ce_up_{i}",
+                            )
+                            if up is not None:
+                                # store raw bytes so it persists across reruns
+                                state["img_bytes"] = up.read()
+                                state["img_url"] = ""
+                                st.session_state["chart_examples"][i] = state
+                                st.success("Image saved.")
+                                st.rerun()
+                        else:
+                            url = st.text_input(
+                                "Image URL (must point directly to an image)",
+                                value=state.get("img_url", ""),
+                                key=f"ce_url_{i}",
+                                placeholder="https://.../chart.png",
+                            )
+                            if st.button(
+                                "Save URL", key=f"ce_save_url_{i}", use_container_width=True
+                            ):
+                                state["img_url"] = url.strip()
+                                state["img_bytes"] = None
+                                st.session_state["chart_examples"][i] = state
+                                st.success("URL saved.")
+                                st.rerun()
+
+                        st.markdown("---")
+                        # delete
+                        if st.button("🗑 Delete", key=f"ce_del_{i}", use_container_width=True):
+                            state["img_bytes"] = None
+                            state["img_url"] = ""
+                            st.session_state["chart_examples"][i] = state
+                            st.success("Removed.")
+                            st.rerun()
+
+                # body: preview or placeholder
+                if state.get("img_bytes"):
+                    st.image(state["img_bytes"], use_container_width=True)
+                elif state.get("img_url"):
+                    st.image(state["img_url"], use_container_width=True)
+                else:
+                    # neat placeholder with guidance
+                    st.info(
+                        "No image yet — use the ⋯ menu to upload or paste an image URL.", icon="🖼️"
+                    )
+
+        # stack cards vertically
+        _render_chart_card(0, "Example 1")
+        st.markdown("<div style='height:.75rem'></div>", unsafe_allow_html=True)
+        _render_chart_card(1, "Example 2")
 
     st.divider()
     st.caption("This page defines the template only. Scoring & live use will come next.")
