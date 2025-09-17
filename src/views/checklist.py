@@ -16,62 +16,107 @@ def _uuid() -> str:
 
 def _default_template_items() -> List[Dict[str, Any]]:
     return [
+        # 1) Bias: 1..10, weight equals the number itself
         {
             "id": _uuid(),
             "label": "Bias Confidence",
             "type": "scale",
             "options": [str(i) for i in range(1, 11)],
+            "weights": {str(i): i for i in range(1, 11)},
             "enabled": True,
         },
+        # 2) Liquidity Sweep (with LRLR split)
         {
             "id": _uuid(),
             "label": "Liquidity Sweep",
             "type": "select",
             "options": [
-                "Equal High/Low",
                 "Data High/Low",
+                "Equal High/Low",
                 "External High/Low",
                 "ITH/ITL",
                 "Inducement FVG",
                 "Unfilled HTF FVG",
-                "LRLR" "None",
+                "LRLR >3",
+                "LRLR <3",
+                "Internal High/Low",
+                "None",
             ],
+            "weights": {
+                "Data High/Low": 10,
+                "Equal High/Low": 9.7,
+                "External High/Low": 9.5,
+                "ITH/ITL": 9,
+                "Inducement FVG": 8.5,
+                "Unfilled HTF FVG": 8,
+                "LRLR >3": 9.5,
+                "LRLR <3": 8.5,
+                "Internal High/Low": 7.5,
+                "None": 6,
+            },
             "enabled": True,
         },
+        # 3) Draw on Liquidity (same scale as above)
         {
             "id": _uuid(),
             "label": "Draw on Liquidity",
             "type": "select",
             "options": [
-                "External High/Low",
                 "Data High/Low",
                 "Equal High/Low",
+                "External High/Low",
                 "ITH/ITL",
                 "Inducement FVG",
                 "Unfilled HTF FVG",
-                "LRLR" "None",
+                "LRLR >3",
+                "LRLR <3",
+                "None",
             ],
+            "weights": {
+                "Data High/Low": 10,
+                "Equal High/Low": 9.7,
+                "External High/Low": 8.5,
+                "ITH/ITL": 9,
+                "Inducement FVG": 8.5,
+                "Unfilled HTF FVG": 7.5,
+                "LRLR >3": 9.5,
+                "LRLR <3": 8.5,
+                "None": 6,
+            },
             "enabled": True,
         },
+        # 4) Momentum (Yes/No)
         {
             "id": _uuid(),
             "label": "Momentum",
             "type": "select",
-            "options": ["Yes", "No"],
+            "options": ["Very High", "High", "Medium", "Low" "Very Low"],
+            "weights": {"Very High": 10, "High": 9.5, "Medium": 8.7, "Low": 7, "Very Low": 3},
             "enabled": True,
         },
+        # 5) Obvious FVG (Yes/No)
         {
             "id": _uuid(),
             "label": "Obvious FVG",
             "type": "select",
-            "options": ["Yes", "No"],
+            "options": ["Large", "Medium", "Small"],
+            "weights": {"Large": 10, "Medium": 9, "Small": 7},
             "enabled": True,
         },
+        # 6) Point of Interest / Delivery
         {
             "id": _uuid(),
             "label": "Point of Interest / Delivery",
             "type": "select",
-            "options": ["H4 FVG", "H1 FVG", "M15 FVG", "None"],
+            "options": ["Daily", "H4 FVG", "H1 FVG", "M15 FVG", "M5 FVG >", "None"],
+            "weights": {
+                "Daily": 10,
+                "H4 FVG": 10,
+                "H1 FVG": 9.5,
+                "M15 FVG": 9,
+                "M5 FVG >": 7,
+                "None": 6,
+            },
             "enabled": True,
         },
     ]
@@ -87,6 +132,18 @@ def _ensure_state() -> None:
             "name": "A+ iFVG Setup",
             "items": _default_template_items(),
         }
+
+    st.markdown(
+        """
+        <style>
+        /* Hide the little dropdown caret icon */
+        div[data-testid="stPopover"] button svg {
+            display: none !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 # ---------- Page Render ----------
@@ -165,11 +222,6 @@ def render(df: pd.DataFrame) -> None:
                         st.session_state["active_setup"] = name
                         st.rerun()
 
-        with row_r:
-            st.button(
-                "Score Settings", use_container_width=True, key="score_settings_btn"
-            )  # placeholder
-
         # ===== Template Items =====
         active_name = st.session_state["active_setup"]
         template = st.session_state["checklists"][active_name]
@@ -212,6 +264,9 @@ def render(df: pd.DataFrame) -> None:
                         options = []
                         item["options"] = options
 
+                    item.setdefault("weights", {})
+                    weights = item["weights"]
+
                     st.selectbox(
                         " ",
                         options or [""],
@@ -221,14 +276,52 @@ def render(df: pd.DataFrame) -> None:
                     )
 
                 with plus_col:
-                    # Single popover: add and manage options
-                    add_pop = st.popover(
-                        "＋"
-                    )  # your Streamlit doesn't accept key/use_container_width
+                    add_pop = st.popover("＋")
 
                     with add_pop:
-                        # ---- Add option ----
-                        st.caption("Add option")
+                        # --- Header row with caption + info popover ---
+                        cap_l, cap_r = st.columns([6, 1], gap="small")
+                        with cap_l:
+                            st.caption("Add option")
+                        with cap_r:
+                            st.markdown("<div id='info-scope'>", unsafe_allow_html=True)
+                            info = st.popover("ⓘ")
+                            st.markdown("</div>", unsafe_allow_html=True)
+
+                            st.markdown(
+                                """
+                                <style>
+                                /* ONLY style the ⓘ trigger inside this scope */
+                                #info-scope [data-testid="stPopover"] button,
+                                #info-scope [data-testid="stPopover"] button:hover,
+                                #info-scope [data-testid="stPopover"] button:focus,
+                                #info-scope [data-testid="stPopover"] button:active {
+                                    background: transparent !important;
+                                    border: none !important;
+                                    box-shadow: none !important;
+                                    padding: 0 .25rem !important;
+                                    outline: none !important;
+                                }
+                                /* Hide the tiny caret on that one trigger */
+                                #info-scope [data-testid="stPopover"] button svg {
+                                    display: none !important;
+                                }
+                                </style>
+                                """,
+                                unsafe_allow_html=True,
+                            )
+
+                            with info:
+                                st.markdown(
+                                    """
+                                    **Scoring 101**
+                                    - Each option has a *weight* (points).
+                                    - Your *Overall Score* will sum selected weights and can later be normalized.
+                                    - Example: Bias=7, Equal High/Low=10 → subtotal = 17.
+                                    """,
+                                )
+
+                        # --- Add option: require a score ---
                         if item["type"] == "scale":
                             new_val = st.number_input(
                                 f"num_{item['id']}",
@@ -238,11 +331,19 @@ def render(df: pd.DataFrame) -> None:
                                 placeholder="1-10",
                                 label_visibility="collapsed",
                             )
+                            new_score = st.number_input(
+                                f"score_{item['id']}",
+                                value=None,
+                                min_value=0,
+                                step=1,
+                                placeholder="Score (points)",
+                                label_visibility="collapsed",
+                            )
                             if st.button(
                                 "Add", key=f"add_opt_{item['id']}", use_container_width=True
                             ):
-                                if new_val is None:
-                                    st.toast("Enter a number first")
+                                if new_val is None or new_score is None:
+                                    st.toast("Enter a value and its score")
                                 else:
                                     sval = str(int(new_val))
                                     if sval not in item["options"]:
@@ -250,49 +351,203 @@ def render(df: pd.DataFrame) -> None:
                                         item["options"].sort(
                                             key=lambda x: int(x) if str(x).isdigit() else 9999
                                         )
-                                        st.rerun()
-                                    else:
-                                        st.toast("Already exists")
+                                    # always set/overwrite weight
+                                    item["weights"][sval] = int(new_score)
+                                    st.rerun()
                         else:  # select-type
                             new_txt = st.text_input(
                                 f"txt_{item['id']}",
                                 value="",
-                                placeholder="e.g., External / Equal highs",
+                                placeholder="Option label (e.g., External High/Low)",
+                                label_visibility="collapsed",
+                            )
+                            new_score = st.number_input(
+                                f"score_{item['id']}",
+                                value=None,
+                                min_value=0,
+                                step=1,
+                                placeholder="Score (points)",
                                 label_visibility="collapsed",
                             )
                             if st.button(
                                 "Add", key=f"add_opt_{item['id']}", use_container_width=True
                             ):
-                                val = (new_txt or "").strip()
-                                if not val:
-                                    st.toast("Enter a value first")
-                                elif val not in item["options"]:
-                                    item["options"].append(val)
-                                    st.rerun()
+                                label = (new_txt or "").strip()
+                                if not label or new_score is None:
+                                    st.toast("Enter an option label and its score")
                                 else:
-                                    st.toast("Already exists")
+                                    if label not in item["options"]:
+                                        item["options"].append(label)
+                                    item["weights"][label] = int(new_score)
+                                    st.rerun()
 
                         st.markdown(
                             "<hr style='opacity:.15;margin:.5rem 0'>", unsafe_allow_html=True
                         )
 
-                        # ---- Manage / delete existing options ----
-                        st.caption("Delete an option")
+                        # --- Manage existing options: edit score or delete ---
+                        st.caption("Manage options")
                         opts = item.get("options", [])
-                        sel_key = f"del_sel_{item['id']}"
-                        if opts:
-                            sel = st.selectbox(" ", opts, key=sel_key, label_visibility="collapsed")
-                            if st.button(
-                                "Delete",
-                                key=f"del_btn_{item['id']}",
-                                use_container_width=True,
-                                help="Remove selected option",
-                            ):
-                                if sel in item["options"]:
-                                    item["options"].remove(sel)
-                                    st.rerun()
-                        else:
+                        if not opts:
                             st.write("No options yet.")
+                        else:
+                            sel_key = f"manage_sel_{item['id']}"
+                            sel = st.selectbox(" ", opts, key=sel_key, label_visibility="collapsed")
+                            # current score (fallback 0 if not set yet)
+                            cur = item["weights"].get(sel, 0)
+                            edit_col, del_col = st.columns([3, 1], gap="small")
+                            with edit_col:
+                                new_w = st.number_input(
+                                    f"edit_score_{item['id']}",
+                                    value=float(cur),
+                                    min_value=0.0,
+                                    step=1.0,
+                                    label_visibility="collapsed",
+                                )
+                                if st.button(
+                                    "Update score",
+                                    key=f"upd_{item['id']}",
+                                    use_container_width=True,
+                                ):
+                                    item["weights"][sel] = int(new_w)
+                                    st.rerun()
+                            with del_col:
+                                if st.button(
+                                    "Delete", key=f"del_{item['id']}", use_container_width=True
+                                ):
+                                    # remove from options and weights
+                                    if sel in item["options"]:
+                                        item["options"].remove(sel)
+                                    item["weights"].pop(sel, None)
+                                    st.rerun()
+
+        # ===== Overall Score (card) =====
+        def _grade_from_pct(p: float) -> str:
+            # A+, A, A-, B+, B, B-, C+, C, C- ; below 70% = D/F
+            if p >= 97:
+                return "A+"
+            if p >= 93:
+                return "A"
+            if p >= 90:
+                return "A-"
+            if p >= 87:
+                return "B+"
+            if p >= 83:
+                return "B"
+            if p >= 80:
+                return "B-"
+            if p >= 77:
+                return "C+"
+            if p >= 73:
+                return "C"
+            if p >= 70:
+                return "C-"
+            return "D/F"
+
+        # compute normalized score from current selections
+        total = 0
+        denom = 0
+        for it in items:
+            if not it.get("enabled", True):
+                continue
+
+            opts = it.get("options", []) or []
+            weights = it.get("weights", {}) or {}
+
+            sel_key = f"preview_val_{it['id']}"
+            sel = st.session_state.get(sel_key, None)
+
+            if it["type"] == "scale":
+                try:
+                    sel_w = int(weights.get(str(sel), sel or 0) or 0)
+                except Exception:
+                    sel_w = 0
+                if weights:
+                    max_w = max(weights.values() or [0])
+                else:
+                    try:
+                        max_w = max(int(x) for x in opts) if opts else 0
+                    except Exception:
+                        max_w = 0
+            else:
+                sel_w = int(weights.get(sel, 0)) if sel is not None else 0
+                max_w = max(list(weights.values()) or [0])
+
+            total += sel_w
+            denom += max_w
+
+        percent = (total / denom * 100.0) if denom > 0 else 0.0
+        grade = _grade_from_pct(percent)
+
+        def _score_gauge(percent: float, height: int = 110):
+            import plotly.graph_objects as go
+
+            pct = max(0.0, min(100.0, float(percent)))
+            panel_bg = "#0b0f19"  # same panel tone as Overview KPIs
+            fill_col = "#2E86C1"  # brand blue
+            rest_col = "#212C47"  # unfilled arc
+
+            fig = go.Figure(
+                go.Indicator(
+                    mode="gauge",
+                    value=pct,
+                    gauge={
+                        "shape": "angular",  # half-donut
+                        "axis": {"range": [0, 100], "visible": False},
+                        "bar": {"color": "rgba(0,0,0,0)"},
+                        "borderwidth": 0,
+                        "steps": [
+                            {"range": [0, pct], "color": fill_col},
+                            {"range": [pct, 100], "color": rest_col},
+                        ],
+                    },
+                    domain={"x": [0, 1], "y": [0, 1]},
+                )
+            )
+            fig.update_layout(
+                margin=dict(l=8, r=8, t=0, b=0),
+                height=height,
+                paper_bgcolor=panel_bg,
+                showlegend=False,
+            )
+            # center the % inside the gauge
+            fig.add_annotation(
+                x=0.5,
+                y=0.10,
+                xref="paper",
+                yref="paper",
+                text=f"{pct:.0f}%",
+                showarrow=False,
+                font=dict(size=26, color="#e5e7eb", family="Inter, system-ui, sans-serif"),
+                align="center",
+            )
+            return fig
+
+        # --- Centered, compact score card ---
+        pad_l, card, pad_r = st.columns([1, 3, 1])  # center the card; feel free to tweak 1,3,1
+        with card:
+            with st.container(border=True):
+                left, right = st.columns([4, 1], gap="small")
+
+                with left:
+                    # label above the donut
+                    st.markdown(
+                        "<div style='text-align:center; font-size:18px; font-weight:600; margin:0 0 6px;'>Overall Score</div>",
+                        unsafe_allow_html=True,
+                    )
+
+                    fig = _score_gauge(percent, height=110)  # smaller half-donut
+                    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+
+                with right:
+                    st.markdown(
+                        "<div style='font-size:18px; font-weight:600; margin:0 0 6px; text-align:center;'>Grade</div>",
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown(
+                        f"<div style='font-size:44px; font-weight:700;  text-align:center;'>{grade}</div>",
+                        unsafe_allow_html=True,
+                    )
 
     # ------------- RIGHT: Chart Examples -------------
     with right_col:
