@@ -276,7 +276,7 @@ def render_overview(
         # === Right column top row (split in 2) ===
         with s_right:
             st.markdown("<div style='margin-bottom:-12px'></div>", unsafe_allow_html=True)
-            right_top = st.columns([2, 1], gap="small")
+            right_top = st.columns([1.5, 1], gap="small")
 
             # ----- Left side: Daily / Weekly PnL (inside bordered card) -----
             with right_top[0]:
@@ -373,5 +373,95 @@ def render_overview(
                         "<div style='font-size:14px; text-align:center; opacity:.8;'>N/A</div>",
                         unsafe_allow_html=True,
                     )
+
+            # --- normalized strategy scores used by the radar/value list ---
+            # Win Rate 0..100
+            try:
+                wr_score = max(0.0, min(100.0, float(win_rate_v) * 100.0))
+            except Exception:
+                wr_score = 0.0
+
+            # Profit Factor, cap at 4.0 => 100%
+            max_pf = 4.0
+            try:
+                pf_raw = float(pf_v)
+                if pf_raw == float("inf") or pd.isna(pf_raw):
+                    pf_raw = max_pf
+            except Exception:
+                pf_raw = 0.0
+            pf_score = max(0.0, min(100.0, (pf_raw / max_pf) * 100.0))
+
+            # Expectancy-based Avg Profit/Trade score (relative to larger of |avg win| or |avg loss|)
+            try:
+                exp_val = float(expectancy_v)
+            except Exception:
+                exp_val = float(win_rate_v) * float(avg_win_v) + (1.0 - float(win_rate_v)) * float(
+                    avg_loss_v
+                )
+            denom = max(abs(float(avg_win_v)), abs(float(avg_loss_v)), 1e-9)
+            appt_score = max(0.0, min(100.0, (exp_val / denom) * 100.0))
+
+            # PnL score: net / gross-positive, capped 0..100
+            try:
+                pnl_series = pd.to_numeric(df_view["pnl"], errors="coerce")
+                net_pnl = float(pnl_series.sum())
+                gross_pos = float(pnl_series[pnl_series > 0].sum())
+                pnl_score = max(0.0, min(100.0, (net_pnl / max(gross_pos, 1e-9)) * 100.0))
+            except Exception:
+                pnl_score = 0.0
+            # --- Strategy Radar (normalized scores) ---
+            with st.container(border=True):
+                st.markdown(
+                    "<div style='font-size:20px;'text-align:center; font-weight:600; margin:0 0 6px;'>"
+                    "Strategy Values <span style='opacity:.6'>(Normalized Scores)</span>"
+                    "</div>",
+                    unsafe_allow_html=True,
+                )
+
+                left_vals, right_chart = st.columns([1.1, 2.2], gap="small")
+
+                with left_vals:
+                    st.write(f"**Profit Factor:** {pf_score:,.0f}%")
+                    st.write(f"**Win Rate:** {wr_score:,.0f}%")
+                    st.write(f"**Avg Profit/Trade:** {appt_score:,.0f}%")
+                    st.write(f"**PnL:** {pnl_score:,.0f}%")
+
+                with right_chart:
+                    fig = go.Figure(
+                        go.Scatterpolar(
+                            r=[pf_score, wr_score, appt_score, pnl_score],
+                            theta=["Profit Factor", "Win Rate", "Avg Profit/Trade", "PnL"],
+                            fill="toself",
+                            mode="lines+markers",
+                            hovertemplate="%{theta}: %{r:.0f}%<extra></extra>",
+                            line=dict(width=2),
+                            marker=dict(size=5),
+                        )
+                    )
+                    fig.update_layout(
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        plot_bgcolor="rgba(0,0,0,0)",
+                        margin=dict(l=6, r=6, t=6, b=6),
+                        showlegend=False,
+                        height=240,
+                        polar=dict(
+                            bgcolor="rgba(0,0,0,0)",
+                            angularaxis=dict(
+                                rotation=45,  # diamond
+                                showticklabels=False,
+                                ticks="",
+                                gridcolor="rgba(255,255,255,0.08)",
+                                linecolor="rgba(255,255,255,0.12)",
+                            ),
+                            radialaxis=dict(
+                                range=[0, 100],
+                                showticklabels=False,
+                                ticks="",
+                                gridcolor="rgba(255,255,255,0.08)",
+                                linecolor="rgba(255,255,255,0.12)",
+                            ),
+                        ),
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
 
     # ======= END LAYOUT FRAME =======

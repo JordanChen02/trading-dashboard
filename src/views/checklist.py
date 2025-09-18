@@ -90,7 +90,7 @@ def _default_template_items() -> List[Dict[str, Any]]:
             "id": _uuid(),
             "label": "Momentum",
             "type": "select",
-            "options": ["Very High", "High", "Medium", "Low" "Very Low"],
+            "options": ["Very High", "High", "Medium", "Low", "Very Low"],
             "weights": {"Very High": 10, "High": 9.5, "Medium": 8.7, "Low": 7, "Very Low": 3},
             "enabled": True,
         },
