@@ -97,7 +97,7 @@ def _default_template_items() -> List[Dict[str, Any]]:
         # 5) Obvious FVG (Yes/No)
         {
             "id": _uuid(),
-            "label": "Obvious FVG",
+            "label": "iFVG",
             "type": "select",
             "options": ["Large", "Medium", "Small"],
             "weights": {"Large": 10, "Medium": 9, "Small": 7},
@@ -122,6 +122,26 @@ def _default_template_items() -> List[Dict[str, Any]]:
     ]
 
 
+def _default_confluences() -> List[Dict[str, Any]]:
+    return [
+        {"id": _uuid(), "label": "12 EMA cross 26", "weight": 1, "enabled": True},
+        {"id": _uuid(), "label": "12 EMA (4H)", "weight": 2, "enabled": True},
+        {"id": _uuid(), "label": "12 EMA (15m)", "weight": 1, "enabled": True},
+        {"id": _uuid(), "label": "12 EMA (Daily)", "weight": 2, "enabled": True},
+        {"id": _uuid(), "label": "Fundamentals", "weight": 3, "enabled": True},
+        {"id": _uuid(), "label": "CVD", "weight": 1, "enabled": True},
+        {"id": _uuid(), "label": "OI", "weight": 1, "enabled": True},
+        {"id": _uuid(), "label": "SMT", "weight": 1, "enabled": True},
+        {"id": _uuid(), "label": "Macro", "weight": 2, "enabled": True},
+        {"id": _uuid(), "label": "Stairstep", "weight": 2, "enabled": True},
+    ]
+
+
+def _ensure_confluence_state() -> None:
+    if "_confluences" not in st.session_state:
+        st.session_state["_confluences"] = _default_confluences()
+
+
 def _ensure_state() -> None:
     if "checklists" not in st.session_state:
         st.session_state["checklists"] = {}  # name -> template dict
@@ -132,6 +152,8 @@ def _ensure_state() -> None:
             "name": "A+ iFVG Setup",
             "items": _default_template_items(),
         }
+
+    _ensure_confluence_state()
 
     st.markdown(
         """
@@ -153,7 +175,7 @@ def render(df: pd.DataFrame) -> None:
     _ensure_state()
 
     # === Two-pane layout: left = checklist, right = chart examples ===
-    left_col, right_col = st.columns([4, 7], gap="large")
+    left_col, right_col = st.columns([5, 7], gap="large")
 
     # ------------- LEFT: Checklist editor -------------
     with left_col:
@@ -232,14 +254,15 @@ def render(df: pd.DataFrame) -> None:
             "<hr style='border:0;height:1px;background:#2a3444;margin:2px 0 10px 0;'>",
             unsafe_allow_html=True,
         )
+        # Two-up editor: Checklist (left) and Confluences (right)
+        check_col, conf_col = st.columns([1.2, 1.0], gap="large")
 
-        # ===== Template Items =====
-        active_name = st.session_state["active_setup"]
-        template = st.session_state["checklists"][active_name]
-        items = template.get("items", [])
-        # Constrain checklist UI width (centered like the score card)
-        pad_l, core, pad_r = st.columns([1, 3, 1], gap="small")
-        with core:
+        # ===== Template Items (Checklist) =====
+        with check_col:
+            active_name = st.session_state["active_setup"]
+            template = st.session_state["checklists"][active_name]
+            items = template.get("items", [])
+            # Constrain checklist UI width (centered like the score card)
 
             if not items:
                 st.info(
@@ -437,6 +460,71 @@ def render(df: pd.DataFrame) -> None:
                                         item["weights"].pop(sel, None)
                                         st.rerun()
 
+            # ===== Confluences (optional bonus) =====
+            with conf_col:
+                st.markdown("<div style='margin-top:60px'></div>", unsafe_allow_html=True)
+                with st.container(border=True):
+                    head_l, head_r = st.columns([7, 3], gap="small")
+                    with head_l:
+                        st.markdown("**Confluences**")
+                        st.caption(
+                            "Optional boosts. Each adds a small bonus; total bonus is capped."
+                        )
+                    with head_r:
+                        addp = st.popover("＋ Add", use_container_width=True)
+                        with addp:
+                            _label = st.text_input("Label", placeholder="e.g., SMT (ES vs NQ)")
+                            _w = st.number_input(
+                                "Weight", min_value=1, max_value=4, value=2, step=1
+                            )
+                            if st.button("Add confluence", use_container_width=True):
+                                if _label.strip():
+                                    st.session_state["_confluences"].append(
+                                        {
+                                            "id": _uuid(),
+                                            "label": _label.strip(),
+                                            "weight": int(_w),
+                                            "enabled": True,
+                                        }
+                                    )
+                                    st.rerun()
+
+                    confs = st.session_state["_confluences"]
+                    if not confs:
+                        st.info("No confluences yet. Use **＋ Add** to create one.")
+                    else:
+                        for c in confs:
+                            row = st.columns([0.7, 6.8, 1.8, 1.2], gap="small")
+                            with row[0]:
+                                c["enabled"] = st.checkbox(
+                                    "", value=c.get("enabled", True), key=f"c_en_{c['id']}"
+                                )
+                            with row[1]:
+                                st.markdown(f"**{c['label']}**")
+                            with row[2]:
+                                c["weight"] = int(
+                                    st.number_input(
+                                        " ",
+                                        value=int(c.get("weight", 2)),
+                                        min_value=1,
+                                        max_value=4,
+                                        step=1,
+                                        key=f"c_w_{c['id']}",
+                                        label_visibility="collapsed",
+                                    )
+                                )
+                            with row[3]:
+                                if st.button("🗑", key=f"c_del_{c['id']}", use_container_width=True):
+                                    st.session_state["_confluences"] = [
+                                        x for x in confs if x["id"] != c["id"]
+                                    ]
+                                    st.rerun()
+
+                    # # live bonus preview
+                    # _bonus_pts = sum(int(c["weight"]) for c in st.session_state["_confluences"] if c.get("enabled", True"))
+                    # MAX_BONUS_PCT = 8
+                    # st.caption(f"Bonus potential: +{min(_bonus_pts, MAX_BONUS_PCT)}% (cap {MAX_BONUS_PCT}%)")
+
         # ===== Overall Score (card) =====
         def _grade_from_pct(p: float) -> str:
             # A+, A, A-, B+, B, B-, C+, C, C- ; below 70% = D/F
@@ -534,7 +622,102 @@ def render(df: pd.DataFrame) -> None:
             denom += max_w
 
         percent = (total / denom * 100.0) if denom > 0 else 0.0
-        grade = _grade_from_pct(percent)
+        # Base% (from checklist) already computed as `percent`
+        base_pct = float(percent)
+
+        # Bonus% from confluences (capped)
+        MAX_BONUS_PCT = 8
+        bonus_pct = min(
+            sum(
+                int(c["weight"]) for c in st.session_state["_confluences"] if c.get("enabled", True)
+            ),
+            MAX_BONUS_PCT,
+        )
+
+        # ----- Helpers to read selections by label (for gates/tiers) -----
+        def _items_by_label(items_list):
+            return {it.get("label", ""): it for it in items_list}
+
+        def _sel_for_label(lbl: str) -> str:
+            it = _items_by_label(items).get(lbl)
+            if not it:
+                return ""
+            key = f"preview_val_{it['id']}"
+            return str(st.session_state.get(key, "") or "")
+
+        # ----- Tiering rules (S / A+ / A …) with gates & forgiveness -----
+        def _final_tier(base_pct: float, adj_pct: float) -> str:
+            # Must-have gates: Liquidity Sweep and Momentum thresholds
+            sweep = _sel_for_label("Liquidity Sweep")
+            momentum = _sel_for_label("Momentum")
+
+            core_ok = (momentum in {"Very High", "High", "Medium"}) and (
+                sweep
+                in {
+                    "Data High/Low",
+                    "Equal High/Low",
+                    "External High/Low",
+                    "ITH/ITL",
+                    "Inducement FVG",
+                    "Unfilled HTF FVG",
+                    "LRLR >3",
+                    "LRLR <3",
+                    "Internal High/Low",
+                }
+            )
+
+            # one-soft-spot forgiveness: allow one non-must-have to be ≤3 pts from max
+            # Identify non-must-have misses
+            misses = []
+            for it in items:
+                if not it.get("enabled", True):
+                    continue
+                lbl = it.get("label", "")
+                if lbl in {"Liquidity Sweep", "Momentum"}:
+                    continue  # must-haves handled by gates
+                weights = it.get("weights", {}) or {}
+                opts = it.get("options", []) or []
+                # get selected weight
+                sel_key = f"preview_val_{it['id']}"
+                sel = st.session_state.get(sel_key, None)
+                if it["type"] == "scale":
+                    try:
+                        sel_w = int(weights.get(str(sel), sel or 0) or 0)
+                    except Exception:
+                        sel_w = 0
+                    max_w = max(weights.values() or ([max(int(x) for x in opts)] if opts else [0]))
+                else:
+                    sel_w = int(weights.get(sel, 0)) if sel is not None else 0
+                    max_w = max(list(weights.values()) or [0])
+                if max_w > sel_w:
+                    misses.append(max_w - sel_w)
+
+            one_soft_spot = len(misses) == 1 and misses[0] <= 3
+
+            # S-tier: elite sweep + momentum with near-perfect base
+            if core_ok and (
+                (
+                    base_pct >= 96.0
+                    and sweep in {"Data High/Low", "Equal High/Low", "External High/Low"}
+                    and momentum in {"Very High", "High"}
+                )
+                or (base_pct >= 94.0 and one_soft_spot and momentum in {"Very High", "High"})
+            ):
+                return "S"
+
+            # A+ tier from adjusted % (bonus allowed) + gates
+            if core_ok and adj_pct >= 95.0:
+                return "A+"
+
+            # Else fall back to letter via adjusted %
+            # (If gates fail, cap at B+)
+            if not core_ok and adj_pct >= 87.0:
+                return "B+"
+            # use your existing thresholds for others
+            return _grade_from_pct(adj_pct)
+
+        adj_pct = min(100.0, base_pct + float(bonus_pct))
+        grade = _final_tier(base_pct, adj_pct)
 
         def _score_gauge(percent: float, height: int = 110):
             import plotly.graph_objects as go
@@ -593,7 +776,7 @@ def render(df: pd.DataFrame) -> None:
                         unsafe_allow_html=True,
                     )
 
-                    fig = _score_gauge(percent, height=110)  # smaller half-donut
+                    fig = _score_gauge(adj_pct, height=110)  # smaller half-donut
                     st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
                 with right:
