@@ -49,7 +49,7 @@ def _default_template_items() -> List[Dict[str, Any]]:
                 "ITH/ITL": 9,
                 "Inducement FVG": 8.5,
                 "Unfilled HTF FVG": 8,
-                "LRLR >3": 9.5,
+                "LRLR >3": 10,
                 "LRLR <3": 8.5,
                 "Internal High/Low": 7.5,
                 "None": 6,
@@ -153,7 +153,7 @@ def render(df: pd.DataFrame) -> None:
     _ensure_state()
 
     # === Two-pane layout: left = checklist, right = chart examples ===
-    left_col, right_col = st.columns([5, 7], gap="large")
+    left_col, right_col = st.columns([4, 7], gap="large")
 
     # ------------- LEFT: Checklist editor -------------
     with left_col:
@@ -179,10 +179,11 @@ def render(df: pd.DataFrame) -> None:
             "Template editor (MVP). Choose or create a setup, then adjust its items & options."
         )
 
-        # ===== Setup selector row (inside LEFT pane) =====
-        row_l, row_m, row_r = st.columns([6, 2, 2])
+        # ===== Setup selector row (aligned button) =====
+        sel_l, sel_r = st.columns([6, 2], gap="small")
 
-        with row_l:
+        # LEFT: dropdown
+        with sel_l:
             setup_names = list(st.session_state["checklists"].keys())
             active_idx = max(
                 (
@@ -193,13 +194,18 @@ def render(df: pd.DataFrame) -> None:
                 0,
             )
             chosen = st.selectbox(
-                "Setup Checklist", setup_names, index=active_idx, key="checklist_setup_select"
+                "Setup Checklist",
+                setup_names,
+                index=active_idx,
+                key="checklist_setup_select",
             )
             if chosen != st.session_state["active_setup"]:
                 st.session_state["active_setup"] = chosen
                 st.rerun()
 
-        with row_m:
+        # RIGHT: “＋ New” (pushed down to align with dropdown input, below its label)
+        with sel_r:
+            st.markdown("<div style='margin-top:26px'></div>", unsafe_allow_html=True)
             try:
                 pop = st.popover("＋ New", use_container_width=True)
             except TypeError:
@@ -222,204 +228,214 @@ def render(df: pd.DataFrame) -> None:
                         st.session_state["active_setup"] = name
                         st.rerun()
 
+        st.markdown(
+            "<hr style='border:0;height:1px;background:#2a3444;margin:2px 0 10px 0;'>",
+            unsafe_allow_html=True,
+        )
+
         # ===== Template Items =====
         active_name = st.session_state["active_setup"]
         template = st.session_state["checklists"][active_name]
         items = template.get("items", [])
+        # Constrain checklist UI width (centered like the score card)
+        pad_l, core, pad_r = st.columns([1, 3, 1], gap="small")
+        with core:
 
-        if not items:
-            st.info(
-                "This setup has no items yet. We’ll seed two placeholders when you add the first one."
-            )
-            if st.button("Seed placeholders", key="seed_items_btn"):
-                template["items"] = _default_template_items()
-                st.rerun()
-        else:
-            st.subheader("")
+            if not items:
+                st.info(
+                    "This setup has no items yet. We’ll seed two placeholders when you add the first one."
+                )
+                if st.button("Seed placeholders", key="seed_items_btn"):
+                    template["items"] = _default_template_items()
+                    st.rerun()
+            else:
+                st.subheader("")
 
-            for idx, item in enumerate(items):
-                # --- Top row: checkbox + BIG label (32px) ---
-                cb_col, label_col = st.columns([0.8, 11.2], gap="small")
+                for idx, item in enumerate(items):
+                    # --- Top row: checkbox + BIG label (32px) ---
+                    cb_col, label_col = st.columns([0.8, 11.2], gap="small")
 
-                with cb_col:
-                    enabled = st.checkbox(
-                        "",
-                        value=item.get("enabled", True),
-                        key=f"itm_enabled_{item['id']}",
-                    )
-                    item["enabled"] = enabled
+                    with cb_col:
+                        enabled = st.checkbox(
+                            "",
+                            value=item.get("enabled", True),
+                            key=f"itm_enabled_{item['id']}",
+                        )
+                        item["enabled"] = enabled
 
-                with label_col:
-                    st.markdown(
-                        f"<span style='font-size:24px; font-weight:700; line-height:1'>{item['label']}</span>",
-                        unsafe_allow_html=True,
-                    )
-
-                # --- Compact control row: dropdown + tiny popover [+] on the right ---
-                ctrl_col, plus_col = st.columns([10.5, 1.5], gap="small")
-
-                with ctrl_col:
-                    options = item.get("options", [])
-                    if not isinstance(options, list):
-                        options = []
-                        item["options"] = options
-
-                    item.setdefault("weights", {})
-                    weights = item["weights"]
-
-                    st.selectbox(
-                        " ",
-                        options or [""],
-                        index=0 if options else 0,
-                        key=f"preview_val_{item['id']}",
-                        label_visibility="collapsed",
-                    )
-
-                with plus_col:
-                    add_pop = st.popover("＋")
-
-                    with add_pop:
-                        # --- Header row with caption + info popover ---
-                        cap_l, cap_r = st.columns([6, 1], gap="small")
-                        with cap_l:
-                            st.caption("Add option")
-                        with cap_r:
-                            st.markdown("<div id='info-scope'>", unsafe_allow_html=True)
-                            info = st.popover("ⓘ")
-                            st.markdown("</div>", unsafe_allow_html=True)
-
-                            st.markdown(
-                                """
-                                <style>
-                                /* ONLY style the ⓘ trigger inside this scope */
-                                #info-scope [data-testid="stPopover"] button,
-                                #info-scope [data-testid="stPopover"] button:hover,
-                                #info-scope [data-testid="stPopover"] button:focus,
-                                #info-scope [data-testid="stPopover"] button:active {
-                                    background: transparent !important;
-                                    border: none !important;
-                                    box-shadow: none !important;
-                                    padding: 0 .25rem !important;
-                                    outline: none !important;
-                                }
-                                /* Hide the tiny caret on that one trigger */
-                                #info-scope [data-testid="stPopover"] button svg {
-                                    display: none !important;
-                                }
-                                </style>
-                                """,
-                                unsafe_allow_html=True,
-                            )
-
-                            with info:
-                                st.markdown(
-                                    """
-                                    **Scoring 101**
-                                    - Each option has a *weight* (points).
-                                    - Your *Overall Score* will sum selected weights and can later be normalized.
-                                    - Example: Bias=7, Equal High/Low=10 → subtotal = 17.
-                                    """,
-                                )
-
-                        # --- Add option: require a score ---
-                        if item["type"] == "scale":
-                            new_val = st.number_input(
-                                f"num_{item['id']}",
-                                value=None,
-                                min_value=1,
-                                step=1,
-                                placeholder="1-10",
-                                label_visibility="collapsed",
-                            )
-                            new_score = st.number_input(
-                                f"score_{item['id']}",
-                                value=None,
-                                min_value=0,
-                                step=1,
-                                placeholder="Score (points)",
-                                label_visibility="collapsed",
-                            )
-                            if st.button(
-                                "Add", key=f"add_opt_{item['id']}", use_container_width=True
-                            ):
-                                if new_val is None or new_score is None:
-                                    st.toast("Enter a value and its score")
-                                else:
-                                    sval = str(int(new_val))
-                                    if sval not in item["options"]:
-                                        item["options"].append(sval)
-                                        item["options"].sort(
-                                            key=lambda x: int(x) if str(x).isdigit() else 9999
-                                        )
-                                    # always set/overwrite weight
-                                    item["weights"][sval] = int(new_score)
-                                    st.rerun()
-                        else:  # select-type
-                            new_txt = st.text_input(
-                                f"txt_{item['id']}",
-                                value="",
-                                placeholder="Option label (e.g., External High/Low)",
-                                label_visibility="collapsed",
-                            )
-                            new_score = st.number_input(
-                                f"score_{item['id']}",
-                                value=None,
-                                min_value=0,
-                                step=1,
-                                placeholder="Score (points)",
-                                label_visibility="collapsed",
-                            )
-                            if st.button(
-                                "Add", key=f"add_opt_{item['id']}", use_container_width=True
-                            ):
-                                label = (new_txt or "").strip()
-                                if not label or new_score is None:
-                                    st.toast("Enter an option label and its score")
-                                else:
-                                    if label not in item["options"]:
-                                        item["options"].append(label)
-                                    item["weights"][label] = int(new_score)
-                                    st.rerun()
-
+                    with label_col:
                         st.markdown(
-                            "<hr style='opacity:.15;margin:.5rem 0'>", unsafe_allow_html=True
+                            f"<span style='font-size:24px; font-weight:700; line-height:1'>{item['label']}</span>",
+                            unsafe_allow_html=True,
                         )
 
-                        # --- Manage existing options: edit score or delete ---
-                        st.caption("Manage options")
-                        opts = item.get("options", [])
-                        if not opts:
-                            st.write("No options yet.")
-                        else:
-                            sel_key = f"manage_sel_{item['id']}"
-                            sel = st.selectbox(" ", opts, key=sel_key, label_visibility="collapsed")
-                            # current score (fallback 0 if not set yet)
-                            cur = item["weights"].get(sel, 0)
-                            edit_col, del_col = st.columns([3, 1], gap="small")
-                            with edit_col:
-                                new_w = st.number_input(
-                                    f"edit_score_{item['id']}",
-                                    value=float(cur),
-                                    min_value=0.0,
-                                    step=1.0,
+                    # --- Compact control row: dropdown + tiny popover [+] on the right ---
+                    ctrl_col, plus_col = st.columns([10.5, 1.5], gap="small")
+
+                    with ctrl_col:
+                        options = item.get("options", [])
+                        if not isinstance(options, list):
+                            options = []
+                            item["options"] = options
+
+                        item.setdefault("weights", {})
+                        weights = item["weights"]
+
+                        st.selectbox(
+                            " ",
+                            options or [""],
+                            index=0 if options else 0,
+                            key=f"preview_val_{item['id']}",
+                            label_visibility="collapsed",
+                        )
+
+                    with plus_col:
+                        add_pop = st.popover("＋")
+
+                        with add_pop:
+                            # --- Header row with caption + info popover ---
+                            cap_l, cap_r = st.columns([6, 1], gap="small")
+                            with cap_l:
+                                st.caption("Add option")
+                            with cap_r:
+                                st.markdown("<div id='info-scope'>", unsafe_allow_html=True)
+                                info = st.popover("ⓘ")
+                                st.markdown("</div>", unsafe_allow_html=True)
+
+                                st.markdown(
+                                    """
+                                    <style>
+                                    /* ONLY style the ⓘ trigger inside this scope */
+                                    #info-scope [data-testid="stPopover"] button,
+                                    #info-scope [data-testid="stPopover"] button:hover,
+                                    #info-scope [data-testid="stPopover"] button:focus,
+                                    #info-scope [data-testid="stPopover"] button:active {
+                                        background: transparent !important;
+                                        border: none !important;
+                                        box-shadow: none !important;
+                                        padding: 0 .25rem !important;
+                                        outline: none !important;
+                                    }
+                                    /* Hide the tiny caret on that one trigger */
+                                    #info-scope [data-testid="stPopover"] button svg {
+                                        display: none !important;
+                                    }
+                                    </style>
+                                    """,
+                                    unsafe_allow_html=True,
+                                )
+
+                                with info:
+                                    st.markdown(
+                                        """
+                                        **Scoring 101**
+                                        - Each option has a *weight* (points).
+                                        - Your *Overall Score* will sum selected weights and can later be normalized.
+                                        - Example: Bias=7, Equal High/Low=10 → subtotal = 17.
+                                        """,
+                                    )
+
+                            # --- Add option: require a score ---
+                            if item["type"] == "scale":
+                                new_val = st.number_input(
+                                    f"num_{item['id']}",
+                                    value=None,
+                                    min_value=1,
+                                    step=1,
+                                    placeholder="1-10",
+                                    label_visibility="collapsed",
+                                )
+                                new_score = st.number_input(
+                                    f"score_{item['id']}",
+                                    value=None,
+                                    min_value=0,
+                                    step=1,
+                                    placeholder="Score (points)",
                                     label_visibility="collapsed",
                                 )
                                 if st.button(
-                                    "Update score",
-                                    key=f"upd_{item['id']}",
-                                    use_container_width=True,
+                                    "Add", key=f"add_opt_{item['id']}", use_container_width=True
                                 ):
-                                    item["weights"][sel] = int(new_w)
-                                    st.rerun()
-                            with del_col:
+                                    if new_val is None or new_score is None:
+                                        st.toast("Enter a value and its score")
+                                    else:
+                                        sval = str(int(new_val))
+                                        if sval not in item["options"]:
+                                            item["options"].append(sval)
+                                            item["options"].sort(
+                                                key=lambda x: int(x) if str(x).isdigit() else 9999
+                                            )
+                                        # always set/overwrite weight
+                                        item["weights"][sval] = int(new_score)
+                                        st.rerun()
+                            else:  # select-type
+                                new_txt = st.text_input(
+                                    f"txt_{item['id']}",
+                                    value="",
+                                    placeholder="Option label (e.g., External High/Low)",
+                                    label_visibility="collapsed",
+                                )
+                                new_score = st.number_input(
+                                    f"score_{item['id']}",
+                                    value=None,
+                                    min_value=0,
+                                    step=1,
+                                    placeholder="Score (points)",
+                                    label_visibility="collapsed",
+                                )
                                 if st.button(
-                                    "Delete", key=f"del_{item['id']}", use_container_width=True
+                                    "Add", key=f"add_opt_{item['id']}", use_container_width=True
                                 ):
-                                    # remove from options and weights
-                                    if sel in item["options"]:
-                                        item["options"].remove(sel)
-                                    item["weights"].pop(sel, None)
-                                    st.rerun()
+                                    label = (new_txt or "").strip()
+                                    if not label or new_score is None:
+                                        st.toast("Enter an option label and its score")
+                                    else:
+                                        if label not in item["options"]:
+                                            item["options"].append(label)
+                                        item["weights"][label] = int(new_score)
+                                        st.rerun()
+
+                            st.markdown(
+                                "<hr style='opacity:.15;margin:.5rem 0'>", unsafe_allow_html=True
+                            )
+
+                            # --- Manage existing options: edit score or delete ---
+                            st.caption("Manage options")
+                            opts = item.get("options", [])
+                            if not opts:
+                                st.write("No options yet.")
+                            else:
+                                sel_key = f"manage_sel_{item['id']}"
+                                sel = st.selectbox(
+                                    " ", opts, key=sel_key, label_visibility="collapsed"
+                                )
+                                # current score (fallback 0 if not set yet)
+                                cur = item["weights"].get(sel, 0)
+                                edit_col, del_col = st.columns([3, 1], gap="small")
+                                with edit_col:
+                                    new_w = st.number_input(
+                                        f"edit_score_{item['id']}",
+                                        value=float(cur),
+                                        min_value=0.0,
+                                        step=1.0,
+                                        label_visibility="collapsed",
+                                    )
+                                    if st.button(
+                                        "Update score",
+                                        key=f"upd_{item['id']}",
+                                        use_container_width=True,
+                                    ):
+                                        item["weights"][sel] = int(new_w)
+                                        st.rerun()
+                                with del_col:
+                                    if st.button(
+                                        "Delete", key=f"del_{item['id']}", use_container_width=True
+                                    ):
+                                        # remove from options and weights
+                                        if sel in item["options"]:
+                                            item["options"].remove(sel)
+                                        item["weights"].pop(sel, None)
+                                        st.rerun()
 
         # ===== Overall Score (card) =====
         def _grade_from_pct(p: float) -> str:
