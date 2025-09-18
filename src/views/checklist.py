@@ -44,9 +44,9 @@ def _default_template_items() -> List[Dict[str, Any]]:
             ],
             "weights": {
                 "Data High/Low": 10,
-                "Equal High/Low": 9.7,
-                "External High/Low": 9.5,
-                "ITH/ITL": 9,
+                "Equal High/Low": 10,
+                "External High/Low": 9.7,
+                "ITH/ITL": 9.5,
                 "Inducement FVG": 8.5,
                 "Unfilled HTF FVG": 8,
                 "LRLR >3": 10,
@@ -74,12 +74,12 @@ def _default_template_items() -> List[Dict[str, Any]]:
             ],
             "weights": {
                 "Data High/Low": 10,
-                "Equal High/Low": 9.7,
-                "External High/Low": 8.5,
-                "ITH/ITL": 9,
-                "Inducement FVG": 8.5,
-                "Unfilled HTF FVG": 7.5,
-                "LRLR >3": 9.5,
+                "Equal High/Low": 10,
+                "External High/Low": 9,
+                "ITH/ITL": 9.5,
+                "Inducement FVG": 8.7,
+                "Unfilled HTF FVG": 8.5,
+                "LRLR >3": 10,
                 "LRLR <3": 8.5,
                 "None": 6,
             },
@@ -103,10 +103,10 @@ def _default_template_items() -> List[Dict[str, Any]]:
             "weights": {"Large": 10, "Medium": 9, "Small": 7},
             "enabled": True,
         },
-        # 6) Point of Interest / Delivery
+        # 6) Point of Interest
         {
             "id": _uuid(),
-            "label": "Point of Interest / Delivery",
+            "label": "Point of Interest",
             "type": "select",
             "options": ["Daily", "H4 FVG", "H1 FVG", "M15 FVG", "M5 FVG >", "None"],
             "weights": {
