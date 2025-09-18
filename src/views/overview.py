@@ -49,6 +49,10 @@ def render_overview(
             if "side" in df_view.columns
             else pd.Series(dtype=float)
         )
+        # Expectancy / Trade (in $)
+        expectancy_v = float(win_rate_v) * float(avg_win_v) + (1.0 - float(win_rate_v)) * float(
+            avg_loss_v
+        )
 
         # === KPI GRID (2x2) ===
         kpi_row1 = st.columns([1, 1], gap="small")
@@ -189,36 +193,20 @@ def render_overview(
                 )
                 st.plotly_chart(fig_pf, use_container_width=True)
 
-        # RIGHT: Long vs Short — pillbar
+        # RIGHT: Expectancy / Trade — compact KPI
         with kpi_row2[1]:
             with st.container(border=True):
                 st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
                 st.markdown(
-                    '<div style="text-align:center; font-weight:600; margin:0 0 16px; transform: translateX(6px);">'
-                    "Long vs Short</div>",
+                    '<div style="text-align:center; font-weight:600; margin:0 0 10px; transform: translateX(6px);">'
+                    "Expectancy / Trade</div>",
                     unsafe_allow_html=True,
                 )
-
-                if "side" in df_view.columns:
-                    _side_lower = df_view["side"].astype(str).str.lower()
-                    long_ct = int((_side_lower == "long").sum())
-                    short_ct = int((_side_lower == "short").sum())
-                    total_ct = long_ct + short_ct
-
-                    long_pct = (long_ct / total_ct * 100.0) if total_ct > 0 else 50.0
-                    short_pct = 100.0 - long_pct
-
-                    st.markdown(
-                        f"""
-                        <div class="pillbar" style="margin:20px 0 42px;">
-                          <div class="win"  style="width:{long_pct:.2f}%"></div>
-                          <div class="loss" style="width:{short_pct:.2f}%"></div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
-                else:
-                    st.caption("No side column found.")
+                big = f"${expectancy_v:,.2f}"
+                st.markdown(
+                    f"<div style='font-size:36px; font-weight:700; text-align:center; margin:2px 0 16px;'>{big}</div>",
+                    unsafe_allow_html=True,
+                )
 
         # === Equity Curve (bottom of s_left) — with tabs and date x-axis ===
         with st.container(border=True):
@@ -354,5 +342,36 @@ def render_overview(
 
                 # keep the small spacing tweak you had before
                 st.markdown("<div style='margin-bottom:-32px'></div>", unsafe_allow_html=True)
+
+            # --- Avg Setup Score (always show; N/A until journal populates it) ---
+            with st.container(border=True):
+                st.markdown(
+                    '<div style="text-align:center; font-weight:600; margin:0 0 6px; transform: translateX(6px);">'
+                    "Avg Setup Score</div>",
+                    unsafe_allow_html=True,
+                )
+
+                if "setup_score_pct" in df_view.columns:
+                    try:
+                        _avg_score = float(
+                            pd.to_numeric(df_view["setup_score_pct"], errors="coerce").mean()
+                        )
+                    except Exception:
+                        _avg_score = float("nan")
+                    if pd.notna(_avg_score):
+                        st.markdown(
+                            f"<div style='font-size:32px; font-weight:700; text-align:center;'>{_avg_score:.1f}%</div>",
+                            unsafe_allow_html=True,
+                        )
+                    else:
+                        st.markdown(
+                            "<div style='font-size:14px; text-align:center; opacity:.8;'>N/A</div>",
+                            unsafe_allow_html=True,
+                        )
+                else:
+                    st.markdown(
+                        "<div style='font-size:14px; text-align:center; opacity:.8;'>N/A</div>",
+                        unsafe_allow_html=True,
+                    )
 
     # ======= END LAYOUT FRAME =======

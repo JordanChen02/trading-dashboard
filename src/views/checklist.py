@@ -460,6 +460,47 @@ def render(df: pd.DataFrame) -> None:
                 return "C-"
             return "D/F"
 
+        def compute_checklist_percent_and_grade(
+            items: list[dict], selections: dict[str, str]
+        ) -> tuple[float, str, int, int]:
+            """
+            items: checklist template items (with 'id','type','options','weights','enabled')
+            selections: map of item['id'] -> selected option (string; numbers should be str for scales)
+            Returns: (percent, letter_grade, total_points, max_points)
+            """
+            total = 0
+            denom = 0
+            for it in items:
+                if not it.get("enabled", True):
+                    continue
+
+                options = it.get("options", []) or []
+                weights = it.get("weights", {}) or {}
+                sel = selections.get(it["id"], None)
+
+                if it["type"] == "scale":
+                    # scale: value is usually '1'..'10' as string; fallback to numeric sel
+                    try:
+                        sel_w = int(weights.get(str(sel), sel or 0) or 0)
+                    except Exception:
+                        sel_w = 0
+                    if weights:
+                        max_w = max(weights.values() or [0])
+                    else:
+                        try:
+                            max_w = max(int(x) for x in options) if options else 0
+                        except Exception:
+                            max_w = 0
+                else:
+                    sel_w = int(weights.get(sel, 0)) if sel is not None else 0
+                    max_w = max(list(weights.values()) or [0])
+
+                total += sel_w
+                denom += max_w
+
+            pct = (total / denom * 100.0) if denom > 0 else 0.0
+            return pct, _grade_from_pct(pct), total, denom
+
         # compute normalized score from current selections
         total = 0
         denom = 0
