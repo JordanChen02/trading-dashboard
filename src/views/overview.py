@@ -343,76 +343,79 @@ def render_overview(
                 # keep the small spacing tweak you had before
                 st.markdown("<div style='margin-bottom:-32px'></div>", unsafe_allow_html=True)
 
-            # --- Avg Setup Score (always show; N/A until journal populates it) ---
-            with st.container(border=True):
-                st.markdown(
-                    '<div style="text-align:center; font-weight:600; margin:0 0 6px; transform: translateX(6px);">'
-                    "Avg Setup Score</div>",
-                    unsafe_allow_html=True,
-                )
+            # # --- Avg Setup Score (always show; N/A until journal populates it) ---
+            # with st.container(border=True):
+            #     st.markdown(
+            #         '<div style="text-align:center; font-weight:600; margin:0 0 6px; transform: translateX(6px);">'
+            #         "Avg Setup Score</div>",
+            #         unsafe_allow_html=True,
+            #     )
 
-                if "setup_score_pct" in df_view.columns:
-                    try:
-                        _avg_score = float(
-                            pd.to_numeric(df_view["setup_score_pct"], errors="coerce").mean()
-                        )
-                    except Exception:
-                        _avg_score = float("nan")
-                    if pd.notna(_avg_score):
-                        st.markdown(
-                            f"<div style='font-size:32px; font-weight:700; text-align:center;'>{_avg_score:.1f}%</div>",
-                            unsafe_allow_html=True,
-                        )
-                    else:
-                        st.markdown(
-                            "<div style='font-size:14px; text-align:center; opacity:.8;'>N/A</div>",
-                            unsafe_allow_html=True,
-                        )
-                else:
-                    st.markdown(
-                        "<div style='font-size:14px; text-align:center; opacity:.8;'>N/A</div>",
-                        unsafe_allow_html=True,
-                    )
+            #     if "setup_score_pct" in df_view.columns:
+            #         try:
+            #             _avg_score = float(
+            #                 pd.to_numeric(df_view["setup_score_pct"], errors="coerce").mean()
+            #             )
+            #         except Exception:
+            #             _avg_score = float("nan")
+            #         if pd.notna(_avg_score):
+            #             st.markdown(
+            #                 f"<div style='font-size:32px; font-weight:700; text-align:center;'>{_avg_score:.1f}%</div>",
+            #                 unsafe_allow_html=True,
+            #             )
+            #         else:
+            #             st.markdown(
+            #                 "<div style='font-size:14px; text-align:center; opacity:.8;'>N/A</div>",
+            #                 unsafe_allow_html=True,
+            #             )
+            #     else:
+            #         st.markdown(
+            #             "<div style='font-size:14px; text-align:center; opacity:.8;'>N/A</div>",
+            #             unsafe_allow_html=True,
+            #         )
 
             # --- normalized strategy scores used by the radar/value list ---
-            # Win Rate 0..100
+            # 1) Win Rate → 0..100
             try:
                 wr_score = max(0.0, min(100.0, float(win_rate_v) * 100.0))
             except Exception:
                 wr_score = 0.0
 
-            # Profit Factor, cap at 4.0 => 100%
-            max_pf = 4.0
+            # 2) Payoff Ratio (Avg Win / |Avg Loss|), cap at 3.0 => 100
             try:
-                pf_raw = float(pf_v)
-                if pf_raw == float("inf") or pd.isna(pf_raw):
-                    pf_raw = max_pf
+                payoff_raw = float(avg_win_loss_ratio_v)
+                if payoff_raw == float("inf") or pd.isna(payoff_raw):
+                    payoff_raw = 3.0
             except Exception:
-                pf_raw = 0.0
-            pf_score = max(0.0, min(100.0, (pf_raw / max_pf) * 100.0))
+                payoff_raw = 0.0
+            payoff_cap = 3.0
+            payoff_score = max(0.0, min(100.0, (payoff_raw / payoff_cap) * 100.0))
 
-            # Expectancy-based Avg Profit/Trade score (relative to larger of |avg win| or |avg loss|)
+            # 3) Expectancy (normalized by larger of |avg win| or |avg loss|)
             try:
-                exp_val = float(expectancy_v)
-            except Exception:
                 exp_val = float(win_rate_v) * float(avg_win_v) + (1.0 - float(win_rate_v)) * float(
                     avg_loss_v
                 )
-            denom = max(abs(float(avg_win_v)), abs(float(avg_loss_v)), 1e-9)
-            appt_score = max(0.0, min(100.0, (exp_val / denom) * 100.0))
-
-            # PnL score: net / gross-positive, capped 0..100
-            try:
-                pnl_series = pd.to_numeric(df_view["pnl"], errors="coerce")
-                net_pnl = float(pnl_series.sum())
-                gross_pos = float(pnl_series[pnl_series > 0].sum())
-                pnl_score = max(0.0, min(100.0, (net_pnl / max(gross_pos, 1e-9)) * 100.0))
             except Exception:
-                pnl_score = 0.0
-            # --- Strategy Radar (normalized scores) ---
+                exp_val = 0.0
+            denom = max(abs(float(avg_win_v)), abs(float(avg_loss_v)), 1e-9)
+            exp_norm_score = max(0.0, min(100.0, (exp_val / denom) * 100.0))
+
+            # 4) Drawdown (inverted): score = 100 * (1 - min(1, |maxDD| / cap))
+            try:
+                pnl_series = pd.to_numeric(df_view["pnl"], errors="coerce").fillna(0.0)
+                equity = float(start_equity) + pnl_series.cumsum()
+                dd_pct = (equity / equity.cummax()) - 1.0  # negative values
+                max_dd_abs = float(abs(dd_pct.min())) if len(dd_pct) else 0.0
+            except Exception:
+                max_dd_abs = 0.0
+            dd_cap = 0.30  # 30% cap; tweak to taste
+            dd_score = 100.0 * (1.0 - min(1.0, max_dd_abs / dd_cap))
+
+            # --- Strategy Radar (normalized, orthogonal set) ---
             with st.container(border=True):
                 st.markdown(
-                    "<div style='font-size:20px;'text-align:center; font-weight:600; margin:0 0 6px;'>"
+                    "<div style='text-align:center; font-weight:600; margin:0 0 6px;'>"
                     "Strategy Values <span style='opacity:.6'>(Normalized Scores)</span>"
                     "</div>",
                     unsafe_allow_html=True,
@@ -421,16 +424,21 @@ def render_overview(
                 left_vals, right_chart = st.columns([1.1, 2.2], gap="small")
 
                 with left_vals:
-                    st.write(f"**Profit Factor:** {pf_score:,.0f}%")
                     st.write(f"**Win Rate:** {wr_score:,.0f}%")
-                    st.write(f"**Avg Profit/Trade:** {appt_score:,.0f}%")
-                    st.write(f"**PnL:** {pnl_score:,.0f}%")
+                    st.write(f"**Payoff Ratio:** {payoff_score:,.0f}%")
+                    st.write(f"**Expectancy (norm):** {exp_norm_score:,.0f}%")
+                    st.write(f"**Drawdown (inv):** {dd_score:,.0f}%")
 
                 with right_chart:
                     fig = go.Figure(
                         go.Scatterpolar(
-                            r=[pf_score, wr_score, appt_score, pnl_score],
-                            theta=["Profit Factor", "Win Rate", "Avg Profit/Trade", "PnL"],
+                            r=[wr_score, payoff_score, exp_norm_score, dd_score],
+                            theta=[
+                                "Win Rate",
+                                "Payoff Ratio",
+                                "Expectancy (norm)",
+                                "Drawdown (inv)",
+                            ],
                             fill="toself",
                             mode="lines+markers",
                             hovertemplate="%{theta}: %{r:.0f}%<extra></extra>",
@@ -443,21 +451,22 @@ def render_overview(
                         plot_bgcolor="rgba(0,0,0,0)",
                         margin=dict(l=6, r=6, t=6, b=6),
                         showlegend=False,
-                        height=240,
+                        height=180,
                         polar=dict(
                             bgcolor="rgba(0,0,0,0)",
+                            gridshape="linear",  # polygon grid (diamond/square)
                             angularaxis=dict(
-                                rotation=45,  # diamond
+                                rotation=90,  # "+" orientation (diamond polygon)
                                 showticklabels=False,
                                 ticks="",
-                                gridcolor="rgba(255,255,255,0.08)",
+                                gridcolor="rgba(255,255,255,0.3)",
                                 linecolor="rgba(255,255,255,0.12)",
                             ),
                             radialaxis=dict(
                                 range=[0, 100],
                                 showticklabels=False,
                                 ticks="",
-                                gridcolor="rgba(255,255,255,0.08)",
+                                gridcolor="rgba(255,255,255,0.2)",
                                 linecolor="rgba(255,255,255,0.12)",
                             ),
                         ),
