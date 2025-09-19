@@ -27,6 +27,7 @@ def inject_overview_css() -> None:
       div[data-testid="stTabs"] button[role="tab"]{
         padding:4px 10px;
       }
+
     </style>
     """,
         unsafe_allow_html=True,

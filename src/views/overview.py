@@ -203,6 +203,96 @@ def render_overview(
                     unsafe_allow_html=True,
                 )
                 big = f"${expectancy_v:,.2f}"
+                # --- Clean zero-centered pill bar for Expectancy ---
+
+                # symmetric cap (so the bar is centered at 0)
+                denom = max(abs(float(avg_win_v)), abs(float(avg_loss_v)), 1e-9)
+                cap = max(denom * 2.0, 1.0)  # widen/narrow the bar range as you like
+                v = float(expectancy_v)
+                target_e = 8.0  # $ target
+
+                # map value -> [0,1] position (0.5 is zero)
+                def to_pos(val: float) -> float:
+                    return (val + cap) / (2 * cap)
+
+                x0 = 0.08  # left padding
+                x1 = 0.92  # right padding
+                mid = (x0 + x1) / 2.0
+                y0, y1 = 0.40, 0.60  # pill thickness
+
+                rail = "#212C47"
+                pos_col = "#2E86C1"
+                neg_col = "#9B2C2C"
+
+                x_val = x0 + (x1 - x0) * to_pos(v)
+                x_tgt = x0 + (x1 - x0) * to_pos(target_e)
+
+                fig_e = go.Figure()
+                # background rail
+                fig_e.add_shape(
+                    type="rect", x0=x0, x1=x1, y0=y0, y1=y1, fillcolor=rail, line=dict(width=0)
+                )
+                # filled segment from center→value
+                if v >= 0:
+                    fig_e.add_shape(
+                        type="rect",
+                        x0=mid,
+                        x1=x_val,
+                        y0=y0,
+                        y1=y1,
+                        fillcolor=pos_col,
+                        line=dict(width=0),
+                    )
+                else:
+                    fig_e.add_shape(
+                        type="rect",
+                        x0=x_val,
+                        x1=mid,
+                        y0=y0,
+                        y1=y1,
+                        fillcolor=neg_col,
+                        line=dict(width=0),
+                    )
+                # zero tick (subtle)
+                fig_e.add_shape(
+                    type="line",
+                    x0=mid,
+                    x1=mid,
+                    y0=y0 - 0.08,
+                    y1=y1 + 0.08,
+                    line=dict(color="rgba(229,231,235,0.25)", width=1),
+                )
+                # target marker
+                fig_e.add_shape(
+                    type="line",
+                    x0=x_tgt,
+                    x1=x_tgt,
+                    y0=y0 - 0.14,
+                    y1=y1 + 0.14,
+                    line=dict(color="rgba(229,231,235,0.9)", width=2),
+                )
+
+                # hover (optional): show value on hover anywhere on the pill
+                fig_e.add_trace(
+                    go.Scatter(
+                        x=[x_val],
+                        y=[(y0 + y1) / 2],
+                        mode="markers",
+                        marker=dict(size=0.1, color="rgba(0,0,0,0)"),
+                        hovertemplate=f"Expectancy: ${v:,.2f}<extra></extra>",
+                    )
+                )
+
+                fig_e.update_xaxes(visible=False, range=[0, 1], fixedrange=True)
+                fig_e.update_yaxes(visible=False, range=[0, 1], fixedrange=True)
+                fig_e.update_layout(
+                    margin=dict(l=8, r=8, t=2, b=2),
+                    height=56,
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                )
+                st.plotly_chart(fig_e, use_container_width=True)
+
                 st.markdown(
                     f"<div style='font-size:36px; font-weight:700; text-align:center; margin:2px 0 16px;'>{big}</div>",
                     unsafe_allow_html=True,
@@ -321,13 +411,38 @@ def render_overview(
         # Right side: Win Streak box
         with right_top[1]:
             with st.container(border=True):
-                # (temporary placeholders; wire real values later)
-                days_streak = 9
-                trades_streak = 19
-                best_days_streak = 21
-                resets_days_count = 1
-                best_trades_streak = 19
-                resets_trades_ct = 7
+                # ---- compute real streaks ----
+                def _streak_stats(win_bool: pd.Series) -> tuple[int, int, int]:
+                    """Return (current_win_streak, best_win_streak, resets_count)."""
+                    if win_bool is None or len(win_bool) == 0:
+                        return 0, 0, 0
+                    s = pd.Series(win_bool).fillna(False).astype(bool)
+                    grp = (s != s.shift()).cumsum()  # group consecutive equal values
+                    run = (
+                        s.groupby(grp).transform("size").where(s, 0)
+                    )  # size of current win-run per row
+                    current = int(run.iloc[-1]) if s.iloc[-1] else 0
+                    best = int(run.max()) if len(run) else 0
+                    resets = int(((~s) & s.shift(1).fillna(False)).sum())  # count win→loss breaks
+                    return current, best, resets
+
+                # trades streaks (row-level wins)
+                pnl_series = (
+                    pd.to_numeric(df_view["pnl"], errors="coerce").fillna(0.0)
+                    if "pnl" in df_view.columns
+                    else pd.Series(dtype=float)
+                )
+                trade_is_win = pnl_series > 0
+                trades_streak, best_trades_streak, resets_trades_ct = _streak_stats(trade_is_win)
+
+                # days streaks (net PnL by day)
+                if date_col and (date_col in df_view.columns) and len(df_view) > 0:
+                    dates = pd.to_datetime(df_view[date_col], errors="coerce")
+                    daily_net = pnl_series.groupby(dates.dt.date).sum()
+                    day_is_win = daily_net > 0
+                    days_streak, best_days_streak, resets_days_count = _streak_stats(day_is_win)
+                else:
+                    days_streak = best_days_streak = resets_days_count = 0
 
                 render_winstreak(
                     days_streak=days_streak,
