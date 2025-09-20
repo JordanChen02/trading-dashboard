@@ -25,7 +25,10 @@ def plot_equity(
     """
     # X/Y
     x = df_in["_date"]
-    y = pd.to_numeric(df_in["equity"], errors="coerce").astype(float)
+    y_raw = pd.to_numeric(df_in["equity"], errors="coerce").astype(float)
+    # gentle smoothing; bump window to 5 or 7 if you want more
+    SMOOTH_WIN = 6
+    y = pd.Series(y_raw).rolling(window=SMOOTH_WIN, min_periods=1, center=True).mean().to_numpy()
 
     # Hover
     _ht = (
@@ -62,9 +65,9 @@ def plot_equity(
         y=y,
         mode="lines",
         line=dict(width=2, color=BLUE_LIGHT),
-        line_shape="spline",
+        line_shape="linear",  # smooth look comes from rolling mean, not spline
         fill="tonexty",
-        fillcolor="rgba(46,134,193,0.18)",  # soft brand-blue tint under the line
+        fillcolor="rgba(46,134,193,0.18)",
         hovertemplate=_ht,
         showlegend=False,
         connectgaps=False,
@@ -90,6 +93,7 @@ def plot_equity(
         plot_bgcolor=BG,
         showlegend=False,
     )
+    fig.update_yaxes(tickformat="$,.0f")
 
     # X axis (date vs linear)
     if has_date:

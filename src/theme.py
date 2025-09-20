@@ -15,7 +15,7 @@ DARK_FILL = "rgba(33,44,71,0.55)"  # area fill below baseline
 
 # ---- Greys / UI lines ----
 GRID_WEAK = "rgba(255,255,255,0.06)"  # subtle grid
-AXIS_WEAK = "rgba(255,255,255,0.25)"  # zero lines / separators
+AXIS_WEAK = "rgba(255,255,255,0.1)"  # zero lines / separators
 BAR_STROKE = "rgba(255,255,255,0.12)"  # bar outline
 
 # ---- Risk / status ----

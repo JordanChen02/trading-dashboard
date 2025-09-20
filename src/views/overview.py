@@ -1,6 +1,7 @@
 # src/views/overview.py
 from typing import Optional
 
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -8,9 +9,10 @@ import streamlit as st
 import src.views.calendar_panel as cal_view
 from src.charts.equity import plot_equity
 from src.charts.pnl import plot_pnl
+from src.charts.rr import plot_rr
 from src.components.winstreak import render_winstreak
 from src.styles import inject_overview_css
-from src.theme import BLUE  # to pass the brand color
+from src.theme import BLUE
 
 
 def render_overview(
@@ -316,22 +318,39 @@ def render_overview(
                 )
 
             def _slice_window(df_in: pd.DataFrame, label: str) -> pd.DataFrame:
+                # Expect df_in has a datetime-like column "_date" already sorted ascending.
                 if not _has_date or len(df_in) == 0 or label == "All":
                     return df_in
-                last_ts = pd.to_datetime(df_in["_date"].iloc[-1])
+
+                x = pd.to_datetime(df_in["_date"], errors="coerce")
+                last_ts = x.iloc[-1]
+                last_day = last_ts.normalize()
+
                 if label == "1D":
-                    start = last_ts - pd.Timedelta(days=1)
+                    # Only trades on the latest calendar day
+                    mask = x.dt.normalize() == last_day
                 elif label == "1W":
-                    start = last_ts - pd.Timedelta(weeks=1)
+                    # Last 7 calendar days (today + previous 6)
+                    cutoff = last_day - pd.Timedelta(days=6)
+                    mask = x.dt.normalize() >= cutoff
                 elif label == "1M":
-                    start = last_ts - pd.DateOffset(months=1)
+                    # Last 30 calendar days
+                    cutoff = last_day - pd.Timedelta(days=29)
+                    mask = x.dt.normalize() >= cutoff
                 elif label == "6M":
-                    start = last_ts - pd.DateOffset(months=6)
+                    # Last ~6 months; use 183 days to avoid month-length edge cases
+                    cutoff = last_day - pd.Timedelta(days=183)
+                    mask = x.dt.normalize() >= cutoff
                 elif label == "1Y":
-                    start = last_ts - pd.DateOffset(years=1)
+                    # Last 365 calendar days (if only 3 months exist, you'll just see those 3 months)
+                    cutoff = last_day - pd.Timedelta(days=364)
+                    mask = x.dt.normalize() >= cutoff
                 else:
-                    start = df_in["_date"].min()
-                return df_in[df_in["_date"] >= start]
+                    mask = slice(None)
+
+                out = df_in.loc[mask]
+                # Ensure the chart never ends up blank
+                return out if len(out) else df_in.tail(1)
 
             st.markdown('<div class="eq-tabs">', unsafe_allow_html=True)
 
@@ -356,12 +375,62 @@ def render_overview(
                             _dfw,
                             start_equity=start_equity,
                             has_date=_has_date,
-                            height=590,
+                            height=360,
                         )
                         # Use a unique key prefix so it won't collide with other tabs
                         st.plotly_chart(
                             fig_eq, use_container_width=True, key=f"ov_eq_curve_{_label}"
                         )
+
+        with st.container(border=True):
+            st.markdown(
+                '<div style="font-weight:600; margin:0 0 8px; transform: translateX(6px);">Reward:Risk</div>',
+                unsafe_allow_html=True,
+            )
+
+            _has_date = (date_col is not None) and (date_col in df_view.columns)
+            rr_df = df_view.copy()
+
+            # x-axis
+            if _has_date:
+                rr_df["_date"] = pd.to_datetime(rr_df[date_col], errors="coerce")
+                rr_df = rr_df.loc[rr_df["_date"].notna()].sort_values("_date")
+            else:
+                rr_df["_date"] = np.arange(len(rr_df))
+
+            # Placeholder RR (until you have a real rr column)
+            if "rr" not in rr_df.columns:
+                pnl_num = pd.to_numeric(rr_df.get("pnl", 0.0), errors="coerce").fillna(0.0)
+                losses = pnl_num[pnl_num < 0].abs()
+                risk_proxy = float(losses.median()) if len(losses) else 1.0
+                rr_df["rr"] = pnl_num / (risk_proxy or 1.0)
+
+            def _slice_window_rr(df_in: pd.DataFrame, label: str) -> pd.DataFrame:
+                if not _has_date or len(df_in) == 0 or label == "All":
+                    return df_in
+                x = pd.to_datetime(df_in["_date"], errors="coerce")
+                last = x.max().normalize()
+                if label == "1D":
+                    mask = x.dt.normalize() == last
+                elif label == "1W":
+                    mask = x.dt.normalize() >= last - pd.Timedelta(days=6)
+                elif label == "1M":
+                    mask = x.dt.normalize() >= last - pd.Timedelta(days=29)
+                elif label == "6M":
+                    mask = x.dt.normalize() >= last - pd.Timedelta(days=183)
+                elif label == "1Y":
+                    mask = x.dt.normalize() >= last - pd.Timedelta(days=364)
+                else:
+                    mask = slice(None)
+                out = df_in.loc[mask]
+                return out if len(out) else df_in.tail(1)
+
+            tabs = st.tabs(["All", "1D", "1W", "1M", "6M", "1Y"])
+            for lab, tab in zip(["All", "1D", "1W", "1M", "6M", "1Y"], tabs):
+                with tab:
+                    df_show = _slice_window_rr(rr_df, lab)
+                    fig_rr = plot_rr(df_show[["_date", "rr"]], has_date=_has_date, height=150)
+                    st.plotly_chart(fig_rr, use_container_width=True, key=f"rr_chart_{lab}")
 
         # === Right column top row (split in 2) ===
         with s_right:
