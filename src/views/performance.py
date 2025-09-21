@@ -4,6 +4,7 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 
 from src.charts.drawdown import plot_underwater
@@ -217,3 +218,96 @@ def render(
         mime="text/csv",
         use_container_width=True,
     )
+
+    # --- Strategy Radar (normalized, orthogonal set) ---
+    with st.container(border=True):
+        st.markdown(
+            "<div style='text-align:center; font-weight:600; margin:0 0 6px;'>"
+            "Strategy Values <span style='opacity:.6'>(Normalized Scores)</span>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+
+        # ----- derive metrics from df_view -----
+        pnl = pd.to_numeric(df_view.get("pnl", 0.0), errors="coerce").fillna(0.0)
+
+        wins = pnl[pnl > 0]
+        losses = pnl[pnl < 0]
+
+        # Win Rate (%)
+        wr = (len(wins) / max(1, (len(wins) + len(losses)))) * 100.0
+        wr_score = float(np.clip(wr, 0.0, 100.0))
+
+        # Payoff Ratio (avg win / avg loss abs), normalize: 2.0+ -> 100%
+        avg_win = float(wins.mean()) if len(wins) else 0.0
+        avg_loss_abs = float((-losses).mean()) if len(losses) else 0.0
+        payoff = (avg_win / max(1e-9, avg_loss_abs)) if avg_loss_abs > 0 else 0.0
+        payoff_score = float(np.clip(payoff / 2.0, 0.0, 1.0) * 100.0)
+
+        # Expectancy per trade (normalize by median loss as 1R cap at 1.0)
+        expectancy = float(pnl.mean()) if len(pnl) else 0.0
+        risk_proxy = float((-losses).median()) if len(losses) else 1.0
+        exp_norm = expectancy / max(1e-9, risk_proxy)  # 1R => 1.0
+        exp_norm_score = float(np.clip(exp_norm, 0.0, 1.0) * 100.0)
+
+        # Drawdown (inverse): compute max drawdown on equity from PnL-only curve
+        equity = pnl.cumsum()
+        roll_max = equity.cummax()
+        dd = equity - roll_max  # negative dips from peak
+        max_dd = float(dd.min())  # most negative
+        peak = float(roll_max.max()) or 1.0
+        max_dd_pct = abs(max_dd) / peak  # 0..1
+        dd_score = float(np.clip(1.0 - (max_dd_pct / 0.30), 0.0, 1.0) * 100.0)  # 30% dd -> 0%
+
+        # ----- layout: left numbers + right radar -----
+        left_vals, right_chart = st.columns([1.1, 2.2], gap="small")
+
+        with left_vals:
+            st.write(f"**Win Rate:** {wr_score:,.0f}%")
+            st.write(f"**Payoff Ratio:** {payoff_score:,.0f}%")
+            st.write(f"**Expectancy (norm):** {exp_norm_score:,.0f}%")
+            st.write(f"**Drawdown (inv):** {dd_score:,.0f}%")
+
+        with right_chart:
+            fig = go.Figure(
+                go.Scatterpolar(
+                    r=[wr_score, payoff_score, exp_norm_score, dd_score],
+                    theta=[
+                        "Win Rate",
+                        "Payoff Ratio",
+                        "Expectancy (norm)",
+                        "Drawdown (inv)",
+                    ],
+                    fill="toself",
+                    mode="lines+markers",
+                    hovertemplate="%{theta}: %{r:.0f}%<extra></extra>",
+                    line=dict(width=2),
+                    marker=dict(size=5),
+                )
+            )
+            fig.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                margin=dict(l=6, r=6, t=6, b=6),
+                showlegend=False,
+                height=180,
+                polar=dict(
+                    bgcolor="rgba(0,0,0,0)",
+                    gridshape="linear",  # polygon grid (diamond/square)
+                    angularaxis=dict(
+                        rotation=90,  # "+" orientation (diamond polygon)
+                        showticklabels=False,
+                        ticks="",
+                        gridcolor="rgba(255,255,255,0.3)",
+                        linecolor="rgba(255,255,255,0.12)",
+                    ),
+                    radialaxis=dict(
+                        range=[0, 100],
+                        showticklabels=False,
+                        ticks="",
+                        gridcolor="rgba(255,255,255,0.2)",
+                        linecolor="rgba(255,255,255,0.12)",
+                    ),
+                ),
+            )
+            st.plotly_chart(fig, use_container_width=True, key="perf_strategy_radar")
