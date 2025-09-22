@@ -6,11 +6,11 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-import src.views.calendar_panel as cal_view
 from src.charts.equity import plot_equity
 from src.charts.pnl import plot_pnl
 from src.charts.rr import plot_rr
 from src.components.last_trades import placeholder_last_trades, render_last_trades
+from src.components.monthly_stats import render_monthly_stats
 from src.components.winstreak import render_winstreak
 from src.styles import inject_overview_css
 from src.theme import BLUE
@@ -376,62 +376,12 @@ def render_overview(
                             _dfw,
                             start_equity=start_equity,
                             has_date=_has_date,
-                            height=360,
+                            height=240,
                         )
                         # Use a unique key prefix so it won't collide with other tabs
                         st.plotly_chart(
                             fig_eq, use_container_width=True, key=f"ov_eq_curve_{_label}"
                         )
-
-        with st.container(border=True):
-            st.markdown(
-                '<div style="font-weight:600; margin:0 0 8px; transform: translateX(6px);">Reward:Risk</div>',
-                unsafe_allow_html=True,
-            )
-
-            _has_date = (date_col is not None) and (date_col in df_view.columns)
-            rr_df = df_view.copy()
-
-            # x-axis
-            if _has_date:
-                rr_df["_date"] = pd.to_datetime(rr_df[date_col], errors="coerce")
-                rr_df = rr_df.loc[rr_df["_date"].notna()].sort_values("_date")
-            else:
-                rr_df["_date"] = np.arange(len(rr_df))
-
-            # Placeholder RR (until you have a real rr column)
-            if "rr" not in rr_df.columns:
-                pnl_num = pd.to_numeric(rr_df.get("pnl", 0.0), errors="coerce").fillna(0.0)
-                losses = pnl_num[pnl_num < 0].abs()
-                risk_proxy = float(losses.median()) if len(losses) else 1.0
-                rr_df["rr"] = pnl_num / (risk_proxy or 1.0)
-
-            def _slice_window_rr(df_in: pd.DataFrame, label: str) -> pd.DataFrame:
-                if not _has_date or len(df_in) == 0 or label == "All":
-                    return df_in
-                x = pd.to_datetime(df_in["_date"], errors="coerce")
-                last = x.max().normalize()
-                if label == "1D":
-                    mask = x.dt.normalize() == last
-                elif label == "1W":
-                    mask = x.dt.normalize() >= last - pd.Timedelta(days=6)
-                elif label == "1M":
-                    mask = x.dt.normalize() >= last - pd.Timedelta(days=29)
-                elif label == "6M":
-                    mask = x.dt.normalize() >= last - pd.Timedelta(days=183)
-                elif label == "1Y":
-                    mask = x.dt.normalize() >= last - pd.Timedelta(days=364)
-                else:
-                    mask = slice(None)
-                out = df_in.loc[mask]
-                return out if len(out) else df_in.tail(1)
-
-            tabs = st.tabs(["All", "1D", "1W", "1M", "6M", "1Y"])
-            for lab, tab in zip(["All", "1D", "1W", "1M", "6M", "1Y"], tabs):
-                with tab:
-                    df_show = _slice_window_rr(rr_df, lab)
-                    fig_rr = plot_rr(df_show[["_date", "rr"]], has_date=_has_date, height=150)
-                    st.plotly_chart(fig_rr, use_container_width=True, key=f"rr_chart_{lab}")
 
         # === Right column top row (split in 2) ===
         with s_right:
@@ -474,9 +424,57 @@ def render_overview(
                     fig_pnl = plot_pnl(df_view, date_col, mode=mode, height=250)
                     st.plotly_chart(fig_pnl, use_container_width=True, key=f"ov_pnl_{mode}")
 
-            # --- Right column bottom: Calendar panel ---
-            with st.container(border=True):
-                cal_view.render_calendar_panel(df_view, date_col, month_start, key="cal_overview")
+                with st.container(border=True):
+                    st.markdown(
+                        '<div style="font-weight:600; margin:0 0 8px; transform: translateX(6px);">Reward:Risk</div>',
+                        unsafe_allow_html=True,
+                    )
+
+                    _has_date = (date_col is not None) and (date_col in df_view.columns)
+                    rr_df = df_view.copy()
+
+                    # x-axis
+                    if _has_date:
+                        rr_df["_date"] = pd.to_datetime(rr_df[date_col], errors="coerce")
+                        rr_df = rr_df.loc[rr_df["_date"].notna()].sort_values("_date")
+                    else:
+                        rr_df["_date"] = np.arange(len(rr_df))
+
+                    # Placeholder RR (until you have a real rr column)
+                    if "rr" not in rr_df.columns:
+                        pnl_num = pd.to_numeric(rr_df.get("pnl", 0.0), errors="coerce").fillna(0.0)
+                        losses = pnl_num[pnl_num < 0].abs()
+                        risk_proxy = float(losses.median()) if len(losses) else 1.0
+                        rr_df["rr"] = pnl_num / (risk_proxy or 1.0)
+
+                    def _slice_window_rr(df_in: pd.DataFrame, label: str) -> pd.DataFrame:
+                        if not _has_date or len(df_in) == 0 or label == "All":
+                            return df_in
+                        x = pd.to_datetime(df_in["_date"], errors="coerce")
+                        last = x.max().normalize()
+                        if label == "1D":
+                            mask = x.dt.normalize() == last
+                        elif label == "1W":
+                            mask = x.dt.normalize() >= last - pd.Timedelta(days=6)
+                        elif label == "1M":
+                            mask = x.dt.normalize() >= last - pd.Timedelta(days=29)
+                        elif label == "6M":
+                            mask = x.dt.normalize() >= last - pd.Timedelta(days=183)
+                        elif label == "1Y":
+                            mask = x.dt.normalize() >= last - pd.Timedelta(days=364)
+                        else:
+                            mask = slice(None)
+                        out = df_in.loc[mask]
+                        return out if len(out) else df_in.tail(1)
+
+                    tabs = st.tabs(["All", "1D", "1W", "1M", "6M", "1Y"])
+                    for lab, tab in zip(["All", "1D", "1W", "1M", "6M", "1Y"], tabs):
+                        with tab:
+                            df_show = _slice_window_rr(rr_df, lab)
+                            fig_rr = plot_rr(
+                                df_show[["_date", "rr"]], has_date=_has_date, height=150
+                            )
+                            st.plotly_chart(fig_rr, use_container_width=True, key=f"rr_chart_{lab}")
 
         # Right side: Win Streak box
         with right_top[1]:
@@ -535,3 +533,14 @@ def render_overview(
                     title="Last 5 Trades",
                     key_prefix="ov_last5",
                 )
+
+    # --- Right column bottom: Monthly Stats (replaces Calendar) ---
+    render_monthly_stats(
+        df_view,
+        date_col=date_col,
+        years_back=2,
+        title="Monthly Stats",
+        key="ov_mstats",
+        cell_height=95,
+        total_col_width_px=120,
+    )
