@@ -494,6 +494,18 @@ def inject_journal_css() -> None:
             );
             margin: 10px 0 16px 0;
         }
+        /* New Entry close "X": render as bare glyph (no box) */
+        .journal-newentry-x button {
+          background: transparent !important;
+          border: none !important;
+          padding: 0 !important;
+          min-width: auto !important;
+          line-height: 1 !important;
+          font-size: 18px !important;
+          color: #e5e7eb !important;
+        }
+        .journal-newentry-x button:hover { opacity: 0.8; }
+
         </style>
         """,
         unsafe_allow_html=True,

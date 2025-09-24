@@ -117,6 +117,47 @@ def _friendly_minutes(total_min: float) -> str:
     return " ".join(parts)
 
 
+def _ensure_session_column(df: pd.DataFrame) -> pd.DataFrame:
+    """Make sure df has a Session column computed in the selected timezone."""
+    if "Session" in df.columns:
+        return df
+
+    tz_name = st.session_state.get("journal_tz", "America/New_York")
+    ts = pd.to_datetime(df["Entry Time"], errors="coerce")
+
+    # Localize or convert to the user's chosen timezone
+    try:
+        if ts.dt.tz is None:
+            ts = ts.dt.tz_localize(tz_name)
+        else:
+            ts = ts.dt.tz_convert(tz_name)
+    except Exception:
+        ts = pd.to_datetime(df["Entry Time"], errors="coerce").dt.tz_localize(tz_name)
+
+    mins = ts.dt.hour * 60 + ts.dt.minute
+
+    def in_range(m, start, end, wrap=False):
+        if wrap:  # cross midnight
+            return (m >= start) | (m < end)
+        return (m >= start) & (m < end)
+
+    asia = in_range(mins, 20 * 60, 0, wrap=True)  # 20:00–00:00
+    london = in_range(mins, 2 * 60, 5 * 60)  # 02:00–05:00
+    ny_am = in_range(mins, 9 * 60 + 30, 11 * 60)  # 09:30–11:00
+    ny_lunch = in_range(mins, 12 * 60, 13 * 60)  # 12:00–13:00
+    ny_pm = in_range(mins, 13 * 60 + 30, 16 * 60)  # 13:30–16:00
+
+    session = pd.Series("", index=df.index, dtype="object")
+    session[asia] = "Asia"
+    session[london] = "London"
+    session[ny_am] = "NY AM"
+    session[ny_lunch] = "NY Lunch"
+    session[ny_pm] = "NY PM"
+    out = df.copy()
+    out["Session"] = session
+    return out
+
+
 def _parse_time_string(t: str) -> datetime.time:
     """
     Accepts 'H:M', 'HH:MM', or 'HH:MM:SS'. Falls back to current minute on failure.
@@ -161,11 +202,54 @@ def _compute_derived(df: pd.DataFrame) -> pd.DataFrame:
     for c in ["TP1 % Sold", "TP2 % Sold", "TP3 % Sold"]:
         df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).clip(0, 100).astype(int)
 
-    # Earliest -> latest (ascending)
+    # ---- Derived: Session from Entry Time in selected timezone ----
+    # Pull chosen tz (default to America/New_York)
+    tz_name = st.session_state.get("journal_tz", "America/New_York")
+
+    # Convert Entry Time to tz-aware timestamps in the chosen timezone
+    ts = pd.to_datetime(df["Entry Time"], errors="coerce", utc=False)
+    # Localize naive times to the chosen tz; if already tz-aware, convert
+    try:
+        if ts.dt.tz is None:
+            ts = ts.dt.tz_localize(tz_name)
+        else:
+            ts = ts.dt.tz_convert(tz_name)
+    except Exception:
+        # Fallback: treat as naive in chosen tz if localization failed
+        ts = pd.to_datetime(df["Entry Time"], errors="coerce").dt.tz_localize(tz_name)
+
+    mins = ts.dt.hour * 60 + ts.dt.minute
+
+    # Windows (in the chosen timezone). You said these are in EST; we interpret them
+    # in whatever tz is selected so the logic remains consistent for the user.
+    # Asia   = 20:00–00:00
+    # London = 02:00–05:00
+    # NY AM  = 09:30–11:00
+    # NY Lunch = 12:00–13:00
+    # NY PM  = 13:30–16:00
+    def in_range(m, start, end, wrap=False):
+        if wrap:  # across midnight (e.g., 20:00–00:00)
+            return (m >= start) | (m < end)
+        return (m >= start) & (m < end)
+
+    asia = in_range(mins, 20 * 60, 0, wrap=True)
+    london = in_range(mins, 2 * 60, 5 * 60)
+    ny_am = in_range(mins, 9 * 60 + 30, 11 * 60)
+    ny_lunch = in_range(mins, 12 * 60, 13 * 60)
+    ny_pm = in_range(mins, 13 * 60 + 30, 16 * 60)
+
+    session = pd.Series("", index=df.index, dtype="object")
+    session[asia] = "Asia"
+    session[london] = "London"
+    session[ny_am] = "NY AM"
+    session[ny_lunch] = "NY Lunch"
+    session[ny_pm] = "NY PM"
+    df["Session"] = session
+
+    # ---- Sort + renumber (earliest → latest) ----
     df = df.sort_values(
         ["Date", "Entry Time"], ascending=[True, True], kind="mergesort"
     ).reset_index(drop=True)
-
     df["Trade #"] = df.index + 1
 
     return df
@@ -315,6 +399,15 @@ def _add_confirmation_tag():
 
 
 def _render_new_entry_form():
+    # --- Minimal close "X" (no box) ---
+    st.markdown('<div class="journal-newentry-x">', unsafe_allow_html=True)
+    hx1, hx2 = st.columns([10, 1], gap="small")
+    with hx2:
+        if st.button("✕", key="close_new_entry", help="Close"):
+            st.session_state.show_new_entry = False
+            st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
+
     # Quick-add confirmation tag (type & Enter to add to options)
     st.markdown("**Add a custom confirmation (type and press Enter):**")
     st.text_input(
@@ -333,9 +426,21 @@ def _render_new_entry_form():
         c1, c2, c3 = st.columns(3)
         with c1:
             date_val = st.date_input("Date", value=date.today())
-            symbol = st.selectbox("Symbol", SYMBOLS, index=0)
+            symbol = (
+                st.text_input(
+                    "Symbol",
+                    value="",
+                    placeholder="e.g., BTCUSDT / NQ / ETHUSDT",
+                )
+                .strip()
+                .upper()
+            )
             direction = st.selectbox("Direction", DIRECTIONS, index=0)
-            timeframe = st.selectbox("Timeframe", TIMEFRAMES, index=2)
+            timeframe = st.text_input(
+                "Timeframe",
+                value="",
+                placeholder="e.g., m3 / m15 / h1 / h4",
+            ).strip()
         with c2:
             # Free text times
             entry_txt = st.text_input("Entry Time (HH:MM or HH:MM:SS)", value="09:30")
@@ -367,28 +472,16 @@ def _render_new_entry_form():
             "Tip: Values mean how much of the position you sold at each TP (e.g., 50/25/25). Total ≤ 100."
         )
 
-        submit = st.form_submit_button("Add Entry", use_container_width=True)
-        if submit:
-            # Build datetimes for entry/exit
-            e_time = datetime.combine(date_val, _parse_time_string(entry_txt))
-            x_time = datetime.combine(date_val, _parse_time_string(exit_txt))
-            if x_time <= e_time:
-                x_time = e_time + timedelta(minutes=15)
+        submitted = st.form_submit_button("Add Entry", use_container_width=True)
+        if submitted:
+            # Convert the free-text HH:MM to datetimes on the chosen date
+            entry_time = _parse_time_string(entry_txt)
+            exit_time = _parse_time_string(exit_txt)
+            entry_dt = datetime.combine(date_val, entry_time)
+            exit_dt = datetime.combine(date_val, exit_time)
 
-            # Enforce TP sum ≤ 100
-            t_sum = tp1 + tp2 + tp3
-            if t_sum > 100:
-                # reduce TP3 then TP2 to fit
-                over = t_sum - 100
-                adj_tp3 = max(0, tp3 - over)
-                over = max(0, over - (tp3 - adj_tp3))
-                adj_tp2 = max(0, tp2 - over)
-                tp3, tp2 = adj_tp3, adj_tp2
-
-            df = st.session_state.journal_df.copy()
-            next_trade_num = int(df["Trade #"].max()) + 1 if not df.empty else 1
-            row = {
-                "Trade #": next_trade_num,
+            new_row = {
+                "Trade #": None,  # will be set by _compute_derived
                 "Symbol": symbol,
                 "Date": date_val,
                 "Day of Week": date_val.strftime("%A"),
@@ -398,24 +491,28 @@ def _render_new_entry_form():
                 "Setup Tier": setup_tier,
                 "Execution Tier": exec_tier,
                 "Confirmations": conf,
-                "Entry Time": e_time,
-                "Exit Time": x_time,
-                "Duration": "",
-                "Duration (min)": (x_time - e_time).total_seconds() / 60.0,
+                "Entry Time": entry_dt,
+                "Exit Time": exit_dt,
+                "Duration (min)": None,  # computed in _compute_derived
+                "Duration": "",  # computed in _compute_derived
                 "PnL": float(pnl),
-                "Win/Loss": "Win" if pnl > 0 else ("Loss" if pnl < 0 else "Break-even"),
+                "Win/Loss": "",  # computed in _compute_derived
                 "Dollars Risked": float(risk),
-                "R Ratio": round(float(pnl) / float(risk), 2) if risk else 0.0,
+                "R Ratio": None,  # computed in _compute_derived
                 "Chart URL": chart_url,
                 "Comments": comments,
                 "TP1 % Sold": int(tp1),
                 "TP2 % Sold": int(tp2),
                 "TP3 % Sold": int(tp3),
             }
-            df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
+
+            df = st.session_state.journal_df.copy()
+            df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
             st.session_state.journal_df = _compute_derived(df)
-            st.success("Entry added.")
+
+            # Close the form and refresh immediately so filters/options update
             st.session_state.show_new_entry = False
+            st.rerun()
 
 
 def _render_summary(df: pd.DataFrame):
@@ -424,22 +521,20 @@ def _render_summary(df: pd.DataFrame):
     wins = int((df["PnL"] > 0).sum())
     total = len(df)
     win_rate = (wins / total) * 100 if total else 0.0
-    r_avg = float(pd.to_numeric(df["R Ratio"], errors="coerce").fillna(0).mean())
-    risk_sum = float(pd.to_numeric(df["Dollars Risked"], errors="coerce").fillna(0).sum())
+    r_total = float(pd.to_numeric(df["R Ratio"], errors="coerce").fillna(0).sum())
+    risk_avg = float(pd.to_numeric(df["Dollars Risked"], errors="coerce").fillna(0).mean())
     dur_avg_min = float(pd.to_numeric(df["Duration (min)"], errors="coerce").fillna(0).mean())
-    dur_total_min = float(pd.to_numeric(df["Duration (min)"], errors="coerce").fillna(0).sum())
 
     st.markdown("---")
     # Single-row summary
-    s = st.columns([1, 1, 1, 1, 1, 1, 1, 1], gap="large")
+    s = st.columns([1, 1, 1, 1, 1, 1, 1], gap="large")
     s[0].metric("Total Trades", f"{total:,}")
     s[1].metric("Win Rate", f"{win_rate:.1f}%")
     s[2].metric("Total PnL", f"${pnl_total:,.2f}")
     s[3].metric("Avg PnL", f"${pnl_avg:,.2f}")
-    s[4].metric("Avg R", f"{r_avg:.2f}")
-    s[5].metric("Total Risk", f"${risk_sum:,.2f}")
+    s[4].metric("Total R", f"{r_total:.2f}")
+    s[5].metric("Avg Risk", f"${risk_avg:,.2f}")
     s[6].metric("Avg Duration", _friendly_minutes(dur_avg_min))
-    s[7].metric("Total Duration", _friendly_minutes(dur_total_min))
 
 
 # ----------------------------- main render -----------------------------
@@ -454,12 +549,13 @@ def render(*_args, **_kwargs) -> None:
         "Manual trade log. Add notes, confirmations, and manage entries. (Fake data preloaded)"
     )
 
-    # ---------------- Filters: Journal switcher + Date range ----------------
+    # ---------------- Filters: Journal switcher + Timezone + Date range + facets ----------------
     df_all = st.session_state.journal_df
 
-    left, mid = st.columns([1, 2])
+    # Row 1: Journal | Timezone | Date range
+    c_journal, c_tz, c_range = st.columns([1, 1, 2], gap="small")
 
-    with left:
+    with c_journal:
         journal_choice = st.selectbox(
             "Journal",
             ["All", "NQ", "Crypto"],
@@ -467,8 +563,30 @@ def render(*_args, **_kwargs) -> None:
             help="Choose which journal to view.",
         )
 
-    with mid:
-        # Default to the full data range
+    with c_tz:
+        tz_default = st.session_state.get("journal_tz", "America/New_York")
+        tz_options = [
+            "America/New_York",  # EST/EDT
+            "America/Chicago",
+            "America/Los_Angeles",
+            "UTC",
+            "Europe/London",
+            "Europe/Berlin",
+            "Asia/Tokyo",
+            "Asia/Hong_Kong",
+        ]
+        tz_choice = st.selectbox(
+            "Timezone",
+            tz_options,
+            index=tz_options.index(tz_default),
+            help="Used to compute Session buckets and time-based filters.",
+        )
+        if tz_choice != tz_default:
+            st.session_state["journal_tz"] = tz_choice
+            st.session_state.journal_df = _compute_derived(st.session_state.journal_df.copy())
+            df_all = st.session_state.journal_df  # refresh local ref after recompute
+
+    with c_range:
         if df_all.empty:
             default_start, default_end = date.today(), date.today()
         else:
@@ -480,13 +598,51 @@ def render(*_args, **_kwargs) -> None:
             value=(default_start, default_end),
             help="Filter trades between start and end date (inclusive).",
         )
-        # Normalize range
-        if isinstance(date_range, tuple) and len(date_range) == 2:
-            start_date, end_date = date_range
+        # Normalize safely
+        start_date, end_date = None, None
+        if isinstance(date_range, tuple):
+            if len(date_range) == 2 and all(date_range):
+                start_date, end_date = date_range
+            elif len(date_range) == 1 and date_range[0]:
+                start_date = date_range[0]  # wait for end_date
         else:
             start_date = end_date = date_range
 
-    # Build filtered view
+    # Row 2: Direction | Day | Tier | Symbol | Session  (compact dropdowns)
+    c_dir, c_day, c_tier, c_sym, c_sess = st.columns([1, 1, 1, 1, 1], gap="small")
+
+    with c_dir:
+        dir_filter = st.multiselect("Direction", options=["Long", "Short"], default=[])
+
+    with c_day:
+        day_filter = st.multiselect(
+            "Day of Week",
+            options=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+            default=[],
+            help="Matches first three letters (Mon…Sun).",
+        )
+
+    with c_tier:
+        tier_filter = st.multiselect(
+            "Tier",
+            options=["S", "A+", "A", "A-", "B+", "B", "B-", "C"],
+            default=[],
+            help="Matches either Setup or Execution tier.",
+        )
+
+    with c_sym:
+        sym_options = sorted(df_all["Symbol"].dropna().unique().tolist())
+        sym_filter = st.multiselect("Symbol", options=sym_options, default=[])
+
+    with c_sess:
+        session_filter = st.multiselect(
+            "Session",
+            options=["Asia", "London", "NY AM", "NY Lunch", "NY PM"],
+            default=[],
+        )
+    # ---------------- End filters header ----------------
+
+    # -------- Build filtered view --------
     df_view = df_all.copy()
 
     # Journal switcher
@@ -495,11 +651,37 @@ def render(*_args, **_kwargs) -> None:
     elif journal_choice == "Crypto":
         df_view = df_view[df_view["Symbol"] != "NQ"]
 
-    # Date filter (inclusive)
-    if not df_view.empty:
+    # Date filter (inclusive) — only when both dates chosen
+    if (start_date is not None) and (end_date is not None) and (not df_view.empty):
         df_view = df_view[(df_view["Date"] >= start_date) & (df_view["Date"] <= end_date)].copy()
+    elif (start_date is not None) and (end_date is None):
+        st.info("Select an end date to apply the date filter.", icon="🗓️")
 
-    # Always keep chronological order and renumber Trade # in the view
+    # Direction
+    if dir_filter and not df_view.empty:
+        df_view = df_view[df_view["Direction"].isin(dir_filter)]
+
+    # Day of Week (by 3-letter prefix)
+    if day_filter and not df_view.empty:
+        df_view = df_view[df_view["Day of Week"].str[:3].isin(day_filter)]
+
+    # Tier (either setup or execution)
+    if tier_filter and not df_view.empty:
+        df_view = df_view[
+            df_view["Setup Tier"].isin(tier_filter) | df_view["Execution Tier"].isin(tier_filter)
+        ]
+
+    # Symbols
+    if sym_filter and not df_view.empty:
+        df_view = df_view[df_view["Symbol"].isin(sym_filter)]
+
+    # Session
+    if session_filter and not df_view.empty:
+        if "Session" not in df_view.columns:
+            df_view = _ensure_session_column(df_view)
+        df_view = df_view[df_view["Session"].isin(session_filter)]
+
+    # Keep chronological order and renumber Trade # for the view
     if not df_view.empty:
         df_view = df_view.sort_values(
             ["Date", "Entry Time"], ascending=[True, True], kind="mergesort"
@@ -515,11 +697,10 @@ def render(*_args, **_kwargs) -> None:
     view_col, _ = st.columns([1, 4])
     show_styled = view_col.toggle(
         "Styled view",
-        value=True,
+        value=False,
         help="Toggle read-only styled view (with colors) vs. editable table",
     )
-
-    edited = None  # <-- ensure defined for both branches
+    edited = None  # important: defined regardless of branch
 
     if show_styled:
         # Read-only, value-colored view (filtered)
@@ -529,9 +710,12 @@ def render(*_args, **_kwargs) -> None:
             height=520,
             hide_index=True,
         )
-
     else:
-        # Editable table (same config you had)
+        # Add a transient delete checkbox column in the filtered view only
+        if "__delete__" not in df_view.columns:
+            df_view = df_view.copy()
+            df_view["__delete__"] = False
+        # Editable table (filtered)
         edited = st.data_editor(
             df_view,
             num_rows="dynamic",
@@ -539,19 +723,22 @@ def render(*_args, **_kwargs) -> None:
             height=520,
             hide_index=True,
             column_config={
+                "__delete__": st.column_config.CheckboxColumn(
+                    "Delete", help="Check to mark this row for deletion", width="small"
+                ),
                 "Trade #": st.column_config.NumberColumn("Trade #", width="small", disabled=True),
-                "Symbol": st.column_config.SelectboxColumn(
-                    "Symbol", options=SYMBOLS, width="small"
+                "Symbol": st.column_config.TextColumn(
+                    "Symbol", width="small", help="Type any symbol, e.g., BTCUSDT, NQ, ETHUSDT"
                 ),
                 "Date": st.column_config.DateColumn("Date", format="MMM D, YYYY", width="medium"),
                 "Day of Week": st.column_config.TextColumn(
                     "Day of Week", width="small", disabled=True
                 ),
                 "Direction": st.column_config.SelectboxColumn(
-                    "Direction", options=DIRECTIONS, width="small"
+                    "Direction", options=["Long", "Short"], width="small"
                 ),
-                "Timeframe": st.column_config.SelectboxColumn(
-                    "Timeframe", options=TIMEFRAMES, width="small"
+                "Timeframe": st.column_config.TextColumn(
+                    "Timeframe", width="small", help="Type any timeframe, e.g., 3m / 1h / 4h"
                 ),
                 "Type": st.column_config.SelectboxColumn("Type", options=TYPES, width="small"),
                 "Setup Tier": st.column_config.SelectboxColumn(
@@ -594,42 +781,60 @@ def render(*_args, **_kwargs) -> None:
                 ),
             },
         )
-        # only update session state if edited exists
+
+        # Only compare/apply when we have an edited frame
         if edited is not None and not edited.equals(df_view):
-            # Merge changes from the filtered view back into the full dataset by Trade #
-            main = st.session_state.journal_df.copy()
-            if "Trade #" in edited.columns and "Trade #" in main.columns:
-                editable_cols = [c for c in edited.columns if c in main.columns]
-                main_idx = main.set_index("Trade #")
-                ed_idx = edited.set_index("Trade #")
-                # update values in main from the edited subset
-                main_idx.update(ed_idx[editable_cols])
-                updated = main_idx.reset_index()
-                st.session_state.journal_df = _compute_derived(updated)
-            else:
-                # Fallback safety
-                st.session_state.journal_df = _compute_derived(edited)
+            # rows marked for deletion by Trade #
+            rows_to_delete = []
+            if "__delete__" in edited.columns:
+                rows_to_delete = (
+                    edited.loc[edited["__delete__"], "Trade #"].dropna().astype(int).tolist()
+                )
+
+            # If user marked rows to delete, show a confirmation bar
+            if rows_to_delete:
+                st.warning(
+                    f"Delete {len(rows_to_delete)} selected trade(s)? This cannot be undone.",
+                    icon="⚠️",
+                )
+                c_yes, c_no = st.columns([1, 1])
+                confirm = c_yes.button("Yes, delete", type="primary")
+                cancel = c_no.button("Cancel")
+
+                if confirm:
+                    main = st.session_state.journal_df.copy()
+                    if "Trade #" in main.columns:
+                        main = main[~main["Trade #"].isin(rows_to_delete)].reset_index(drop=True)
+                    st.session_state.journal_df = _compute_derived(main)
+                    st.rerun()
+                elif cancel:
+                    # Clear the delete checkboxes visually
+                    edited.loc[:, "__delete__"] = False
+
+            # If not a deletion flow, apply normal edits (merge by Trade #)
+            if not rows_to_delete and not edited.equals(df_view):
+                main = st.session_state.journal_df.copy()
+                if "Trade #" in edited.columns and "Trade #" in main.columns:
+                    editable_cols = [
+                        c
+                        for c in edited.columns
+                        if c in main.columns and c not in ("Trade #", "__delete__")
+                    ]
+                    main_idx = main.set_index("Trade #")
+                    ed_idx = edited.set_index("Trade #")
+                    main_idx.update(ed_idx[editable_cols])
+                    updated = main_idx.reset_index()
+                    st.session_state.journal_df = _compute_derived(updated)
+                else:
+                    # Fallback safety
+                    trimmed = edited.drop(columns=["__delete__"], errors="ignore")
+                    st.session_state.journal_df = _compute_derived(trimmed)
 
     # --- Add New Entry button (shown for both views) ---
     st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
     btn_col, _ = st.columns([1, 5])
     if btn_col.button("+ New Entry", use_container_width=True):
         st.session_state.show_new_entry = True
-
-    # If toggled, show the entry form (uses your existing form function)
-    if st.session_state.get("show_new_entry"):
-        with st.container(border=True):
-            _render_new_entry_form()
-
-        # Recompute derived fields and save back if user edited
-        if not edited.equals(st.session_state.journal_df):
-            st.session_state.journal_df = _compute_derived(edited)
-
-        # "+ New Entry" button
-        st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
-        add_col, _ = st.columns([1, 5])
-        if add_col.button("+ New Entry", use_container_width=True):
-            st.session_state.show_new_entry = True
 
     # New entry form (modal-like section)
     if st.session_state.show_new_entry:
@@ -638,6 +843,3 @@ def render(*_args, **_kwargs) -> None:
 
     # Summary metrics (single row)
     _render_summary(df_view)
-
-    # close the scoped wrapper
-    st.markdown("</div>", unsafe_allow_html=True)
