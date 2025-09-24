@@ -416,3 +416,85 @@ def inject_isolated_ui_css() -> None:
     """,
         unsafe_allow_html=True,
     )
+
+
+def inject_journal_css() -> None:
+    """
+    Visual polish for the Journal page table + summary.
+    Works whether Streamlit renders as stDataFrame or stDataEditor.
+    (Value-based coloring like PnL sign / Long-Short will be added via Styler in journal.py.)
+    """
+    st.markdown(
+        """
+        <style>
+        /* === Table container (rounded corners + subtle border) === */
+        [data-testid="stDataFrame"],
+        [data-testid="stDataEditor"] {
+            border-radius: 14px !important;
+            overflow: hidden !important;
+            border: 1px solid rgba(255,255,255,0.08) !important;
+        }
+
+        /* === Header row contrast === */
+        [data-testid="stDataFrame"] thead tr,
+        [data-testid="stDataEditor"] thead tr {
+            background: rgba(255,255,255,0.03) !important;
+        }
+        [data-testid="stDataFrame"] [role="columnheader"],
+        [data-testid="stDataEditor"] [role="columnheader"] {
+            font-weight: 700 !important;
+            border-bottom: 1px solid rgba(255,255,255,0.10) !important;
+        }
+
+        /* === Row striping + hover (very subtle) === */
+        [data-testid="stDataFrame"] [role="rowgroup"] [role="row"]:nth-child(odd),
+        [data-testid="stDataEditor"] [role="rowgroup"] [role="row"]:nth-child(odd) {
+            background: rgba(255,255,255,0.015) !important;
+        }
+        [data-testid="stDataFrame"] [role="rowgroup"] [role="row"]:hover,
+        [data-testid="stDataEditor"] [role="rowgroup"] [role="row"]:hover {
+            background: rgba(255,255,255,0.045) !important;
+            transition: background 120ms ease;
+        }
+
+        /* === Cell comfort === */
+        [data-testid="stDataFrame"] [role="gridcell"],
+        [data-testid="stDataEditor"] [role="gridcell"] {
+            padding-top: 6px !important;
+            padding-bottom: 6px !important;
+            font-weight: 500 !important;
+        }
+
+        /* === BaseWeb Tag (used by ListColumn) — keep neutral for now === */
+        [data-testid="stDataFrame"] [data-baseweb="tag"],
+        [data-testid="stDataEditor"] [data-baseweb="tag"] {
+            border-radius: 10px !important;
+            background: rgba(148,163,184,0.18) !important; /* slate tint */
+            color: #e5e7eb !important;
+            border: 1px solid rgba(148,163,184,0.28) !important;
+        }
+
+        /* === Summary metrics row: card-like appearance === */
+        .stMetric {
+            background: rgba(255,255,255,0.04) !important;
+            border: 1px solid rgba(255,255,255,0.06) !important;
+            border-radius: 12px !important;
+            padding: 12px 14px !important;
+        }
+        .stMetric > div { gap: 2px !important; }
+
+        /* === Divider helper (use via st.markdown('<div class="journal-divider"></div>')) === */
+        .journal-divider {
+            height: 1px;
+            background: linear-gradient(
+                to right,
+                rgba(255,255,255,0),
+                rgba(255,255,255,0.10),
+                rgba(255,255,255,0)
+            );
+            margin: 10px 0 16px 0;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )

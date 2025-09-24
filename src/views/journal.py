@@ -8,6 +8,8 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
+from src.styles import inject_journal_css
+
 # ----------------------------- config -----------------------------
 SYMBOLS = ["NQ", "BTCUSDT", "ETHUSDT", "ASTERUSDT", "AVAXUSDT", "PUMPUSDT", "SOLUSDT"]
 DIRECTIONS = ["Long", "Short"]
@@ -26,6 +28,78 @@ DEFAULT_CONFIRMATIONS = [
     "Breaker",
     "Confluence",
 ]
+
+
+# --- Styler helpers for value-based coloring (read-only view) ---
+def _style_pnl(val):
+    try:
+        v = float(val)
+    except Exception:
+        return ""
+    if v > 0:
+        return "color:#22c55e;font-weight:700;"  # green
+    if v < 0:
+        return "color:#ef4444;font-weight:700;"  # red
+    return "color:#e5e7eb;font-weight:600;"
+
+
+def _style_direction(val: str):
+    if str(val).lower() == "long":
+        return "color:#22c55e;font-weight:600;"
+    if str(val).lower() == "short":
+        return "color:#ef4444;font-weight:600;"
+    return ""
+
+
+def _style_tier(val: str):
+    s = str(val).upper().strip()
+    if s == "S":
+        return "background:rgba(253,224,71,0.18);border-radius:12px;padding:2px 6px;"
+    if s.startswith("A"):
+        return "background:rgba(34,197,94,0.18);border-radius:12px;padding:2px 6px;"
+    if s.startswith("B"):
+        return "background:rgba(245,158,11,0.18);border-radius:12px;padding:2px 6px;"
+    if s.startswith("C"):
+        return "background:rgba(148,163,184,0.18);border-radius:12px;padding:2px 6px;"
+    return ""
+
+
+def _style_day(val: str):
+    day = str(val)[:3].lower()
+    palette = {
+        "mon": "#60a5fa",  # blue
+        "tue": "#14b8a6",  # teal
+        "wed": "#a78bfa",  # purple
+        "thu": "#f59e0b",  # amber
+        "fri": "#38bdf8",  # sky
+        "sat": "#94a3b8",  # slate
+        "sun": "#94a3b8",
+    }
+    color = palette.get(day, "#e5e7eb")
+    return f"color:{color};font-weight:600;"
+
+
+def _styled_view(df: pd.DataFrame) -> "pd.io.formats.style.Styler":
+    # keep display order as-is (you already sort & renumber in _compute_derived)
+    styler = df.style
+
+    # Column-wise applymap for value-based colors
+    col_funcs = {
+        "PnL": _style_pnl,
+        "Direction": _style_direction,
+        "Setup Tier": _style_tier,
+        "Execution Tier": _style_tier,
+        "Day of Week": _style_day,
+    }
+    for col, fn in col_funcs.items():
+        if col in df.columns:
+            styler = styler.applymap(fn, subset=pd.IndexSlice[:, [col]])
+
+    # Optional: tighten fonts a touch for readability
+    styler = styler.set_properties(**{"font-size": "0.95rem"})
+
+    # Let Streamlit handle widths; you already use use_container_width=True
+    return styler
 
 
 # ----------------------------- helpers -----------------------------
@@ -91,6 +165,9 @@ def _compute_derived(df: pd.DataFrame) -> pd.DataFrame:
     df = df.sort_values(
         ["Date", "Entry Time"], ascending=[True, True], kind="mergesort"
     ).reset_index(drop=True)
+
+    df["Trade #"] = df.index + 1
+
     return df
 
 
@@ -367,19 +444,12 @@ def _render_summary(df: pd.DataFrame):
 
 # ----------------------------- main render -----------------------------
 def render(*_args, **_kwargs) -> None:
-    """
-    Journal page:
-    - Notion-like table with rounded edges listing trades (earliest -> latest)
-    - 50 placeholder entries on first load (overall profitable)
-    - "+ New Entry" button opens a form to append a row
-    - Summary metrics shown in a single row under the table
-
-    Accepts and ignores args so it's compatible with app.py calls like
-    render_journal(df_view).
-    """
     _init_session_state()
 
+    inject_journal_css()
+
     st.subheader("Journal")
+
     st.caption(
         "Manual trade log. Add notes, confirmations, and manage entries. (Fake data preloaded)"
     )
@@ -388,7 +458,26 @@ def render(*_args, **_kwargs) -> None:
     with st.container(border=True):
         st.markdown("#### Trades")
 
-        # Editable table (earliest -> latest already enforced by _compute_derived)
+    # ---- Journal table (styled read-only view vs editable) ----
+    view_col, _ = st.columns([1, 4])
+    show_styled = view_col.toggle(
+        "Styled view",
+        value=True,
+        help="Toggle read-only styled view (with colors) vs. editable table",
+    )
+
+    edited = None  # <-- ensure defined for both branches
+
+    if show_styled:
+        # Read-only, value-colored view
+        st.dataframe(
+            _styled_view(st.session_state.journal_df),
+            use_container_width=True,
+            height=520,
+            hide_index=True,
+        )
+    else:
+        # Editable table (same config you had)
         edited = st.data_editor(
             st.session_state.journal_df,
             num_rows="dynamic",
@@ -451,6 +540,20 @@ def render(*_args, **_kwargs) -> None:
                 ),
             },
         )
+        # only update session state if edited exists
+        if not edited.equals(st.session_state.journal_df):
+            st.session_state.journal_df = _compute_derived(edited)
+
+    # --- Add New Entry button (shown for both views) ---
+    st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+    btn_col, _ = st.columns([1, 5])
+    if btn_col.button("+ New Entry", use_container_width=True):
+        st.session_state.show_new_entry = True
+
+    # If toggled, show the entry form (uses your existing form function)
+    if st.session_state.get("show_new_entry"):
+        with st.container(border=True):
+            _render_new_entry_form()
 
         # Recompute derived fields and save back if user edited
         if not edited.equals(st.session_state.journal_df):
@@ -469,3 +572,6 @@ def render(*_args, **_kwargs) -> None:
 
     # Summary metrics (single row)
     _render_summary(st.session_state.journal_df)
+
+    # close the scoped wrapper
+    st.markdown("</div>", unsafe_allow_html=True)
