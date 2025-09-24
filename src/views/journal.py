@@ -454,6 +454,59 @@ def render(*_args, **_kwargs) -> None:
         "Manual trade log. Add notes, confirmations, and manage entries. (Fake data preloaded)"
     )
 
+    # ---------------- Filters: Journal switcher + Date range ----------------
+    df_all = st.session_state.journal_df
+
+    left, mid = st.columns([1, 2])
+
+    with left:
+        journal_choice = st.selectbox(
+            "Journal",
+            ["All", "NQ", "Crypto"],
+            index=0,
+            help="Choose which journal to view.",
+        )
+
+    with mid:
+        # Default to the full data range
+        if df_all.empty:
+            default_start, default_end = date.today(), date.today()
+        else:
+            default_start = df_all["Date"].min()
+            default_end = df_all["Date"].max()
+
+        date_range = st.date_input(
+            "Date range",
+            value=(default_start, default_end),
+            help="Filter trades between start and end date (inclusive).",
+        )
+        # Normalize range
+        if isinstance(date_range, tuple) and len(date_range) == 2:
+            start_date, end_date = date_range
+        else:
+            start_date = end_date = date_range
+
+    # Build filtered view
+    df_view = df_all.copy()
+
+    # Journal switcher
+    if journal_choice == "NQ":
+        df_view = df_view[df_view["Symbol"] == "NQ"]
+    elif journal_choice == "Crypto":
+        df_view = df_view[df_view["Symbol"] != "NQ"]
+
+    # Date filter (inclusive)
+    if not df_view.empty:
+        df_view = df_view[(df_view["Date"] >= start_date) & (df_view["Date"] <= end_date)].copy()
+
+    # Always keep chronological order and renumber Trade # in the view
+    if not df_view.empty:
+        df_view = df_view.sort_values(
+            ["Date", "Entry Time"], ascending=[True, True], kind="mergesort"
+        ).reset_index(drop=True)
+        df_view["Trade #"] = df_view.index + 1
+    # ---------------- End filters ----------------
+
     # Table card container
     with st.container(border=True):
         st.markdown("#### Trades")
@@ -469,17 +522,18 @@ def render(*_args, **_kwargs) -> None:
     edited = None  # <-- ensure defined for both branches
 
     if show_styled:
-        # Read-only, value-colored view
+        # Read-only, value-colored view (filtered)
         st.dataframe(
-            _styled_view(st.session_state.journal_df),
+            _styled_view(df_view),
             use_container_width=True,
             height=520,
             hide_index=True,
         )
+
     else:
         # Editable table (same config you had)
         edited = st.data_editor(
-            st.session_state.journal_df,
+            df_view,
             num_rows="dynamic",
             use_container_width=True,
             height=520,
@@ -541,8 +595,20 @@ def render(*_args, **_kwargs) -> None:
             },
         )
         # only update session state if edited exists
-        if not edited.equals(st.session_state.journal_df):
-            st.session_state.journal_df = _compute_derived(edited)
+        if edited is not None and not edited.equals(df_view):
+            # Merge changes from the filtered view back into the full dataset by Trade #
+            main = st.session_state.journal_df.copy()
+            if "Trade #" in edited.columns and "Trade #" in main.columns:
+                editable_cols = [c for c in edited.columns if c in main.columns]
+                main_idx = main.set_index("Trade #")
+                ed_idx = edited.set_index("Trade #")
+                # update values in main from the edited subset
+                main_idx.update(ed_idx[editable_cols])
+                updated = main_idx.reset_index()
+                st.session_state.journal_df = _compute_derived(updated)
+            else:
+                # Fallback safety
+                st.session_state.journal_df = _compute_derived(edited)
 
     # --- Add New Entry button (shown for both views) ---
     st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
@@ -571,7 +637,7 @@ def render(*_args, **_kwargs) -> None:
             _render_new_entry_form()
 
     # Summary metrics (single row)
-    _render_summary(st.session_state.journal_df)
+    _render_summary(df_view)
 
     # close the scoped wrapper
     st.markdown("</div>", unsafe_allow_html=True)
