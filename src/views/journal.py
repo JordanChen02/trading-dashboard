@@ -122,10 +122,10 @@ def _ensure_session_column(df: pd.DataFrame) -> pd.DataFrame:
     if "Session" in df.columns:
         return df
 
-    tz_name = st.session_state.get("journal_tz", "America/New_York")
-    ts = pd.to_datetime(df["Entry Time"], errors="coerce")
+    tz_label = st.session_state.get("journal_tz", "(UTC -4) America/New York")
+    tz_name = _resolve_tz(tz_label)
 
-    # Localize or convert to the user's chosen timezone
+    ts = pd.to_datetime(df["Entry Time"], errors="coerce", utc=False)
     try:
         if ts.dt.tz is None:
             ts = ts.dt.tz_localize(tz_name)
@@ -156,6 +156,37 @@ def _ensure_session_column(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     out["Session"] = session
     return out
+
+
+def _resolve_tz(label: str | None) -> str:
+    """
+    Convert UI labels like '(UTC -4) America/New York' into valid tz names
+    like 'America/New_York'. Falls back to 'UTC' if unknown.
+    """
+    if not label:
+        return "UTC"
+    s = str(label).strip()
+
+    # If it has a leading '(UTC ...)' prefix, strip it
+    if ") " in s and s.startswith("("):
+        s = s.split(") ", 1)[1].strip()
+
+    # Known special cases
+    special = {
+        "America/New York": "America/New_York",
+        "America/Los Angeles": "America/Los_Angeles",
+        "Asia/Hong Kong": "Asia/Hong_Kong",
+    }
+    if s in special:
+        return special[s]
+
+    # For Region/City names with spaces in City, replace spaces with underscores
+    if "/" in s:
+        reg, city = s.split("/", 1)
+        return f"{reg}/{city.replace(' ', '_')}"
+
+    # Allow 'UTC' or already-correct tz names to pass through
+    return s
 
 
 def _parse_time_string(t: str) -> datetime.time:
@@ -204,18 +235,16 @@ def _compute_derived(df: pd.DataFrame) -> pd.DataFrame:
 
     # ---- Derived: Session from Entry Time in selected timezone ----
     # Pull chosen tz (default to America/New_York)
-    tz_name = st.session_state.get("journal_tz", "America/New_York")
+    tz_label = st.session_state.get("journal_tz", "(UTC -4) America/New York")
+    tz_name = _resolve_tz(tz_label)
 
-    # Convert Entry Time to tz-aware timestamps in the chosen timezone
-    ts = pd.to_datetime(df["Entry Time"], errors="coerce", utc=False)
-    # Localize naive times to the chosen tz; if already tz-aware, convert
+    ts = pd.to_datetime(df["Entry Time"], errors="coerce")
     try:
         if ts.dt.tz is None:
             ts = ts.dt.tz_localize(tz_name)
         else:
             ts = ts.dt.tz_convert(tz_name)
     except Exception:
-        # Fallback: treat as naive in chosen tz if localization failed
         ts = pd.to_datetime(df["Entry Time"], errors="coerce").dt.tz_localize(tz_name)
 
     mins = ts.dt.hour * 60 + ts.dt.minute
@@ -564,16 +593,16 @@ def render(*_args, **_kwargs) -> None:
         )
 
     with c_tz:
-        tz_default = st.session_state.get("journal_tz", "America/New_York")
+        tz_default = st.session_state.get("journal_tz", "(UTC -4) America/New York")
         tz_options = [
-            "America/New_York",  # EST/EDT
-            "America/Chicago",
-            "America/Los_Angeles",
             "UTC",
-            "Europe/London",
-            "Europe/Berlin",
-            "Asia/Tokyo",
-            "Asia/Hong_Kong",
+            "(UTC -4) America/New York",
+            "(UTC -5) America/Chicago",
+            "(UTC -7) America/Los Angeles",
+            "(UTC +1) Europe/London",
+            "(UTC +2) Europe/Berlin",
+            "(UTC +9) Asia/Tokyo",
+            "(UTC +8) Asia/Hong Kong",
         ]
         tz_choice = st.selectbox(
             "Timezone",
@@ -588,10 +617,14 @@ def render(*_args, **_kwargs) -> None:
 
     with c_range:
         if df_all.empty:
-            default_start, default_end = date.today(), date.today()
+            default_start = default_end = date.today()
         else:
-            default_start = df_all["Date"].min()
-            default_end = df_all["Date"].max()
+            # Work in Timestamp, then convert to date—avoids comparing dates to NaN
+            _dates_ts = pd.to_datetime(df_all["Date"], errors="coerce")
+            _min_ts = _dates_ts.min()
+            _max_ts = _dates_ts.max()
+            default_start = _min_ts.date() if pd.notna(_min_ts) else date.today()
+            default_end = _max_ts.date() if pd.notna(_max_ts) else date.today()
 
         date_range = st.date_input(
             "Date range",
@@ -653,7 +686,12 @@ def render(*_args, **_kwargs) -> None:
 
     # Date filter (inclusive) — only when both dates chosen
     if (start_date is not None) and (end_date is not None) and (not df_view.empty):
-        df_view = df_view[(df_view["Date"] >= start_date) & (df_view["Date"] <= end_date)].copy()
+        _dates_ts = pd.to_datetime(df_view["Date"], errors="coerce")
+        start_ts = pd.Timestamp(start_date)
+        end_ts = pd.Timestamp(end_date)
+        mask = (_dates_ts >= start_ts) & (_dates_ts <= end_ts)
+        df_view = df_view.loc[mask].copy()
+
     elif (start_date is not None) and (end_date is None):
         st.info("Select an end date to apply the date filter.", icon="🗓️")
 
@@ -682,11 +720,17 @@ def render(*_args, **_kwargs) -> None:
         df_view = df_view[df_view["Session"].isin(session_filter)]
 
     # Keep chronological order and renumber Trade # for the view
+    # Also keep a mapping back to the underlying df_all index for selection/deletion
     if not df_view.empty:
         df_view = df_view.sort_values(
             ["Date", "Entry Time"], ascending=[True, True], kind="mergesort"
-        ).reset_index(drop=True)
+        )
+        st.session_state["_view_orig_index"] = df_view.index.to_list()
+        df_view = df_view.reset_index(drop=True)
         df_view["Trade #"] = df_view.index + 1
+    else:
+        st.session_state["_view_orig_index"] = []
+
     # ---------------- End filters ----------------
 
     # Table card container
@@ -711,20 +755,24 @@ def render(*_args, **_kwargs) -> None:
             hide_index=True,
         )
     else:
-        # Add a transient delete checkbox column in the filtered view only
-        if "__delete__" not in df_view.columns:
+        # Ensure our own selection column exists in the view (first column)
+        if "__sel__" not in df_view.columns:
             df_view = df_view.copy()
-            df_view["__delete__"] = False
+            df_view.insert(0, "__sel__", False)  # insert as first col
+
         # Editable table (filtered)
         edited = st.data_editor(
             df_view,
+            key="journal_editor",
             num_rows="dynamic",
             use_container_width=True,
             height=520,
             hide_index=True,
             column_config={
-                "__delete__": st.column_config.CheckboxColumn(
-                    "Delete", help="Check to mark this row for deletion", width="small"
+                "__sel__": st.column_config.CheckboxColumn(
+                    "",  # blank header, looks like a native selector
+                    help="Select row",
+                    width="small",
                 ),
                 "Trade #": st.column_config.NumberColumn("Trade #", width="small", disabled=True),
                 "Symbol": st.column_config.TextColumn(
@@ -782,59 +830,129 @@ def render(*_args, **_kwargs) -> None:
             },
         )
 
-        # Only compare/apply when we have an edited frame
-        if edited is not None and not edited.equals(df_view):
-            # rows marked for deletion by Trade #
-            rows_to_delete = []
-            if "__delete__" in edited.columns:
-                rows_to_delete = (
-                    edited.loc[edited["__delete__"], "Trade #"].dropna().astype(int).tolist()
-                )
+    # --- Handle selection, toolbar, deletion, and merge-back ---
+    # Rows marked via our selection column
+    sel_mask = edited["__sel__"].fillna(False).astype(bool) if "__sel__" in edited.columns else None
+    sel_rows = edited.index[sel_mask].tolist() if sel_mask is not None else []
 
-            # If user marked rows to delete, show a confirmation bar
-            if rows_to_delete:
-                st.warning(
-                    f"Delete {len(rows_to_delete)} selected trade(s)? This cannot be undone.",
-                    icon="⚠️",
-                )
-                c_yes, c_no = st.columns([1, 1])
-                confirm = c_yes.button("Yes, delete", type="primary")
-                cancel = c_no.button("Cancel")
+    # Map selected *view* rows to underlying df indices we saved earlier
+    orig_index_map = st.session_state.get("_view_orig_index", []) or []
+    rows_to_delete_idx = [orig_index_map[i] for i in sel_rows if 0 <= i < len(orig_index_map)]
 
-                if confirm:
-                    main = st.session_state.journal_df.copy()
-                    if "Trade #" in main.columns:
-                        main = main[~main["Trade #"].isin(rows_to_delete)].reset_index(drop=True)
-                    st.session_state.journal_df = _compute_derived(main)
-                    st.rerun()
-                elif cancel:
-                    # Clear the delete checkboxes visually
-                    edited.loc[:, "__delete__"] = False
+    ed_state = st.session_state.get("journal_editor") or {}
+    sel_dict = ed_state.get("selection") or ed_state.get("selected") or {}
 
-            # If not a deletion flow, apply normal edits (merge by Trade #)
-            if not rows_to_delete and not edited.equals(df_view):
-                main = st.session_state.journal_df.copy()
-                if "Trade #" in edited.columns and "Trade #" in main.columns:
-                    editable_cols = [
-                        c
-                        for c in edited.columns
-                        if c in main.columns and c not in ("Trade #", "__delete__")
-                    ]
-                    main_idx = main.set_index("Trade #")
-                    ed_idx = edited.set_index("Trade #")
-                    main_idx.update(ed_idx[editable_cols])
-                    updated = main_idx.reset_index()
-                    st.session_state.journal_df = _compute_derived(updated)
-                else:
-                    # Fallback safety
-                    trimmed = edited.drop(columns=["__delete__"], errors="ignore")
-                    st.session_state.journal_df = _compute_derived(trimmed)
+    raw_rows = []
+    if isinstance(sel_dict, dict):
+        raw_rows = sel_dict.get("rows", []) or []
 
-    # --- Add New Entry button (shown for both views) ---
-    st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
-    btn_col, _ = st.columns([1, 5])
-    if btn_col.button("+ New Entry", use_container_width=True):
+    # Accept ints, numpy ints, or dicts like {"row": 3}
+    from numbers import Integral
+
+    for item in list(raw_rows) if not isinstance(raw_rows, (set, tuple)) else list(raw_rows):
+        if isinstance(item, Integral):
+            sel_rows.append(int(item))
+        elif isinstance(item, dict) and "row" in item:
+            try:
+                sel_rows.append(int(item["row"]))
+            except Exception:
+                pass
+
+    # Map selected view-row indices -> underlying df indices saved earlier
+    orig_index_map = st.session_state.get("_view_orig_index", []) or []
+    rows_to_delete_idx = [orig_index_map[i] for i in sel_rows if 0 <= i < len(orig_index_map)]
+
+    # 3B) Toolbar: + New Entry and Delete selected
+    t1, t2, _ = st.columns([1, 1, 4])
+    if t1.button("+ New Entry", use_container_width=True, key="btn_new_entry_below"):
         st.session_state.show_new_entry = True
+        st.rerun()
+
+    delete_disabled = len(rows_to_delete_idx) == 0
+    if t2.button(
+        "Delete selected",
+        use_container_width=True,
+        disabled=delete_disabled,
+        key="btn_delete_selected",
+    ):
+        st.session_state["_pending_delete_idx"] = rows_to_delete_idx
+        st.session_state["_show_delete_modal"] = True
+        st.rerun()
+
+    # 3C) Confirm deletion (pseudo-modal that works on all Streamlit versions)
+    confirm_box = st.empty()
+    if st.session_state.get("_show_delete_modal"):
+        with confirm_box.container():
+            st.markdown("### Confirm deletion")
+            count = len(st.session_state.get("_pending_delete_idx", []))
+            st.write(f"Are you sure you want to delete **{count}** trade(s)?")
+
+            c_yes, c_no = st.columns(2)
+            yes = c_yes.button(
+                "Yes, delete",
+                type="primary",
+                use_container_width=True,
+                key="confirm_delete_yes",
+            )
+            no = c_no.button(
+                "Cancel",
+                use_container_width=True,
+                key="confirm_delete_no",
+            )
+
+            if yes:
+                idxs = st.session_state.get("_pending_delete_idx", [])
+                if idxs:
+                    main = st.session_state.journal_df.copy()
+                    main = main.drop(index=idxs, errors="ignore").reset_index(drop=True)
+                    st.session_state.journal_df = _compute_derived(main)
+                # clear state + close box
+                st.session_state.pop("_pending_delete_idx", None)
+                st.session_state["_show_delete_modal"] = False
+                confirm_box.empty()
+                st.rerun()
+
+            if no:
+                st.session_state.pop("_pending_delete_idx", None)
+                st.session_state["_show_delete_modal"] = False
+                confirm_box.empty()
+                st.rerun()
+
+    # 3D) Merge normal edits back (robust for new rows)
+    if not st.session_state.get("_show_delete_modal", False):
+        # Split edited into existing vs newly added by presence of Trade #
+        existing_mask = edited["Trade #"].notna()
+        new_mask = edited["Trade #"].isna()
+
+        # Existing rows: de-duplicate by Trade # and update only overlapping IDs
+        ed_existing = edited.loc[existing_mask].copy()
+        main = st.session_state.journal_df.copy()
+        if not ed_existing.empty:
+            ed_existing = ed_existing.drop_duplicates(subset=["Trade #"], keep="last")
+            editable_cols = [
+                c for c in ed_existing.columns if c in main.columns and c not in ("Trade #",)
+            ]
+            main_idx = main.set_index("Trade #", drop=False)
+            ed_idx = ed_existing.set_index("Trade #", drop=False)
+            ed_slice = ed_idx[editable_cols]
+            common_ids = ed_slice.index.intersection(main_idx.index)
+            if not common_ids.empty:
+                main_idx.loc[common_ids, editable_cols] = ed_slice.loc[common_ids, editable_cols]
+            main_updated = main_idx.reset_index(drop=True)
+        else:
+            main_updated = main
+
+        # New rows (from the "+" in the table): append safely
+        ed_new = edited.loc[new_mask].copy()
+        if not ed_new.empty:
+            # Keep only columns that the main df has
+            ed_new = ed_new[[c for c in ed_new.columns if c in main_updated.columns]]
+            combined = pd.concat([main_updated, ed_new], ignore_index=True)
+        else:
+            combined = main_updated
+
+        if not combined.equals(st.session_state.journal_df):
+            st.session_state.journal_df = _compute_derived(combined)
 
     # New entry form (modal-like section)
     if st.session_state.show_new_entry:
