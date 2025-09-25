@@ -737,30 +737,34 @@ def render(*_args, **_kwargs) -> None:
     with st.container(border=True):
         st.markdown("#### Trades")
 
-    # ---- Journal table (styled read-only view vs editable) ----
+    # --- Journal table (styled read-only view vs editable) ---
     view_col, _ = st.columns([1, 4])
     show_styled = view_col.toggle(
         "Styled view",
         value=False,
         help="Toggle read-only styled view (with colors) vs. editable table",
     )
-    edited = None  # important: defined regardless of branch
+
+    edited = None  # important: ensure defined
 
     if show_styled:
-        # Read-only, value-colored view (filtered)
-        st.dataframe(
-            _styled_view(df_view),
-            use_container_width=True,
-            height=520,
-            hide_index=True,
-        )
+        # READ-ONLY, styled table
+        st.dataframe(_styled_view(df_view), use_container_width=True, height=520, hide_index=True)
+
+        # Only show "+ New Entry" under the table in styled mode
+        st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+        t1, _ = st.columns([1, 5])
+        if t1.button("+ New Entry", use_container_width=True, key="btn_new_entry_styled"):
+            st.session_state.show_new_entry = True
+            st.rerun()
+
     else:
+        # EDITABLE mode
         # Ensure our own selection column exists in the view (first column)
         if "__sel__" not in df_view.columns:
             df_view = df_view.copy()
-            df_view.insert(0, "__sel__", False)  # insert as first col
+            df_view.insert(0, "__sel__", False)
 
-        # Editable table (filtered)
         edited = st.data_editor(
             df_view,
             key="journal_editor",
@@ -769,24 +773,20 @@ def render(*_args, **_kwargs) -> None:
             height=520,
             hide_index=True,
             column_config={
-                "__sel__": st.column_config.CheckboxColumn(
-                    "",  # blank header, looks like a native selector
-                    help="Select row",
-                    width="small",
-                ),
+                "__sel__": st.column_config.CheckboxColumn("", help="Select row", width="small"),
                 "Trade #": st.column_config.NumberColumn("Trade #", width="small", disabled=True),
                 "Symbol": st.column_config.TextColumn(
-                    "Symbol", width="small", help="Type any symbol, e.g., BTCUSDT, NQ, ETHUSDT"
+                    "Symbol", width="small", help="Type any symbol, e.g., BTCUSDT, NQ"
                 ),
                 "Date": st.column_config.DateColumn("Date", format="MMM D, YYYY", width="medium"),
                 "Day of Week": st.column_config.TextColumn(
                     "Day of Week", width="small", disabled=True
                 ),
                 "Direction": st.column_config.SelectboxColumn(
-                    "Direction", options=["Long", "Short"], width="small"
+                    "Direction", options=DIRECTIONS, width="small"
                 ),
                 "Timeframe": st.column_config.TextColumn(
-                    "Timeframe", width="small", help="Type any timeframe, e.g., 3m / 1h / 4h"
+                    "Timeframe", width="small", help="e.g., 3m / 15m / 1h"
                 ),
                 "Type": st.column_config.SelectboxColumn("Type", options=TYPES, width="small"),
                 "Setup Tier": st.column_config.SelectboxColumn(
@@ -830,107 +830,70 @@ def render(*_args, **_kwargs) -> None:
             },
         )
 
-    # --- Handle selection, toolbar, deletion, and merge-back ---
-    # Rows marked via our selection column
-    sel_mask = edited["__sel__"].fillna(False).astype(bool) if "__sel__" in edited.columns else None
-    sel_rows = edited.index[sel_mask].tolist() if sel_mask is not None else []
+        # --- Selection
+        sel_mask = edited["__sel__"].fillna(False).astype(bool)
+        sel_rows = edited.index[sel_mask].tolist()
+        orig_index_map = st.session_state.get("_view_orig_index", []) or []
+        rows_to_delete_idx = [orig_index_map[i] for i in sel_rows if 0 <= i < len(orig_index_map)]
 
-    # Map selected *view* rows to underlying df indices we saved earlier
-    orig_index_map = st.session_state.get("_view_orig_index", []) or []
-    rows_to_delete_idx = [orig_index_map[i] for i in sel_rows if 0 <= i < len(orig_index_map)]
+        # --- Toolbar under the table
+        t1, t2, _ = st.columns([1, 1, 4])
+        if t1.button("+ New Entry", use_container_width=True, key="btn_new_entry_below"):
+            st.session_state.show_new_entry = True
+            st.rerun()
 
-    ed_state = st.session_state.get("journal_editor") or {}
-    sel_dict = ed_state.get("selection") or ed_state.get("selected") or {}
+        delete_disabled = len(rows_to_delete_idx) == 0
+        if t2.button(
+            "Delete selected",
+            use_container_width=True,
+            disabled=delete_disabled,
+            key="btn_delete_selected",
+        ):
+            st.session_state["_pending_delete_idx"] = rows_to_delete_idx
+            st.session_state["_show_delete_modal"] = True
+            st.rerun()
 
-    raw_rows = []
-    if isinstance(sel_dict, dict):
-        raw_rows = sel_dict.get("rows", []) or []
-
-    # Accept ints, numpy ints, or dicts like {"row": 3}
-    from numbers import Integral
-
-    for item in list(raw_rows) if not isinstance(raw_rows, (set, tuple)) else list(raw_rows):
-        if isinstance(item, Integral):
-            sel_rows.append(int(item))
-        elif isinstance(item, dict) and "row" in item:
-            try:
-                sel_rows.append(int(item["row"]))
-            except Exception:
-                pass
-
-    # Map selected view-row indices -> underlying df indices saved earlier
-    orig_index_map = st.session_state.get("_view_orig_index", []) or []
-    rows_to_delete_idx = [orig_index_map[i] for i in sel_rows if 0 <= i < len(orig_index_map)]
-
-    # 3B) Toolbar: + New Entry and Delete selected
-    t1, t2, _ = st.columns([1, 1, 4])
-    if t1.button("+ New Entry", use_container_width=True, key="btn_new_entry_below"):
-        st.session_state.show_new_entry = True
-        st.rerun()
-
-    delete_disabled = len(rows_to_delete_idx) == 0
-    if t2.button(
-        "Delete selected",
-        use_container_width=True,
-        disabled=delete_disabled,
-        key="btn_delete_selected",
-    ):
-        st.session_state["_pending_delete_idx"] = rows_to_delete_idx
-        st.session_state["_show_delete_modal"] = True
-        st.rerun()
-
-    # 3C) Confirm deletion (pseudo-modal that works on all Streamlit versions)
-    confirm_box = st.empty()
-    if st.session_state.get("_show_delete_modal"):
-        with confirm_box.container():
-            st.markdown("### Confirm deletion")
-            count = len(st.session_state.get("_pending_delete_idx", []))
-            st.write(f"Are you sure you want to delete **{count}** trade(s)?")
-
-            c_yes, c_no = st.columns(2)
-            yes = c_yes.button(
-                "Yes, delete",
-                type="primary",
-                use_container_width=True,
-                key="confirm_delete_yes",
-            )
-            no = c_no.button(
-                "Cancel",
-                use_container_width=True,
-                key="confirm_delete_no",
-            )
-
-            if yes:
-                idxs = st.session_state.get("_pending_delete_idx", [])
-                if idxs:
+        # --- Pseudo-modal confirm
+        confirm_box = st.empty()
+        if st.session_state.get("_show_delete_modal"):
+            with confirm_box.container():
+                st.markdown("### Confirm deletion")
+                count = len(st.session_state.get("_pending_delete_idx", []))
+                st.write(f"Are you sure you want to delete **{count}** trade(s)?")
+                c_yes, c_no = st.columns(2)
+                if c_yes.button(
+                    "Yes, delete",
+                    type="primary",
+                    use_container_width=True,
+                    key="confirm_delete_yes",
+                ):
+                    idxs = st.session_state.get("_pending_delete_idx", [])
                     main = st.session_state.journal_df.copy()
                     main = main.drop(index=idxs, errors="ignore").reset_index(drop=True)
                     st.session_state.journal_df = _compute_derived(main)
-                # clear state + close box
-                st.session_state.pop("_pending_delete_idx", None)
-                st.session_state["_show_delete_modal"] = False
-                confirm_box.empty()
-                st.rerun()
+                    st.session_state.pop("_pending_delete_idx", None)
+                    st.session_state["_show_delete_modal"] = False
+                    confirm_box.empty()
+                    st.rerun()
+                if c_no.button("Cancel", use_container_width=True, key="confirm_delete_no"):
+                    st.session_state.pop("_pending_delete_idx", None)
+                    st.session_state["_show_delete_modal"] = False
+                    confirm_box.empty()
+                    st.rerun()
 
-            if no:
-                st.session_state.pop("_pending_delete_idx", None)
-                st.session_state["_show_delete_modal"] = False
-                confirm_box.empty()
-                st.rerun()
-
-    # 3D) Merge normal edits back (robust for new rows)
-    if not st.session_state.get("_show_delete_modal", False):
-        # Split edited into existing vs newly added by presence of Trade #
+        # --- Merge back (existing rows vs new rows)
         existing_mask = edited["Trade #"].notna()
         new_mask = edited["Trade #"].isna()
 
-        # Existing rows: de-duplicate by Trade # and update only overlapping IDs
+        # Existing rows
         ed_existing = edited.loc[existing_mask].copy()
         main = st.session_state.journal_df.copy()
         if not ed_existing.empty:
             ed_existing = ed_existing.drop_duplicates(subset=["Trade #"], keep="last")
             editable_cols = [
-                c for c in ed_existing.columns if c in main.columns and c not in ("Trade #",)
+                c
+                for c in ed_existing.columns
+                if c in main.columns and c not in ("Trade #", "__sel__")
             ]
             main_idx = main.set_index("Trade #", drop=False)
             ed_idx = ed_existing.set_index("Trade #", drop=False)
@@ -942,10 +905,10 @@ def render(*_args, **_kwargs) -> None:
         else:
             main_updated = main
 
-        # New rows (from the "+" in the table): append safely
+        # New rows
         ed_new = edited.loc[new_mask].copy()
         if not ed_new.empty:
-            # Keep only columns that the main df has
+            ed_new = ed_new.drop(columns=["__sel__"], errors="ignore")
             ed_new = ed_new[[c for c in ed_new.columns if c in main_updated.columns]]
             combined = pd.concat([main_updated, ed_new], ignore_index=True)
         else:
