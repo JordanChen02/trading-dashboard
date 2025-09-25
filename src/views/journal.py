@@ -71,7 +71,7 @@ def _style_day(val: str):
         "tue": "#14b8a6",  # teal
         "wed": "#a78bfa",  # purple
         "thu": "#f59e0b",  # amber
-        "fri": "#38bdf8",  # sky
+        "fri": "#38f888",  # sky
         "sat": "#94a3b8",  # slate
         "sun": "#94a3b8",
     }
@@ -417,6 +417,31 @@ def _init_session_state():
         st.session_state.confirmations_options = list(DEFAULT_CONFIRMATIONS)
     if "new_conf_text" not in st.session_state:
         st.session_state.new_conf_text = ""
+    if "journal_conf_default" not in st.session_state:
+        st.session_state["journal_conf_default"] = []
+    if "new_entry_prelude" not in st.session_state:
+        st.session_state["new_entry_prelude"] = {}
+    if "journal_conf_default" not in st.session_state:
+        st.session_state["journal_conf_default"] = []
+
+    # Color mapping for confirmations
+    if "confirm_color_map" not in st.session_state:
+        st.session_state["confirm_color_map"] = {}  # str -> hex
+    if "confirm_color_palette" not in st.session_state:
+        st.session_state["confirm_color_palette"] = [
+            "#6ee7b7",
+            "#93c5fd",
+            "#fca5a5",
+            "#fcd34d",
+            "#c4b5fd",
+            "#f9a8d4",
+            "#fda4af",
+            "#a7f3d0",
+            "#fde68a",
+            "#bfdbfe",
+        ]
+    if "confirm_color_idx" not in st.session_state:
+        st.session_state["confirm_color_idx"] = 0
 
 
 # ----------------------------- UI -----------------------------
@@ -439,6 +464,41 @@ def _render_new_entry_form():
 
     # Quick-add confirmation tag (type & Enter to add to options)
     st.markdown("**Add a custom confirmation (type and press Enter):**")
+    # --- Prefill from saved checklist snapshot ---
+    pending = st.session_state.get("pending_checklist")
+    load_cols = st.columns([1, 3, 1])
+    with load_cols[1]:
+        if st.button("Load from Checklist", use_container_width=True, disabled=(pending is None)):
+            if pending:
+                confs = list(
+                    dict.fromkeys(pending.get("journal_confirms", []))
+                )  # de-dupe, keep order
+
+                # Ensure options exist
+                for t in confs:
+                    if t not in st.session_state.confirmations_options:
+                        st.session_state.confirmations_options.append(t)
+
+                    # Assign a unique color if new
+                    cmap = st.session_state["confirm_color_map"]
+                    if t not in cmap:
+                        pal = st.session_state["confirm_color_palette"]
+                        i = st.session_state["confirm_color_idx"] % len(pal)
+                        cmap[t] = pal[i]
+                        st.session_state["confirm_color_idx"] += 1
+
+                # Set defaults for the multiselect
+                st.session_state["journal_conf_default"] = confs
+
+                # Optional: default tier off saved grade (leave as-is if you don’t want this)
+                tier_from_grade = pending.get("grade", "")
+                pre_tier = tier_from_grade if tier_from_grade in TIER else None
+                st.session_state.setdefault("new_entry_prelude", {})
+                st.session_state["new_entry_prelude"]["Setup Tier"] = pre_tier
+
+                st.toast("Confirmations loaded from Checklist ✅")
+                st.rerun()
+
     st.text_input(
         "New confirmation",
         value=st.session_state.new_conf_text,
@@ -475,19 +535,36 @@ def _render_new_entry_form():
             entry_txt = st.text_input("Entry Time (HH:MM or HH:MM:SS)", value="09:30")
             exit_txt = st.text_input("Exit Time (HH:MM or HH:MM:SS)", value="10:05")
             typ = st.selectbox("Type", TYPES, index=1)
-            setup_tier = st.selectbox("Setup Tier", TIER, index=2)
+            _pre_tier = st.session_state.get("new_entry_prelude", {}).get("Setup Tier")
+            _tier_idx = TIER.index(_pre_tier) if _pre_tier in TIER else 2
+            setup_tier = st.selectbox("Setup Tier", TIER, index=_tier_idx)
+
         with c3:
             exec_tier = st.selectbox("Execution Tier", EXEC_TIER, index=2)
             pnl = st.number_input("PnL ($)", value=100.0, step=10.0, format="%.2f")
             risk = st.number_input("Dollars Risked ($)", value=50.0, step=5.0, format="%.2f")
             chart_url = st.text_input("Chart URL", value="", placeholder="https://...")
 
-        conf = st.multiselect(
-            "Confirmations (multi-select)",
-            st.session_state.confirmations_options,
-            default=["Momentum"] if "Momentum" in st.session_state.confirmations_options else [],
-            help="Use the box above to add a new option, then select it here.",
-        )
+        _conf_default = st.session_state.get("journal_conf_default")
+        if not _conf_default:
+            _conf_default = st.session_state.get("journal_conf_default") or []
+            conf = st.multiselect(
+                "Confirmations (multi-select)",
+                st.session_state.confirmations_options,
+                default=_conf_default,
+                help="Loaded from Checklist (excludes Bias Confidence).",
+            )
+        # ---- colored chips preview (read-only) ----
+        if conf:
+            cmap = st.session_state.get("confirm_color_map", {})
+            chips = "".join(
+                f"<span style='display:inline-block;padding:4px 8px;margin:4px;"
+                f"border-radius:999px;background:{cmap.get(x,'#334155')};color:#0b1220;"
+                f"font-size:12px;font-weight:600;'>{x}</span>"
+                for x in conf
+            )
+            st.markdown(f"<div>{chips}</div>", unsafe_allow_html=True)
+
         comments = st.text_area("Comments", value="")
 
         p1, p2, p3 = st.columns(3)
@@ -508,6 +585,9 @@ def _render_new_entry_form():
             exit_time = _parse_time_string(exit_txt)
             entry_dt = datetime.combine(date_val, entry_time)
             exit_dt = datetime.combine(date_val, exit_time)
+            # clear one-shot prefill so the next entry starts clean
+            st.session_state["journal_conf_default"] = []
+            st.session_state["new_entry_prelude"] = {}
 
             new_row = {
                 "Trade #": None,  # will be set by _compute_derived

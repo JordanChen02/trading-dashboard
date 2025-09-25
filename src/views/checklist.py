@@ -108,9 +108,9 @@ def _default_template_items() -> List[Dict[str, Any]]:
             "id": _uuid(),
             "label": "Point of Interest",
             "type": "select",
-            "options": ["Daily", "H4 FVG", "H1 FVG", "M15 FVG", "M5 FVG >", "None"],
+            "options": ["Daily FVG", "H4 FVG", "H1 FVG", "M15 FVG", "M5 FVG >", "None"],
             "weights": {
-                "Daily": 10,
+                "Daily FVG": 10,
                 "H4 FVG": 10,
                 "H1 FVG": 9.5,
                 "M15 FVG": 9,
@@ -788,6 +788,62 @@ def render(df: pd.DataFrame) -> None:
                         f"<div style='font-size:44px; font-weight:700;  text-align:center;'>{grade}</div>",
                         unsafe_allow_html=True,
                     )
+
+        # --- Save for Journal (button + build confirmations) ---
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+        if st.button("Save for Journal", use_container_width=True, key="btn_save_for_journal"):
+            # Grab current dropdown selections by label
+            selections_by_label: dict[str, str] = {}
+            for it in items:
+                if not it.get("enabled", True):
+                    continue
+                lbl = it.get("label", "")
+                key = f"preview_val_{it['id']}"
+                val = str(st.session_state.get(key, "") or "")
+                selections_by_label[lbl] = val
+
+            # Mapper: Checklist → Confirmation text (exclude Bias Confidence)
+            def _mk_confirms(sel: dict[str, str]) -> list[str]:
+                out: list[str] = []
+                v = sel.get("Liquidity Sweep", "")
+                if v and v != "None":
+                    out.append(f"{v} (Sweep)")  # e.g., "Equal High/Low (Sweep)"
+                v = sel.get("Draw on Liquidity", "")
+                if v and v != "None":
+                    out.append(f"{v} (DOL)")  # e.g., "External High/Low (DOL)"
+                v = sel.get("Momentum", "")
+                if v:
+                    out.append(f"{v} momentum")  # e.g., "High momentum"
+                v = sel.get("iFVG", "")
+                if v:
+                    out.append(f"{v} iFVG")  # e.g., "Large iFVG"
+                v = sel.get("Point of Interest", "")
+                if v and v != "None":
+                    out.append(v)  # e.g., "Daily FVG"
+                return out
+
+            conf_from_dropdowns = _mk_confirms(selections_by_label)
+
+            # Confluences: include those that are checked/enabled
+            checked_confs = [
+                c["label"]
+                for c in st.session_state.get("_confluences", [])
+                if c.get("enabled", True)
+            ]
+
+            # Final list with order preserved and de-duped
+            journal_confirms = list(dict.fromkeys(conf_from_dropdowns + checked_confs))
+
+            st.session_state["pending_checklist"] = {
+                "timestamp": pd.Timestamp.utcnow().isoformat(),
+                "setup": st.session_state.get("active_setup", ""),
+                "selections": selections_by_label,
+                "confluences": checked_confs,
+                "score_pct": float(adj_pct),
+                "grade": grade,
+                "journal_confirms": journal_confirms,  # <-- what Journal loads
+            }
+            st.toast("Checklist saved for Journal ✅")
 
     # ------------- RIGHT: Chart Examples -------------
     with right_col:
