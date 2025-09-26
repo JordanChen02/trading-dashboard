@@ -22,11 +22,12 @@ EXEC_TIER = ["S", "A+", "A", "A-", "B+", "B", "B-", "C"]
 DEFAULT_CONFIRMATIONS = [
     "IFVG",
     "Liq Sweep",
-    "Momentum",
-    "Data H/L DOL",
-    "Macro",
-    "Breaker",
-    "Confluence",
+    "High Momentum",
+    "Equal High/Low",
+    "H4 FVG Delivery" "Stairstep",
+    "12 ema (4H)",
+    "LRLR",
+    "CVD",
 ]
 
 
@@ -69,14 +70,51 @@ def _style_day(val: str):
     palette = {
         "mon": "#60a5fa",  # blue
         "tue": "#14b8a6",  # teal
-        "wed": "#a78bfa",  # purple
+        "wed": "#a78bfa",  # purplev
         "thu": "#f59e0b",  # amber
-        "fri": "#38f888",  # sky
-        "sat": "#94a3b8",  # slate
-        "sun": "#94a3b8",
+        "fri": "#c7d13c",  # sky
+        "sat": "#5f7da8",  # slate
+        "sun": "#8d61aa",
     }
     color = palette.get(day, "#e5e7eb")
     return f"color:{color};font-weight:600;"
+
+
+def _style_setup_tier(val: str):
+    m = {
+        "S": "#e8f160",
+        "A+": "#c28dff",
+        "A": "#c28dff",
+        "A-": "#c28dff",
+        "B+": "#1e97e7",
+        "B": "#1e97e7",
+        "B-": "#1e97e7",
+        "C": "#41ce2f",
+    }
+    c = m.get(str(val).strip().upper(), "#e5e7eb")
+    return f"color:{c}; font-weight:700;"
+
+
+def _style_type(val: str):
+    s = str(val).strip().lower()
+    # continuation vs reversal
+    if s.startswith("cont"):
+        return "color:#14b8a6; font-weight:400;"
+    if s.startswith("rev"):
+        return "color:#f59e0b; font-weight:400;"
+    return "color:#f59e0b; font-weight:600;"
+
+
+def _style_session(val: str):
+    s = str(val).strip()
+    cmap = {
+        "Asia": "color:#60a5fa; font-weight:700;",  # blue
+        "London": "color:#14b8a6; font-weight:700;",  # teal
+        "NY AM": "color:#a78bfa; font-weight:700;",  # violet
+        "NY Lunch": "color:#f59e0b; font-weight:700;",  # amber
+        "NY PM": "color:#38bdf8; font-weight:700;",  # sky
+    }
+    return cmap.get(s, "color:#e5e7eb; font-weight:600;")
 
 
 def _styled_view(df: pd.DataFrame) -> "pd.io.formats.style.Styler":
@@ -87,10 +125,12 @@ def _styled_view(df: pd.DataFrame) -> "pd.io.formats.style.Styler":
     col_funcs = {
         "PnL": _style_pnl,
         "Direction": _style_direction,
-        "Setup Tier": _style_tier,
-        "Execution Tier": _style_tier,
+        "Setup Tier": _style_setup_tier,  # <-- use the new one
         "Day of Week": _style_day,
+        "Type": _style_type,  # continuation / reversal
+        "Session": _style_session,  # Asia / London / NY AM / Lunch / PM
     }
+
     for col, fn in col_funcs.items():
         if col in df.columns:
             styler = styler.applymap(fn, subset=pd.IndexSlice[:, [col]])
@@ -118,43 +158,34 @@ def _friendly_minutes(total_min: float) -> str:
 
 
 def _ensure_session_column(df: pd.DataFrame) -> pd.DataFrame:
-    """Make sure df has a Session column computed in the selected timezone."""
-    if "Session" in df.columns:
+    """Assign Session bucket from Entry Time (24h coverage)."""
+    if "Entry Time" not in df.columns:
         return df
 
-    tz_label = st.session_state.get("journal_tz", "(UTC -4) America/New York")
-    tz_name = _resolve_tz(tz_label)
+    # ensure datetime
+    times = pd.to_datetime(df["Entry Time"], errors="coerce")
+    hours = times.dt.hour
 
-    ts = pd.to_datetime(df["Entry Time"], errors="coerce", utc=False)
-    try:
-        if ts.dt.tz is None:
-            ts = ts.dt.tz_localize(tz_name)
-        else:
-            ts = ts.dt.tz_convert(tz_name)
-    except Exception:
-        ts = pd.to_datetime(df["Entry Time"], errors="coerce").dt.tz_localize(tz_name)
+    def _bucket(h: int) -> str:
+        # Asia: 20:00–01:59
+        if (h >= 20) or (h < 2):
+            return "Asia"
+        # London: 02:00–05:59
+        if 2 <= h < 6:
+            return "London"
+        # NY AM: 06:00–11:59
+        if 6 <= h < 12:
+            return "NY AM"
+        # NY Lunch: 12:00–12:59
+        if 12 <= h < 13:
+            return "NY Lunch"
+        # NY PM: 13:00–19:59
+        if 13 <= h < 20:
+            return "NY PM"
+        return "Other"
 
-    mins = ts.dt.hour * 60 + ts.dt.minute
-
-    def in_range(m, start, end, wrap=False):
-        if wrap:  # cross midnight
-            return (m >= start) | (m < end)
-        return (m >= start) & (m < end)
-
-    asia = in_range(mins, 20 * 60, 0, wrap=True)  # 20:00–00:00
-    london = in_range(mins, 2 * 60, 5 * 60)  # 02:00–05:00
-    ny_am = in_range(mins, 9 * 60 + 30, 11 * 60)  # 09:30–11:00
-    ny_lunch = in_range(mins, 12 * 60, 13 * 60)  # 12:00–13:00
-    ny_pm = in_range(mins, 13 * 60 + 30, 16 * 60)  # 13:30–16:00
-
-    session = pd.Series("", index=df.index, dtype="object")
-    session[asia] = "Asia"
-    session[london] = "London"
-    session[ny_am] = "NY AM"
-    session[ny_lunch] = "NY Lunch"
-    session[ny_pm] = "NY PM"
     out = df.copy()
-    out["Session"] = session
+    out["Session"] = hours.fillna(-1).astype(int).apply(_bucket)
     return out
 
 
@@ -356,7 +387,7 @@ def _generate_fake_journal(n: int = 50) -> pd.DataFrame:
 
         # Date & times
         d = start + timedelta(days=int(rng.integers(0, 120)))
-        start_hour = int(rng.integers(8, 20))
+        start_hour = int(rng.integers(0, 24))
         start_min = int(rng.integers(0, 60))
         e_time = datetime(d.year, d.month, d.day, start_hour, start_min)
         hold_minutes = int(rng.integers(5, 180))
@@ -378,6 +409,7 @@ def _generate_fake_journal(n: int = 50) -> pd.DataFrame:
         rows.append(
             {
                 "Trade #": i + 1,  # earliest first by number, but we'll sort by date/time
+                "Win/Loss": "Win" if pnl > 0 else "Loss",
                 "Symbol": sym,
                 "Date": d,
                 "Day of Week": d.strftime("%A"),
@@ -392,7 +424,6 @@ def _generate_fake_journal(n: int = 50) -> pd.DataFrame:
                 "Duration": "",
                 "Duration (min)": float(hold_minutes),
                 "PnL": pnl,
-                "Win/Loss": "Win" if pnl > 0 else "Loss",
                 "Dollars Risked": dollars_risked,
                 "R Ratio": round(pnl / dollars_risked, 2),
                 "Chart URL": "",
@@ -400,6 +431,9 @@ def _generate_fake_journal(n: int = 50) -> pd.DataFrame:
                 "TP1 % Sold": tp1,
                 "TP2 % Sold": tp2,
                 "TP3 % Sold": tp3,
+                "TP1 (R)": 0.0,
+                "TP2 (R)": 0.0,
+                "TP3 (R)": 0.0,
             }
         )
 
@@ -499,62 +533,56 @@ def _render_new_entry_form():
                 st.toast("Confirmations loaded from Checklist ✅")
                 st.rerun()
 
-    st.text_input(
-        "New confirmation",
-        value=st.session_state.new_conf_text,
-        key="new_conf_text",
-        label_visibility="collapsed",
-        on_change=_add_confirmation_tag,
-        placeholder="e.g., 'Breaker Retest'",
-        help="Type a new confirmation and press Enter to add it to the dropdown.",
-    )
-
     with st.form("new_entry"):
         st.markdown("### New Journal Entry")
 
-        c1, c2, c3 = st.columns(3)
-        with c1:
+        # ===== Row 1: Entry/Exit date & time =====
+        r1c1, r1c2, r1c3, r1c4 = st.columns([1, 1, 1, 1], gap="small")
+        with r1c1:
             date_val = st.date_input("Date", value=date.today())
+        with r1c2:
+            entry_txt = st.text_input("Entry Time (HH:MM or HH:MM:SS)", value="09:30")
+        with r1c3:
+            exit_date_val = st.date_input("Exit Date", value=date_val)
+        with r1c4:
+            exit_txt = st.text_input("Exit Time (HH:MM or HH:MM:SS)", value="10:05")
+
+        # ===== Row 2: Symbol | Type | Direction | Timeframe =====
+        r2c1, r2c2, r2c3, r2c4 = st.columns([1, 1, 1, 1], gap="small")
+        with r2c1:
             symbol = (
-                st.text_input(
-                    "Symbol",
-                    value="",
-                    placeholder="e.g., BTCUSDT / NQ / ETHUSDT",
-                )
+                st.text_input("Symbol", value="", placeholder="e.g., BTCUSDT / NQ / ETHUSDT")
                 .strip()
                 .upper()
             )
-            direction = st.selectbox("Direction", DIRECTIONS, index=0)
-            timeframe = st.text_input(
-                "Timeframe",
-                value="",
-                placeholder="e.g., m3 / m15 / h1 / h4",
-            ).strip()
-        with c2:
-            # Free text times
-            entry_txt = st.text_input("Entry Time (HH:MM or HH:MM:SS)", value="09:30")
-            exit_txt = st.text_input("Exit Time (HH:MM or HH:MM:SS)", value="10:05")
+        with r2c2:
             typ = st.selectbox("Type", TYPES, index=1)
-            _pre_tier = st.session_state.get("new_entry_prelude", {}).get("Setup Tier")
-            _tier_idx = TIER.index(_pre_tier) if _pre_tier in TIER else 2
-            setup_tier = st.selectbox("Setup Tier", TIER, index=_tier_idx)
+        with r2c3:
+            direction = st.selectbox("Direction", DIRECTIONS, index=0)
+        with r2c4:
+            timeframe = st.text_input(
+                "Timeframe", value="", placeholder="e.g., m3 / m15 / h1 / h4"
+            ).strip()
 
-        with c3:
-            exec_tier = st.selectbox("Execution Tier", EXEC_TIER, index=2)
-            pnl = st.number_input("PnL ($)", value=100.0, step=10.0, format="%.2f")
+        # ===== Row 3: Dollars Risked | PnL | Chart URL =====
+        r3c1, r3c2, r3c3 = st.columns([1, 1, 2], gap="small")
+        with r3c1:
             risk = st.number_input("Dollars Risked ($)", value=50.0, step=5.0, format="%.2f")
+        with r3c2:
+            pnl = st.number_input("PnL ($)", value=100.0, step=10.0, format="%.2f")
+        with r3c3:
             chart_url = st.text_input("Chart URL", value="", placeholder="https://...")
 
-        _conf_default = st.session_state.get("journal_conf_default")
-        if not _conf_default:
-            _conf_default = st.session_state.get("journal_conf_default") or []
-            conf = st.multiselect(
-                "Confirmations (multi-select)",
-                st.session_state.confirmations_options,
-                default=_conf_default,
-                help="Loaded from Checklist (excludes Bias Confidence).",
-            )
-        # ---- colored chips preview (read-only) ----
+        # ===== Confirmations (full width) =====
+        _conf_default = st.session_state.get("journal_conf_default") or []
+        conf = st.multiselect(
+            "Confirmations (multi-select)",
+            st.session_state.confirmations_options,
+            default=_conf_default,
+            help="Loaded from Checklist (excludes Bias Confidence).",
+        )
+
+        # colored chips preview (read-only)
         if conf:
             cmap = st.session_state.get("confirm_color_map", {})
             chips = "".join(
@@ -565,34 +593,49 @@ def _render_new_entry_form():
             )
             st.markdown(f"<div>{chips}</div>", unsafe_allow_html=True)
 
+        # ===== Comments (full width) =====
         comments = st.text_area("Comments", value="")
 
-        p1, p2, p3 = st.columns(3)
-        with p1:
-            tp1 = st.number_input("TP1 % Sold", 0, 100, 50, step=5)
-        with p2:
-            tp2 = st.number_input("TP2 % Sold", 0, 100, 25, step=5)
-        with p3:
-            tp3 = st.number_input("TP3 % Sold", 0, 100, 25, step=5)
+        # ===== Row 4: TP blocks: % Sold + (R) =====
+        st.markdown("")
+        tp1p, tp1r, tp2p, tp2r, tp3p, tp3r = st.columns([1, 1, 1, 1, 1, 1], gap="small")
+        with tp1p:
+            tp1 = st.number_input("TP1 % Sold", 0, 100, 0, step=5)
+        with tp1r:
+            tp1_r = st.number_input("TP1 (R)", step=0.25, format="%.2f", value=0.00)
+        with tp2p:
+            tp2 = st.number_input("TP2 % Sold", 0, 100, 0, step=5)
+        with tp2r:
+            tp2_r = st.number_input("TP2 (R)", step=0.25, format="%.2f", value=0.00)
+        with tp3p:
+            tp3 = st.number_input("TP3 % Sold", 0, 100, 0, step=5)
+        with tp3r:
+            tp3_r = st.number_input("TP3 (R)", step=0.25, format="%.2f", value=0.00)
+
         st.caption(
             "Tip: Values mean how much of the position you sold at each TP (e.g., 50/25/25). Total ≤ 100."
         )
 
         submitted = st.form_submit_button("Add Entry", use_container_width=True)
         if submitted:
-            # Convert the free-text HH:MM to datetimes on the chosen date
             entry_time = _parse_time_string(entry_txt)
             exit_time = _parse_time_string(exit_txt)
             entry_dt = datetime.combine(date_val, entry_time)
-            exit_dt = datetime.combine(date_val, exit_time)
+            exit_dt = datetime.combine(exit_date_val, exit_time)
+
             # clear one-shot prefill so the next entry starts clean
             st.session_state["journal_conf_default"] = []
             st.session_state["new_entry_prelude"] = {}
+            # Fallback tiers (since we removed the selectboxes)
+            setup_tier = st.session_state.get("new_entry_prelude", {}).get("Setup Tier", "A")
+            exec_tier = st.session_state.get("new_entry_prelude", {}).get("Execution Tier", "A")
 
             new_row = {
-                "Trade #": None,  # will be set by _compute_derived
+                "Trade #": None,  # set by _compute_derived
+                "Win/Loss": "",  # set by _compute_derived
                 "Symbol": symbol,
                 "Date": date_val,
+                "Exit Date": exit_date_val,
                 "Day of Week": date_val.strftime("%A"),
                 "Direction": direction,
                 "Timeframe": timeframe,
@@ -602,26 +645,29 @@ def _render_new_entry_form():
                 "Confirmations": conf,
                 "Entry Time": entry_dt,
                 "Exit Time": exit_dt,
-                "Duration (min)": None,  # computed in _compute_derived
-                "Duration": "",  # computed in _compute_derived
+                "Duration (min)": None,  # set by _compute_derived
+                "Duration": "",  # set by _compute_derived
                 "PnL": float(pnl),
-                "Win/Loss": "",  # computed in _compute_derived
                 "Dollars Risked": float(risk),
-                "R Ratio": None,  # computed in _compute_derived
+                "R Ratio": None,  # set by _compute_derived
                 "Chart URL": chart_url,
                 "Comments": comments,
                 "TP1 % Sold": int(tp1),
+                "TP1 (R)": float(tp1_r),
                 "TP2 % Sold": int(tp2),
+                "TP2 (R)": float(tp2_r),
                 "TP3 % Sold": int(tp3),
+                "TP3 (R)": float(tp3_r),
             }
 
             df = st.session_state.journal_df.copy()
             df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
             st.session_state.journal_df = _compute_derived(df)
 
-            # Close the form and refresh immediately so filters/options update
             st.session_state.show_new_entry = False
             st.rerun()
+
+            submitted = st.form_submit_button("Save Entry", use_container_width=True)
 
 
 def _render_summary(df: pd.DataFrame):
@@ -652,7 +698,7 @@ def render(*_args, **_kwargs) -> None:
 
     inject_journal_css()
 
-    st.subheader("Journal")
+    st.subheader("Trade Journal")
 
     st.caption(
         "Manual trade log. Add notes, confirmations, and manage entries. (Fake data preloaded)"
@@ -660,6 +706,9 @@ def render(*_args, **_kwargs) -> None:
 
     # ---------------- Filters: Journal switcher + Timezone + Date range + facets ----------------
     df_all = st.session_state.journal_df
+    df_all = df_all.copy()
+
+    df_all = _ensure_session_column(df_all)
 
     # Row 1: Journal | Timezone | Date range
     c_journal, c_tz, c_range = st.columns([1, 1, 2], gap="small")
@@ -737,7 +786,7 @@ def render(*_args, **_kwargs) -> None:
 
     with c_tier:
         tier_filter = st.multiselect(
-            "Tier",
+            "Setup Tier",
             options=["S", "A+", "A", "A-", "B+", "B", "B-", "C"],
             default=[],
             help="Matches either Setup or Execution tier.",
@@ -783,11 +832,9 @@ def render(*_args, **_kwargs) -> None:
     if day_filter and not df_view.empty:
         df_view = df_view[df_view["Day of Week"].str[:3].isin(day_filter)]
 
-    # Tier (either setup or execution)
+    # Tier (setup)
     if tier_filter and not df_view.empty:
-        df_view = df_view[
-            df_view["Setup Tier"].isin(tier_filter) | df_view["Execution Tier"].isin(tier_filter)
-        ]
+        df_view = df_view[df_view["Setup Tier"].isin(tier_filter)]
 
     # Symbols
     if sym_filter and not df_view.empty:
@@ -813,10 +860,6 @@ def render(*_args, **_kwargs) -> None:
 
     # ---------------- End filters ----------------
 
-    # Table card container
-    with st.container(border=True):
-        st.markdown("#### Trades")
-
     # --- Journal table (styled read-only view vs editable) ---
     view_col, _ = st.columns([1, 4])
     show_styled = view_col.toggle(
@@ -828,8 +871,28 @@ def render(*_args, **_kwargs) -> None:
     edited = None  # important: ensure defined
 
     if show_styled:
+        # --- display-only: emoji Win/Loss in Styled view ---
+        df_disp = df_view.copy()
+        if "Win/Loss" in df_disp.columns:
+
+            def _wl_to_emoji(v):
+                s = str(v).strip().lower()
+                if s in ("win", "won", "w", "true", "1", "yes"):
+                    return "✅"
+                if s in ("loss", "lost", "l", "false", "0", "no"):
+                    return "❌"
+                return s  # leave anything else unchanged
+
+            df_disp["Win/Loss"] = df_disp["Win/Loss"].map(_wl_to_emoji)
+
+        # move Session before Entry Time (display-only)
+        cols = list(df_disp.columns)
+        if "Session" in cols and "Entry Time" in cols:
+            cols.insert(cols.index("Entry Time"), cols.pop(cols.index("Session")))
+            df_disp = df_disp[cols]
+
         # READ-ONLY, styled table
-        st.dataframe(_styled_view(df_view), use_container_width=True, height=520, hide_index=True)
+        st.dataframe(_styled_view(df_disp), use_container_width=True, height=520, hide_index=True)
 
         # Only show "+ New Entry" under the table in styled mode
         st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
@@ -845,6 +908,17 @@ def render(*_args, **_kwargs) -> None:
             df_view = df_view.copy()
             df_view.insert(0, "__sel__", False)
 
+        # move Session before Entry Time (display-only in editor), keep __sel__ first
+        cols = list(df_view.columns)
+        if "Session" in cols and "Entry Time" in cols:
+            s = cols.pop(cols.index("Session"))
+            cols.insert(cols.index("Entry Time"), s)
+            # ensure __sel__ is still first if present
+            if "__sel__" in cols:
+                cols.remove("__sel__")
+                cols = ["__sel__"] + cols
+            df_view = df_view[cols]
+
         edited = st.data_editor(
             df_view,
             key="journal_editor",
@@ -855,6 +929,7 @@ def render(*_args, **_kwargs) -> None:
             column_config={
                 "__sel__": st.column_config.CheckboxColumn("", help="Select row", width="small"),
                 "Trade #": st.column_config.NumberColumn("Trade #", width="small", disabled=True),
+                "Win/Loss": st.column_config.TextColumn("Win/Loss", disabled=True, width="small"),
                 "Symbol": st.column_config.TextColumn(
                     "Symbol", width="small", help="Type any symbol, e.g., BTCUSDT, NQ"
                 ),
@@ -889,7 +964,6 @@ def render(*_args, **_kwargs) -> None:
                 ),
                 "Duration": st.column_config.TextColumn("Duration", disabled=True, width="small"),
                 "PnL": st.column_config.NumberColumn("PnL ($)", format="$%.2f", width="small"),
-                "Win/Loss": st.column_config.TextColumn("Win/Loss", disabled=True, width="small"),
                 "Dollars Risked": st.column_config.NumberColumn(
                     "Dollars Risked ($)", format="$%.2f", width="small"
                 ),
@@ -907,6 +981,9 @@ def render(*_args, **_kwargs) -> None:
                 "TP3 % Sold": st.column_config.NumberColumn(
                     "TP3 % Sold", min_value=0, max_value=100, step=5
                 ),
+                "TP1 (R)": st.column_config.NumberColumn("TP1 (R)", format="%.2f", width="small"),
+                "TP2 (R)": st.column_config.NumberColumn("TP2 (R)", format="%.2f", width="small"),
+                "TP3 (R)": st.column_config.NumberColumn("TP3 (R)", format="%.2f", width="small"),
             },
         )
 
