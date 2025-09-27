@@ -409,6 +409,11 @@ def _generate_fake_journal(n: int = 50) -> pd.DataFrame:
         rows.append(
             {
                 "Trade #": i + 1,  # earliest first by number, but we'll sort by date/time
+                "Account": (
+                    "NQ"
+                    if sym == "NQ"
+                    else ("Crypto (Prop)" if sym == "BTCUSDT" else "Crypto (Live)")
+                ),
                 "Win/Loss": "Win" if pnl > 0 else "Loss",
                 "Symbol": sym,
                 "Date": d,
@@ -457,6 +462,10 @@ def _init_session_state():
         st.session_state["new_entry_prelude"] = {}
     if "journal_conf_default" not in st.session_state:
         st.session_state["journal_conf_default"] = []
+    if "accounts_options" not in st.session_state:
+        st.session_state.accounts_options = ["NQ", "Crypto (Live)", "Crypto (Prop)"]
+    # selected accounts for the filter (UI sets this)
+    st.session_state.setdefault("filter_accounts", [])
 
     # Color mapping for confirmations
     if "confirm_color_map" not in st.session_state:
@@ -547,8 +556,10 @@ def _render_new_entry_form():
         with r1c4:
             exit_txt = st.text_input("Exit Time (HH:MM or HH:MM:SS)", value="10:05")
 
-        # ===== Row 2: Symbol | Type | Direction | Timeframe =====
-        r2c1, r2c2, r2c3, r2c4 = st.columns([1, 1, 1, 1], gap="small")
+        # ===== Row 2: Account | Symbol | Type | Direction | Timeframe =====
+        r2c0, r2c1, r2c2, r2c3, r2c4 = st.columns([1.2, 1.2, 1, 1, 1.2], gap="small")
+        with r2c0:
+            account = st.selectbox("Account", st.session_state.accounts_options, index=0)
         with r2c1:
             symbol = (
                 st.text_input("Symbol", value="", placeholder="e.g., BTCUSDT / NQ / ETHUSDT")
@@ -632,6 +643,7 @@ def _render_new_entry_form():
 
             new_row = {
                 "Trade #": None,  # set by _compute_derived
+                "Account": account,
                 "Win/Loss": "",  # set by _compute_derived
                 "Symbol": symbol,
                 "Date": date_val,
@@ -710,15 +722,52 @@ def render(*_args, **_kwargs) -> None:
 
     df_all = _ensure_session_column(df_all)
 
-    # Row 1: Journal | Timezone | Date range
-    c_journal, c_tz, c_range = st.columns([1, 1, 2], gap="small")
+    # Ensure Account exists for filtering:
+    # - NQ              → "NQ"
+    # - BTCUSDT         → "Crypto (Prop)"
+    # - everything else → "Crypto (Live)"
+    if "Account" not in df_all.columns:
+        df_all["Account"] = np.select(
+            [df_all["Symbol"].eq("NQ"), df_all["Symbol"].eq("BTCUSDT")],
+            ["NQ", "Crypto (Prop)"],
+            default="Crypto (Live)",
+        )
+    else:
+        backfill = np.select(
+            [df_all["Symbol"].eq("NQ"), df_all["Symbol"].eq("BTCUSDT")],
+            ["NQ", "Crypto (Prop)"],
+            default="Crypto (Live)",
+        )
+        df_all["Account"] = df_all["Account"].fillna(pd.Series(backfill, index=df_all.index))
 
-    with c_journal:
-        journal_choice = st.selectbox(
-            "Journal",
-            ["All", "NQ", "Crypto"],
-            index=0,
-            help="Choose which journal to view.",
+    # Normalize any legacy labels (remove "Journal:" prefixes, unify names)
+    df_all["Account"] = (
+        df_all["Account"]
+        .astype(str)
+        .str.strip()
+        .replace(
+            {
+                "Journal: NQ": "NQ",
+                "Journal: Crypto": "Crypto (Live)",
+                "Journal: Crypto (Live)": "Crypto (Live)",
+                "Journal: Crypto (Prop)": "Crypto (Prop)",
+            }
+        )
+    )
+
+    # Row 1: Journal | Timezone | Date range
+    c_acct, c_tz, c_range = st.columns([1, 1, 2], gap="small")
+
+    with c_acct:
+        # Build options from the actual data (post-normalization)
+        acct_options = sorted(df_all["Account"].astype(str).str.strip().unique().tolist())
+
+        # Stateless widget: rely ONLY on the return value
+        account_sel = st.multiselect(
+            "Account",
+            options=acct_options,
+            default=[],  # no preselection; empty = show all
+            help="Select none to show all accounts.",
         )
 
     with c_tz:
@@ -807,11 +856,10 @@ def render(*_args, **_kwargs) -> None:
     # -------- Build filtered view --------
     df_view = df_all.copy()
 
-    # Journal switcher
-    if journal_choice == "NQ":
-        df_view = df_view[df_view["Symbol"] == "NQ"]
-    elif journal_choice == "Crypto":
-        df_view = df_view[df_view["Symbol"] != "NQ"]
+    # Account filter: ONLY show selected; none selected = show all
+    sel_acct = account_sel  # ← use the widget's actual return
+    if sel_acct:
+        df_view = df_view[df_view["Account"].astype(str).str.strip().isin(sel_acct)]
 
     # Date filter (inclusive) — only when both dates chosen
     if (start_date is not None) and (end_date is not None) and (not df_view.empty):
@@ -891,6 +939,13 @@ def render(*_args, **_kwargs) -> None:
             cols.insert(cols.index("Entry Time"), cols.pop(cols.index("Session")))
             df_disp = df_disp[cols]
 
+        # place Account right after Trade # (display-only)
+        cols = list(df_disp.columns)
+        if "Account" in cols and "Trade #" in cols:
+            acc = cols.pop(cols.index("Account"))
+            cols.insert(cols.index("Trade #") + 1, acc)
+            df_disp = df_disp[cols]
+
         # READ-ONLY, styled table
         st.dataframe(_styled_view(df_disp), use_container_width=True, height=520, hide_index=True)
 
@@ -919,6 +974,17 @@ def render(*_args, **_kwargs) -> None:
                 cols = ["__sel__"] + cols
             df_view = df_view[cols]
 
+        # place Account right after Trade # (display-only in editor)
+        cols = list(df_view.columns)
+        if "Account" in cols and "Trade #" in cols:
+            acc = cols.pop(cols.index("Account"))
+            cols.insert(cols.index("Trade #") + 1, acc)
+            # keep __sel__ first if present
+            if "__sel__" in cols:
+                cols.remove("__sel__")
+                cols = ["__sel__"] + cols
+            df_view = df_view[cols]
+
         edited = st.data_editor(
             df_view,
             key="journal_editor",
@@ -929,6 +995,11 @@ def render(*_args, **_kwargs) -> None:
             column_config={
                 "__sel__": st.column_config.CheckboxColumn("", help="Select row", width="small"),
                 "Trade #": st.column_config.NumberColumn("Trade #", width="small", disabled=True),
+                "Account": st.column_config.SelectboxColumn(
+                    "Account",
+                    options=st.session_state.accounts_options,
+                    width="medium",
+                ),
                 "Win/Loss": st.column_config.TextColumn("Win/Loss", disabled=True, width="small"),
                 "Symbol": st.column_config.TextColumn(
                     "Symbol", width="small", help="Type any symbol, e.g., BTCUSDT, NQ"
@@ -1038,39 +1109,53 @@ def render(*_args, **_kwargs) -> None:
                     confirm_box.empty()
                     st.rerun()
 
-        # --- Merge back (existing rows vs new rows)
+        # --- Merge back (existing rows vs new rows) — use original index mapping, not "Trade #" ---
+        # Which rows in the editor are existing vs new?
         existing_mask = edited["Trade #"].notna()
         new_mask = edited["Trade #"].isna()
 
-        # Existing rows
-        ed_existing = edited.loc[existing_mask].copy()
         main = st.session_state.journal_df.copy()
-        if not ed_existing.empty:
-            ed_existing = ed_existing.drop_duplicates(subset=["Trade #"], keep="last")
-            editable_cols = [
-                c
-                for c in ed_existing.columns
-                if c in main.columns and c not in ("Trade #", "__sel__")
-            ]
-            main_idx = main.set_index("Trade #", drop=False)
-            ed_idx = ed_existing.set_index("Trade #", drop=False)
-            ed_slice = ed_idx[editable_cols]
-            common_ids = ed_slice.index.intersection(main_idx.index)
-            if not common_ids.empty:
-                main_idx.loc[common_ids, editable_cols] = ed_slice.loc[common_ids, editable_cols]
-            main_updated = main_idx.reset_index(drop=True)
-        else:
-            main_updated = main
 
-        # New rows
+        # Columns we actually allow to be edited/written back
+        editable_cols = [
+            c
+            for c in edited.columns
+            if c in main.columns
+            and c
+            not in (
+                "Trade #",
+                "__sel__",
+                "Duration",
+                "Duration (min)",
+                "R Ratio",
+                "Win/Loss",
+                "Day of Week",
+            )
+        ]
+
+        # Map edited view rows back to the original df indices we saved before reset_index
+        orig_index_map = st.session_state.get("_view_orig_index", []) or []
+
+        # 1) Update EXISTING rows by original index (not by view "Trade #")
+        ed_existing = edited.loc[existing_mask, editable_cols].copy()
+        if not ed_existing.empty and orig_index_map:
+            # ed_existing.index are the row positions in the current view (0..n-1)
+            try:
+                ed_existing.index = [orig_index_map[i] for i in ed_existing.index]
+                main.loc[ed_existing.index, editable_cols] = ed_existing
+            except Exception:
+                # If mapping ever mismatches lengths, fall back to no-op (safer)
+                pass
+
+        # 2) Append NEW rows (those with NaN Trade # in the editor)
         ed_new = edited.loc[new_mask].copy()
         if not ed_new.empty:
             ed_new = ed_new.drop(columns=["__sel__"], errors="ignore")
-            ed_new = ed_new[[c for c in ed_new.columns if c in main_updated.columns]]
-            combined = pd.concat([main_updated, ed_new], ignore_index=True)
+            ed_new = ed_new[[c for c in ed_new.columns if c in main.columns]]
+            combined = pd.concat([main, ed_new], ignore_index=True)
         else:
-            combined = main_updated
-
+            combined = main
+        # finalize write-back
         if not combined.equals(st.session_state.journal_df):
             st.session_state.journal_df = _compute_derived(combined)
 
