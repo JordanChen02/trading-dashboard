@@ -143,8 +143,6 @@ with t_profile:
         st.markdown("</div>", unsafe_allow_html=True)  # close .upload-pop
         st.markdown("</div>", unsafe_allow_html=True)  # close .profile-pop
 
-st.markdown("</div>", unsafe_allow_html=True)  # close .topbar
-
 
 # -------- Divider between top toolbar and the control row --------
 st.divider()
@@ -852,7 +850,7 @@ with tab_perf:
 
 
 with tab_calendar:
-    st.subheader("Calendar — Daily PnL & Trade Count")
+    st.subheader("Trade Calendar")
     st.caption(f"Using Range: {tf}")
 
     # Ensure a month anchor (prefer last available date in the current view)
