@@ -245,15 +245,15 @@ def render(
         if st.button("‹", key=f"{key}_prev"):
             anchor = (anchor - pd.offsets.MonthBegin(1)).normalize().replace(day=1)
 
+    with c_next:
+        if st.button("›", key=f"{key}_next"):
+            anchor = (anchor + pd.offsets.MonthBegin(1)).normalize().replace(day=1)
+
     with c_label:
         st.markdown(
             f"<div class='cal-month-label'>{anchor.strftime('%B %Y')}</div>",
             unsafe_allow_html=True,
         )
-
-    with c_next:
-        if st.button("›", key=f"{key}_next"):
-            anchor = (anchor + pd.offsets.MonthBegin(1)).normalize().replace(day=1)
 
     # persist chosen month
     st.session_state["_cal_month_start"] = anchor
