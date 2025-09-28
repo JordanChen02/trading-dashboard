@@ -672,63 +672,12 @@ def _persist_journal_meta():
 
 # ===== CONTROL ROW (Title + Month + Filters) =====
 st.markdown('<div class="controls">', unsafe_allow_html=True)
-c_left, c_month, c_filters = st.columns([12, 2, 2], gap="small")
+(c_left,) = st.columns([1], gap="small")
 with c_left:
     st.markdown(
         "<h3 class='page-title'>Welcome, User</h3>",
         unsafe_allow_html=True,
     )
-
-# --- Month popover (with icon) ---
-with c_month:
-
-    _ms = pd.Timestamp(st.session_state["_cal_month_start"]).normalize().replace(day=1)
-    _me = (_ms + pd.offsets.MonthEnd(1)).normalize()
-
-    def _fmt(ts: pd.Timestamp) -> str:
-        return f"{ts.strftime('%b')} {ts.day}, {ts.year}"
-
-    _lbl = f"{_fmt(_ms)} - {_fmt(_me)}"  # e.g., "Sep 1, 2025 - Sep 30, 2025"
-    # If you prefer compact: _lbl = _ms.strftime("%b %Y")
-
-    st.markdown('<span class="cal-marker"></span>', unsafe_allow_html=True)
-
-    try:
-        mp = st.popover(_lbl, icon=":material/calendar_month:", use_container_width=False)
-    except TypeError:
-        mp = st.popover(_lbl, use_container_width=False)  # fallback for older Streamlit
-
-    with mp:
-        picked = st.date_input(
-            "Pick month",
-            value=st.session_state["_cal_month_start"].to_pydatetime(),
-            format="YYYY-MM-DD",
-            key="cal_month_input",
-        )
-        st.session_state["_cal_month_start"] = pd.to_datetime(picked).normalize().replace(day=1)
-
-# --- Filters popover (with icon) ---
-with c_filters:
-
-    st.markdown('<span class="filters-marker"></span>', unsafe_allow_html=True)
-
-    try:
-        fp = st.popover("Filters", icon=":material/filter_list:", use_container_width=False)
-    except TypeError:
-        fp = st.popover("Filters", use_container_width=False)
-
-    with fp:
-        st.caption("Filters live in the left sidebar. Quick actions:")
-        colA, colB = st.columns(2, gap="small")
-        with colA:
-            if st.button("Open Sidebar", use_container_width=True):
-                st.toast("Filters are in the left sidebar (expanded).")
-        with colB:
-            if st.button("Clear Calendar Filter", use_container_width=True):
-                st.session_state._cal_filter = None
-                st.toast("Calendar filter cleared")
-                st.rerun()
-
 
 # ===================== RUNTIME SETTINGS (no UI) =====================
 # Defaults for now; we'll move breakeven policy into Filters later

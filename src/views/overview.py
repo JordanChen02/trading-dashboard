@@ -52,10 +52,6 @@ def render_overview(
             if "side" in df_view.columns
             else pd.Series(dtype=float)
         )
-        # Expectancy / Trade (in $)
-        expectancy_v = float(win_rate_v) * float(avg_win_v) + (1.0 - float(win_rate_v)) * float(
-            avg_loss_v
-        )
 
         # === KPI GRID (2x2) ===
         kpi_row1 = st.columns([1, 1], gap="small")
@@ -199,105 +195,55 @@ def render_overview(
         # RIGHT: Expectancy / Trade — compact KPI
         with kpi_row2[1]:
             with st.container(border=True):
-                st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
-                st.markdown(
-                    '<div style="text-align:center; font-weight:600; margin:0 0 10px; transform: translateX(6px);">'
-                    "Expectancy / Trade</div>",
-                    unsafe_allow_html=True,
-                )
-                big = f"${expectancy_v:,.2f}"
-                # --- Clean zero-centered pill bar for Expectancy ---
+                st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+                # Example values (replace with your real logic later)
+                balance_v = 0.00
+                net_profit_v = 0.00
 
-                # symmetric cap (so the bar is centered at 0)
-                denom = max(abs(float(avg_win_v)), abs(float(avg_loss_v)), 1e-9)
-                cap = max(denom * 2.0, 1.0)  # widen/narrow the bar range as you like
-                v = float(expectancy_v)
-                target_e = 8.0  # $ target
-
-                # map value -> [0,1] position (0.5 is zero)
-                def to_pos(val: float) -> float:
-                    return (val + cap) / (2 * cap)
-
-                x0 = 0.08  # left padding
-                x1 = 0.92  # right padding
-                mid = (x0 + x1) / 2.0
-                y0, y1 = 0.40, 0.60  # pill thickness
-
-                rail = "#212C47"
-                pos_col = "#2E86C1"
-                neg_col = "#9B2C2C"
-
-                x_val = x0 + (x1 - x0) * to_pos(v)
-                x_tgt = x0 + (x1 - x0) * to_pos(target_e)
-
-                fig_e = go.Figure()
-                # background rail
-                fig_e.add_shape(
-                    type="rect", x0=x0, x1=x1, y0=y0, y1=y1, fillcolor=rail, line=dict(width=0)
-                )
-                # filled segment from center→value
-                if v >= 0:
-                    fig_e.add_shape(
-                        type="rect",
-                        x0=mid,
-                        x1=x_val,
-                        y0=y0,
-                        y1=y1,
-                        fillcolor=pos_col,
-                        line=dict(width=0),
-                    )
-                else:
-                    fig_e.add_shape(
-                        type="rect",
-                        x0=x_val,
-                        x1=mid,
-                        y0=y0,
-                        y1=y1,
-                        fillcolor=neg_col,
-                        line=dict(width=0),
-                    )
-                # zero tick (subtle)
-                fig_e.add_shape(
-                    type="line",
-                    x0=mid,
-                    x1=mid,
-                    y0=y0 - 0.08,
-                    y1=y1 + 0.08,
-                    line=dict(color="rgba(229,231,235,0.25)", width=1),
-                )
-                # target marker
-                fig_e.add_shape(
-                    type="line",
-                    x0=x_tgt,
-                    x1=x_tgt,
-                    y0=y0 - 0.14,
-                    y1=y1 + 0.14,
-                    line=dict(color="rgba(229,231,235,0.9)", width=2),
-                )
-
-                # hover (optional): show value on hover anywhere on the pill
-                fig_e.add_trace(
-                    go.Scatter(
-                        x=[x_val],
-                        y=[(y0 + y1) / 2],
-                        mode="markers",
-                        marker=dict(size=0.1, color="rgba(0,0,0,0)"),
-                        hovertemplate=f"Expectancy: ${v:,.2f}<extra></extra>",
-                    )
-                )
-
-                fig_e.update_xaxes(visible=False, range=[0, 1], fixedrange=True)
-                fig_e.update_yaxes(visible=False, range=[0, 1], fixedrange=True)
-                fig_e.update_layout(
-                    margin=dict(l=8, r=8, t=2, b=2),
-                    height=56,
-                    paper_bgcolor="rgba(0,0,0,0)",
-                    plot_bgcolor="rgba(0,0,0,0)",
-                )
-                st.plotly_chart(fig_e, use_container_width=True)
+                green = "#61D0A8"  # same green as used in Last 5 Trades
 
                 st.markdown(
-                    f"<div style='font-size:36px; font-weight:700; text-align:center; margin:2px 0 16px;'>{big}</div>",
+                    f"""
+                    <div class="kpi-pair">
+                    <div class="kcol">
+                        <div class="k-label">Balance</div>
+                        <div class="k-value" style="color:{green};">${balance_v:,.2f}</div>
+                    </div>
+
+                    <div class="k-sep"></div>
+
+                    <div class="kcol">
+                        <div class="k-label">Net Profit</div>
+                        <div class="k-value" style="color:{green};">${net_profit_v:,.2f}</div>
+                    </div>
+                    </div>
+
+                    <style>
+                    .kpi-pair {{
+                        display: flex; align-items: center; justify-content: space-evenly;
+                        gap: 16px; padding: 8px 0 48px;   /* ↑ top, 0 left/right, ↑ bottom */
+                    }}
+
+                    .kpi-pair .kcol {{
+                        text-align: center; min-width: 140px;
+                    }}
+                    .kpi-pair .k-label {{
+                        font-size: 20px; font-weight: 600; color: #ffffff; margin-bottom: 2px;
+                    }}
+                    .kpi-pair .k-value {{
+                        font-size: 26px; font-weight: 800; line-height: 1.1;
+                    }}
+                    .kpi-pair .k-sep {{
+                        width: 1px; height: 40px; background: rgba(96,165,250,0.22); border-radius: 1px;
+                    }}
+
+                    /* Stack on small screens */
+                    @media (max-width: 900px) {{
+                        .kpi-pair {{ flex-direction: column; gap: 8px; }}
+                        .kpi-pair .k-sep {{ display: none; }}
+                    }}
+                    </style>
+                    """,
                     unsafe_allow_html=True,
                 )
 
