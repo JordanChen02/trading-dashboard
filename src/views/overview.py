@@ -32,10 +32,231 @@ def render_overview(
 
     inject_overview_css()
 
+    # --- Per-card bottom spacers (px) — tune these freely
+    PAD_K1 = 6  # Balance / Net Profit
+    PAD_K2 = 18  # Win Rate
+    PAD_K3 = 18  # Profit Factor
+    PAD_K4 = 33  # Avg Win / Avg Loss
+    PAD_K5 = 10  # Winstreak
+
+    # ===== TOP KPI ROW (full width) =====
+    k1, k2, k3, k4, k5 = st.columns([1.2, 1, 1, 1, 1], gap="small")
+
+    # -- k1: Balance & Net Profit (side-by-side) --
+    with k1:
+        with st.container(border=True):
+            st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+            balance_v = 0.00  # TODO: wire up real value later
+            net_profit_v = 0.00  # TODO: wire up real value later
+            green = "#61D0A8"
+            st.markdown(
+                f"""
+                <div class="kpi-pair">
+                <div class="kcol">
+                    <div class="k-label">Balance</div>
+                    <div class="k-value" style="color:{green};">${balance_v:,.2f}</div>
+                </div>
+                <div class="k-sep"></div>
+                <div class="kcol">
+                    <div class="k-label">Net Profit</div>
+                    <div class="k-value" style="color:{green};">${net_profit_v:,.2f}</div>
+                </div>
+                </div>
+                <style>
+                .kpi-pair {{
+                    display: flex; align-items: center; justify-content: space-evenly;
+                    gap: 16px; padding: 8px 0 12px;
+                }}
+                .kpi-pair .kcol {{ text-align: center; min-width: 140px; }}
+                .kpi-pair .k-label {{ font-size: 18px; font-weight: 600; color: #ffffff; margin-bottom: 2px; }}
+                .kpi-pair .k-value {{ font-size: 32px; font-weight: 800; line-height: 1.1; }}
+                .kpi-pair .k-sep {{ width: 1px; height: 102px; background: rgba(96,165,250,0.22); border-radius: 1px; }}
+                @media (max-width: 900px) {{
+                    .kpi-pair {{ flex-direction: column; gap: 8px; }}
+                    .kpi-pair .k-sep {{ display: none; }}
+                }}
+                </style>
+                """,
+                unsafe_allow_html=True,
+            )
+            st.markdown(f"<div style='height:{PAD_K1}px'></div>", unsafe_allow_html=True)
+
+    # -- k2: Win Rate (reuse your donut) --
+    with k2:
+        # (copy from your existing Win Rate card)
+        # START COPY of the block currently under: kpi_row1[0] -> with st.container(border=True): ...
+        with st.container(border=True):
+            st.markdown(
+                '<div style="text-align:center; font-weight:600; margin:0 0 6px; transform: translateX(6px);">Win Rate</div>',
+                unsafe_allow_html=True,
+            )
+            wr_pct = float(win_rate_v * 100.0)
+            win_color = "#2E86C1"
+            loss_color = "#212C47"
+            panel_bg = "#0b0f19"
+            fig_win = go.Figure(
+                go.Indicator(
+                    mode="gauge",
+                    value=wr_pct,
+                    gauge={
+                        "shape": "angular",
+                        "axis": {"range": [0, 100], "visible": False},
+                        "bar": {"color": "rgba(0,0,0,0)"},
+                        "borderwidth": 0,
+                        "steps": [
+                            {"range": [0, wr_pct], "color": win_color},
+                            {"range": [wr_pct, 100.0], "color": loss_color},
+                        ],
+                    },
+                    domain={"x": [0, 1], "y": [0, 1]},
+                )
+            )
+            fig_win.update_layout(
+                margin=dict(l=8, r=8, t=6, b=0), height=90, paper_bgcolor=panel_bg
+            )
+            fig_win.add_annotation(
+                x=0.5,
+                y=0.10,
+                xref="paper",
+                yref="paper",
+                text=f"{wr_pct:.0f}%",
+                showarrow=False,
+                font=dict(size=30, color="#e5e7eb", family="Inter, system-ui, sans-serif"),
+                align="center",
+            )
+            st.plotly_chart(fig_win, use_container_width=True)
+            st.markdown(f"<div style='height:{PAD_K2}px'></div>", unsafe_allow_html=True)
+
+        # END COPY
+
+    # -- k3: Profit Factor (reuse your donut) --
+    with k3:
+        # (copy from your existing Profit Factor card: kpi_row2[0])
+        # START COPY of the PF block...
+        with st.container(border=True):
+            st.markdown(
+                '<div style="text-align:center; font-weight:600; margin:0 0 6px; transform: translateX(6px);">Profit Factor</div>',
+                unsafe_allow_html=True,
+            )
+            gross_profit_v = float(pnl_v[wins_mask_v].sum())
+            gross_loss_v = float(pnl_v[losses_mask_v].sum())
+            pf_v = (gross_profit_v / abs(gross_loss_v)) if gross_loss_v != 0 else float("inf")
+            pf_display = "∞" if pf_v == float("inf") else f"{pf_v:.2f}"
+            max_pf = 4.0
+            pf_clamped = max(0.0, min(float(pf_v if pf_v != float("inf") else max_pf), max_pf))
+            pct = (pf_clamped / max_pf) * 100.0
+            panel_bg = "#0b0f19"
+            fill_col = "#2E86C1"
+            rest_col = "#212C47"
+            fig_pf = go.Figure(
+                go.Indicator(
+                    mode="gauge",
+                    value=pct,
+                    gauge={
+                        "shape": "angular",
+                        "axis": {"range": [0, 100], "visible": False},
+                        "bar": {"color": "rgba(0,0,0,0)"},
+                        "borderwidth": 0,
+                        "steps": [
+                            {"range": [0, pct], "color": fill_col},
+                            {"range": [pct, 100.0], "color": rest_col},
+                        ],
+                    },
+                    domain={"x": [0, 1], "y": [0, 1]},
+                )
+            )
+            fig_pf.update_layout(
+                margin=dict(l=8, r=8, t=6, b=0), height=90, paper_bgcolor=panel_bg, showlegend=False
+            )
+            fig_pf.add_annotation(
+                x=0.5,
+                y=0.10,
+                xref="paper",
+                yref="paper",
+                text=pf_display,
+                showarrow=False,
+                font=dict(size=28, color="#e5e7eb", family="Inter, system-ui, sans-serif"),
+                align="center",
+            )
+            st.plotly_chart(fig_pf, use_container_width=True)
+            st.markdown(f"<div style='height:{PAD_K3}px'></div>", unsafe_allow_html=True)
+        # END COPY
+
+    # -- k4: Avg Win / Avg Loss (reuse your pillbar card) --
+    with k4:
+        # (copy from your existing Avg Win/Loss card: kpi_row1[1])
+        with st.container(border=True):
+            st.markdown('<div class="kpi-pack">', unsafe_allow_html=True)
+            _aw_al_num = (
+                "∞" if avg_win_loss_ratio_v == float("inf") else f"{avg_win_loss_ratio_v:.2f}"
+            )
+            st.markdown(
+                f"""
+                <div class="kpi-center">
+                <div class="kpi-number">{_aw_al_num}</div>
+                <div class="kpi-label">Avg Win / Avg Loss</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            _aw = float(max(avg_win_v, 0.0))
+            _al = float(abs(avg_loss_v))
+            _total = _aw + _al
+            _blue_pct = 50.0 if _total <= 0 else (_aw / _total) * 100.0
+            _red_pct = 100.0 - _blue_pct
+            st.markdown(
+                f"""
+                <div class="pillbar" style="margin-top:6px;">
+                <div class="win"  style="width:{_blue_pct:.2f}%"></div>
+                <div class="loss" style="width:{_red_pct:.2f}%"></div>
+                </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            st.markdown(f"<div style='height:{PAD_K4}px'></div>", unsafe_allow_html=True)
+
+    # -- k5: Winstreak (moved up here) --
+    with k5:
+        with st.container(border=True):
+            # compute streaks (copied from your right panel)
+            def _streak_stats(win_bool: pd.Series) -> tuple[int, int, int]:
+                if win_bool is None or len(win_bool) == 0:
+                    return 0, 0, 0
+                s = pd.Series(win_bool).fillna(False).astype(bool)
+                grp = (s != s.shift()).cumsum()
+                run = s.groupby(grp).transform("size").where(s, 0)
+                current = int(run.iloc[-1]) if s.iloc[-1] else 0
+                best = int(run.max()) if len(run) else 0
+                resets = int(((~s) & s.shift(1).fillna(False)).sum())
+                return current, best, resets
+
+            pnl_series = pd.to_numeric(df_view.get("pnl", 0.0), errors="coerce").fillna(0.0)
+            trade_is_win = pnl_series > 0
+            trades_streak, best_trades_streak, resets_trades_ct = _streak_stats(trade_is_win)
+            if date_col and (date_col in df_view.columns) and len(df_view) > 0:
+                dates = pd.to_datetime(df_view[date_col], errors="coerce")
+                daily_net = pnl_series.groupby(dates.dt.date).sum()
+                day_is_win = daily_net > 0
+                days_streak, best_days_streak, resets_days_count = _streak_stats(day_is_win)
+            else:
+                days_streak = best_days_streak = resets_days_count = 0
+            render_winstreak(
+                days_streak=days_streak,
+                trades_streak=trades_streak,
+                best_days_streak=best_days_streak,
+                resets_days_count=resets_days_count,
+                best_trades_streak=best_trades_streak,
+                resets_trades_ct=resets_trades_ct,
+                title="Winstreak",
+                brand_color=BLUE,
+            )
+            st.markdown(f"<div style='height:{PAD_K5}px'></div>", unsafe_allow_html=True)
+
     """Renders the full Overview tab (left/right split, KPIs, equity curve tabs, daily/weekly PnL, win streak, calendar, filter button)."""
 
     # ======= LAYOUT FRAME: 40/60 main split (left=40%, right=60%) =======
-    s_left, s_right = st.columns([2, 3], gap="small")  # 2:3 ≈ 40%:60%
+    s_left, s_right = st.columns([1.8, 3], gap="small")  # 2:3 ≈ 40%:60%
 
     with s_left:
         # === Prep values used in these KPIs (Range-aware) ===
@@ -52,200 +273,6 @@ def render_overview(
             if "side" in df_view.columns
             else pd.Series(dtype=float)
         )
-
-        # === KPI GRID (2x2) ===
-        kpi_row1 = st.columns([1, 1], gap="small")
-        with kpi_row1[0]:
-            with st.container(border=True):
-                st.markdown(
-                    '<div style="text-align:center; font-weight:600; margin:0 0 6px; transform: translateX(6px);">Win Rate</div>',
-                    unsafe_allow_html=True,
-                )
-
-                wr_pct = float(win_rate_v * 100.0)  # win_rate_v is 0..1
-                win_color = "#2E86C1"
-                loss_color = "#212C47"
-                panel_bg = "#0b0f19"
-
-                fig_win = go.Figure(
-                    go.Indicator(
-                        mode="gauge",
-                        value=wr_pct,
-                        gauge={
-                            "shape": "angular",
-                            "axis": {"range": [0, 100], "visible": False},
-                            "bar": {"color": "rgba(0,0,0,0)"},
-                            "borderwidth": 0,
-                            "steps": [
-                                {"range": [0, wr_pct], "color": win_color},
-                                {"range": [wr_pct, 100.0], "color": loss_color},
-                            ],
-                        },
-                        domain={"x": [0, 1], "y": [0, 1]},
-                    )
-                )
-                fig_win.update_layout(
-                    margin=dict(l=8, r=8, t=6, b=0),
-                    height=90,
-                    paper_bgcolor=panel_bg,
-                )
-                fig_win.add_annotation(
-                    x=0.5,
-                    y=0.10,
-                    xref="paper",
-                    yref="paper",
-                    text=f"{wr_pct:.0f}%",
-                    showarrow=False,
-                    font=dict(size=30, color="#e5e7eb", family="Inter, system-ui, sans-serif"),
-                    align="center",
-                )
-                st.plotly_chart(fig_win, use_container_width=True)
-
-        with kpi_row1[1]:
-            with st.container(border=True):
-                st.markdown('<div class="kpi-pack">', unsafe_allow_html=True)
-
-                _aw_al_num = (
-                    "∞" if avg_win_loss_ratio_v == float("inf") else f"{avg_win_loss_ratio_v:.2f}"
-                )
-                st.markdown(
-                    f"""
-                    <div class="kpi-center">
-                      <div class="kpi-number">{_aw_al_num}</div>
-                      <div class="kpi-label">Avg Win / Avg Loss</div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-
-                # --- Blue/Red ratio pill (Avg Win vs Avg Loss) ---
-                _aw = float(max(avg_win_v, 0.0))
-                _al = float(abs(avg_loss_v))
-                _total = _aw + _al
-                _blue_pct = 50.0 if _total <= 0 else (_aw / _total) * 100.0
-                _red_pct = 100.0 - _blue_pct
-
-                st.markdown(
-                    f"""
-                    <div class="pillbar" style="margin-top:6px;">
-                      <div class="win"  style="width:{_blue_pct:.2f}%"></div>
-                      <div class="loss" style="width:{_red_pct:.2f}%"></div>
-                    </div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-
-        # --- KPI row 2 (Profit Factor left, Long vs Short right) ---
-        kpi_row2 = st.columns([1, 1], gap="small")
-
-        # LEFT: Profit Factor — half donut
-        with kpi_row2[0]:
-            with st.container(border=True):
-                st.markdown(
-                    '<div style="text-align:center; font-weight:600; margin:0 0 6px; transform: translateX(6px);">'
-                    "Profit Factor</div>",
-                    unsafe_allow_html=True,
-                )
-
-                pf_display = "∞" if pf_v == float("inf") else f"{pf_v:.2f}"
-                max_pf = 4.0
-                pf_clamped = max(0.0, min(float(pf_v if pf_v != float("inf") else max_pf), max_pf))
-                pct = (pf_clamped / max_pf) * 100.0
-
-                panel_bg = "#0b0f19"
-                fill_col = "#2E86C1"
-                rest_col = "#212C47"
-
-                fig_pf = go.Figure(
-                    go.Indicator(
-                        mode="gauge",
-                        value=pct,
-                        gauge={
-                            "shape": "angular",
-                            "axis": {"range": [0, 100], "visible": False},
-                            "bar": {"color": "rgba(0,0,0,0)"},
-                            "borderwidth": 0,
-                            "steps": [
-                                {"range": [0, pct], "color": fill_col},
-                                {"range": [pct, 100.0], "color": rest_col},
-                            ],
-                        },
-                        domain={"x": [0, 1], "y": [0, 1]},
-                    )
-                )
-                fig_pf.update_layout(
-                    margin=dict(l=8, r=8, t=6, b=0),
-                    height=90,
-                    paper_bgcolor=panel_bg,
-                    showlegend=False,
-                )
-                fig_pf.add_annotation(
-                    x=0.5,
-                    y=0.10,
-                    xref="paper",
-                    yref="paper",
-                    text=pf_display,
-                    showarrow=False,
-                    font=dict(size=28, color="#e5e7eb", family="Inter, system-ui, sans-serif"),
-                    align="center",
-                )
-                st.plotly_chart(fig_pf, use_container_width=True)
-
-        # RIGHT: Expectancy / Trade — compact KPI
-        with kpi_row2[1]:
-            with st.container(border=True):
-                st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-                # Example values (replace with your real logic later)
-                balance_v = 0.00
-                net_profit_v = 0.00
-
-                green = "#61D0A8"  # same green as used in Last 5 Trades
-
-                st.markdown(
-                    f"""
-                    <div class="kpi-pair">
-                    <div class="kcol">
-                        <div class="k-label">Balance</div>
-                        <div class="k-value" style="color:{green};">${balance_v:,.2f}</div>
-                    </div>
-
-                    <div class="k-sep"></div>
-
-                    <div class="kcol">
-                        <div class="k-label">Net Profit</div>
-                        <div class="k-value" style="color:{green};">${net_profit_v:,.2f}</div>
-                    </div>
-                    </div>
-
-                    <style>
-                    .kpi-pair {{
-                        display: flex; align-items: center; justify-content: space-evenly;
-                        gap: 16px; padding: 8px 0 48px;   /* ↑ top, 0 left/right, ↑ bottom */
-                    }}
-
-                    .kpi-pair .kcol {{
-                        text-align: center; min-width: 140px;
-                    }}
-                    .kpi-pair .k-label {{
-                        font-size: 20px; font-weight: 600; color: #ffffff; margin-bottom: 2px;
-                    }}
-                    .kpi-pair .k-value {{
-                        font-size: 26px; font-weight: 800; line-height: 1.1;
-                    }}
-                    .kpi-pair .k-sep {{
-                        width: 1px; height: 40px; background: rgba(96,165,250,0.22); border-radius: 1px;
-                    }}
-
-                    /* Stack on small screens */
-                    @media (max-width: 900px) {{
-                        .kpi-pair {{ flex-direction: column; gap: 8px; }}
-                        .kpi-pair .k-sep {{ display: none; }}
-                    }}
-                    </style>
-                    """,
-                    unsafe_allow_html=True,
-                )
 
         # === Equity Curve (bottom of s_left) — with tabs and date x-axis ===
         with st.container(border=True):
@@ -329,156 +356,111 @@ def render_overview(
                             fig_eq, use_container_width=True, key=f"ov_eq_curve_{_label}"
                         )
 
-        # === Right column top row (split in 2) ===
-        with s_right:
-            st.markdown("<div style='margin-bottom:-12px'></div>", unsafe_allow_html=True)
-            right_top = st.columns([1.5, 1], gap="small")
+    # === Right column top row (split in 2) ===
+    with s_right:
+        st.markdown("<div style='margin-bottom:-12px'></div>", unsafe_allow_html=True)
+        right_top = st.columns([1.5, 1], gap="small")
 
-            # ----- Left side: Daily / Weekly PnL (inside bordered card) -----
-            with right_top[0]:
-                with st.container(border=True):
-                    # Header spacing knobs
-                    TITLE_TOP_PAD = 10
-                    CTRL_TOP_PAD = 4
+        # ----- Left side: Daily / Weekly PnL (inside bordered card) -----
+        with right_top[0]:
+            with st.container(border=True):
+                # Header spacing knobs
+                TITLE_TOP_PAD = 6
+                CTRL_TOP_PAD = 4
 
-                    # ROW 1: Title (left) | Segmented control (right)
-                    r1l, r1r = st.columns([3, 1], gap="small")
-                    with r1l:
-                        st.markdown(
-                            f"<div style='height:{TITLE_TOP_PAD}px'></div>", unsafe_allow_html=True
-                        )
-                        current_mode = st.session_state.get("_dpnl_mode", "Daily")
-                        st.markdown(
-                            "<div style='font-size:28px; font-weight:600; margin:0'>"
-                            f"{current_mode} PnL</div>",
-                            unsafe_allow_html=True,
-                        )
-                    with r1r:
-                        st.markdown(
-                            f"<div style='height:{CTRL_TOP_PAD}px'></div>", unsafe_allow_html=True
-                        )
-                        mode = st.segmented_control(
-                            options=["Daily", "Weekly"], default=current_mode, label=""
-                        )
-                        st.session_state["_dpnl_mode"] = mode
-
-                    # tighten gap between header and chart
-                    st.markdown("<div style='margin-bottom:-12px'></div>", unsafe_allow_html=True)
-
-                    # ---- Chart ----
-                    mode = st.session_state.get("_dpnl_mode", "Daily")  # safety fallback
-                    fig_pnl = plot_pnl(df_view, date_col, mode=mode, height=250)
-                    st.plotly_chart(fig_pnl, use_container_width=True, key=f"ov_pnl_{mode}")
-
-                with st.container(border=True):
+                # ROW 1: Title (left) | Segmented control (right)
+                r1l, r1r = st.columns([3, 1], gap="small")
+                with r1l:
                     st.markdown(
-                        '<div style="font-weight:600; margin:0 0 8px; transform: translateX(6px);">Reward:Risk</div>',
+                        f"<div style='height:{TITLE_TOP_PAD}px'></div>", unsafe_allow_html=True
+                    )
+                    current_mode = st.session_state.get("_dpnl_mode", "Daily")
+                    st.markdown(
+                        "<div style='font-size:28px; font-weight:600; margin:0'>"
+                        f"{current_mode} PnL</div>",
                         unsafe_allow_html=True,
                     )
+                with r1r:
+                    st.markdown(
+                        f"<div style='height:{CTRL_TOP_PAD}px'></div>", unsafe_allow_html=True
+                    )
+                    mode = st.segmented_control(
+                        options=["Daily", "Weekly"], default=current_mode, label=""
+                    )
+                    st.session_state["_dpnl_mode"] = mode
 
-                    _has_date = (date_col is not None) and (date_col in df_view.columns)
-                    rr_df = df_view.copy()
+                # tighten gap between header and chart
+                st.markdown("<div style='margin-bottom:-12px'></div>", unsafe_allow_html=True)
 
-                    # x-axis
-                    if _has_date:
-                        rr_df["_date"] = pd.to_datetime(rr_df[date_col], errors="coerce")
-                        rr_df = rr_df.loc[rr_df["_date"].notna()].sort_values("_date")
-                    else:
-                        rr_df["_date"] = np.arange(len(rr_df))
+                # ---- Chart ----
+                mode = st.session_state.get("_dpnl_mode", "Daily")  # safety fallback
+                fig_pnl = plot_pnl(df_view, date_col, mode=mode, height=180)
+                st.plotly_chart(fig_pnl, use_container_width=True, key=f"ov_pnl_{mode}")
 
-                    # Placeholder RR (until you have a real rr column)
-                    if "rr" not in rr_df.columns:
-                        pnl_num = pd.to_numeric(rr_df.get("pnl", 0.0), errors="coerce").fillna(0.0)
-                        losses = pnl_num[pnl_num < 0].abs()
-                        risk_proxy = float(losses.median()) if len(losses) else 1.0
-                        rr_df["rr"] = pnl_num / (risk_proxy or 1.0)
-
-                    def _slice_window_rr(df_in: pd.DataFrame, label: str) -> pd.DataFrame:
-                        if not _has_date or len(df_in) == 0 or label == "All":
-                            return df_in
-                        x = pd.to_datetime(df_in["_date"], errors="coerce")
-                        last = x.max().normalize()
-                        if label == "1D":
-                            mask = x.dt.normalize() == last
-                        elif label == "1W":
-                            mask = x.dt.normalize() >= last - pd.Timedelta(days=6)
-                        elif label == "1M":
-                            mask = x.dt.normalize() >= last - pd.Timedelta(days=29)
-                        elif label == "6M":
-                            mask = x.dt.normalize() >= last - pd.Timedelta(days=183)
-                        elif label == "1Y":
-                            mask = x.dt.normalize() >= last - pd.Timedelta(days=364)
-                        else:
-                            mask = slice(None)
-                        out = df_in.loc[mask]
-                        return out if len(out) else df_in.tail(1)
-
-                    tabs = st.tabs(["All", "1D", "1W", "1M", "6M", "1Y"])
-                    for lab, tab in zip(["All", "1D", "1W", "1M", "6M", "1Y"], tabs):
-                        with tab:
-                            df_show = _slice_window_rr(rr_df, lab)
-                            fig_rr = plot_rr(
-                                df_show[["_date", "rr"]], has_date=_has_date, height=150
-                            )
-                            st.plotly_chart(fig_rr, use_container_width=True, key=f"rr_chart_{lab}")
-
-        # Right side: Win Streak box
-        with right_top[1]:
             with st.container(border=True):
-                # ---- compute real streaks ----
-                def _streak_stats(win_bool: pd.Series) -> tuple[int, int, int]:
-                    """Return (current_win_streak, best_win_streak, resets_count)."""
-                    if win_bool is None or len(win_bool) == 0:
-                        return 0, 0, 0
-                    s = pd.Series(win_bool).fillna(False).astype(bool)
-                    grp = (s != s.shift()).cumsum()  # group consecutive equal values
-                    run = (
-                        s.groupby(grp).transform("size").where(s, 0)
-                    )  # size of current win-run per row
-                    current = int(run.iloc[-1]) if s.iloc[-1] else 0
-                    best = int(run.max()) if len(run) else 0
-                    resets = int(((~s) & s.shift(1).fillna(False)).sum())  # count win→loss breaks
-                    return current, best, resets
-
-                # trades streaks (row-level wins)
-                pnl_series = (
-                    pd.to_numeric(df_view["pnl"], errors="coerce").fillna(0.0)
-                    if "pnl" in df_view.columns
-                    else pd.Series(dtype=float)
+                st.markdown(
+                    '<div style="font-weight:600; margin:0 0 6px; transform: translateX(6px);">Reward:Risk</div>',
+                    unsafe_allow_html=True,
                 )
-                trade_is_win = pnl_series > 0
-                trades_streak, best_trades_streak, resets_trades_ct = _streak_stats(trade_is_win)
 
-                # days streaks (net PnL by day)
-                if date_col and (date_col in df_view.columns) and len(df_view) > 0:
-                    dates = pd.to_datetime(df_view[date_col], errors="coerce")
-                    daily_net = pnl_series.groupby(dates.dt.date).sum()
-                    day_is_win = daily_net > 0
-                    days_streak, best_days_streak, resets_days_count = _streak_stats(day_is_win)
+                _has_date = (date_col is not None) and (date_col in df_view.columns)
+                rr_df = df_view.copy()
+
+                # x-axis
+                if _has_date:
+                    rr_df["_date"] = pd.to_datetime(rr_df[date_col], errors="coerce")
+                    rr_df = rr_df.loc[rr_df["_date"].notna()].sort_values("_date")
                 else:
-                    days_streak = best_days_streak = resets_days_count = 0
+                    rr_df["_date"] = np.arange(len(rr_df))
 
-                render_winstreak(
-                    days_streak=days_streak,
-                    trades_streak=trades_streak,
-                    best_days_streak=best_days_streak,
-                    resets_days_count=resets_days_count,
-                    best_trades_streak=best_trades_streak,
-                    resets_trades_ct=resets_trades_ct,
-                    title="Winstreak",
-                    brand_color=BLUE,
-                )
+                # Placeholder RR (until you have a real rr column)
+                if "rr" not in rr_df.columns:
+                    pnl_num = pd.to_numeric(rr_df.get("pnl", 0.0), errors="coerce").fillna(0.0)
+                    losses = pnl_num[pnl_num < 0].abs()
+                    risk_proxy = float(losses.median()) if len(losses) else 1.0
+                    rr_df["rr"] = pnl_num / (risk_proxy or 1.0)
 
-                # keep the small spacing tweak you had before
-                st.markdown("<div style='margin-bottom:-32px'></div>", unsafe_allow_html=True)
+                def _slice_window_rr(df_in: pd.DataFrame, label: str) -> pd.DataFrame:
+                    if not _has_date or len(df_in) == 0 or label == "All":
+                        return df_in
+                    x = pd.to_datetime(df_in["_date"], errors="coerce")
+                    last = x.max().normalize()
+                    if label == "1D":
+                        mask = x.dt.normalize() == last
+                    elif label == "1W":
+                        mask = x.dt.normalize() >= last - pd.Timedelta(days=6)
+                    elif label == "1M":
+                        mask = x.dt.normalize() >= last - pd.Timedelta(days=29)
+                    elif label == "6M":
+                        mask = x.dt.normalize() >= last - pd.Timedelta(days=183)
+                    elif label == "1Y":
+                        mask = x.dt.normalize() >= last - pd.Timedelta(days=364)
+                    else:
+                        mask = slice(None)
+                    out = df_in.loc[mask]
+                    return out if len(out) else df_in.tail(1)
 
-            # Last 5 trades (placeholder for now)
-            with st.container(border=True):
-                render_last_trades(
-                    placeholder_last_trades(),
-                    title="Last 5 Trades",
-                    key_prefix="ov_last5",
-                )
+                tabs = st.tabs(["All", "1D", "1W", "1M", "6M", "1Y"])
+                for lab, tab in zip(["All", "1D", "1W", "1M", "6M", "1Y"], tabs):
+                    with tab:
+                        df_show = _slice_window_rr(rr_df, lab)
+                        fig_rr = plot_rr(df_show[["_date", "rr"]], has_date=_has_date, height=220)
+                        st.plotly_chart(fig_rr, use_container_width=True, key=f"rr_chart_{lab}")
+
+    # Right side: Win Streak box
+    with right_top[1]:
+        with st.container(border=True):
+            # top padding
+            st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+
+            render_last_trades(
+                placeholder_last_trades(),
+                title="Last 5 Trades",
+                key_prefix="ov_last5",
+            )
+
+            # bottom padding
+            st.markdown("<div style='height:32px'></div>", unsafe_allow_html=True)
 
     # --- Right column bottom: Monthly Stats (replaces Calendar) ---
     render_monthly_stats(

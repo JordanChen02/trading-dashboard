@@ -108,7 +108,7 @@ def render_last_trades(
     """Render a compact list like your screenshot."""
     trades = list(trades)[:5]
 
-    with st.container(border=True):
+    with st.container(border=False):
         st.markdown(
             f"<div style='font-weight:600;margin:0 0 8px 4px;'>{title}</div>",
             unsafe_allow_html=True,
