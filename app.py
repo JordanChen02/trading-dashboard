@@ -42,6 +42,152 @@ inject_filters_css()
 inject_isolated_ui_css()
 inject_topbar_css()
 
+st.markdown(
+    """
+<style>
+/* Remove Streamlit's top header/toolbar */
+[data-testid="stHeader"]  { height: 0; visibility: hidden; }
+[data-testid="stToolbar"] { display: none; }
+
+/* Pull main content to the very top (robust selector) */
+[data-testid="stAppViewContainer"] .block-container { padding-top: 0 !important; }
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
+
+st.markdown(
+    """
+<style>
+  /* Kill the 96px top padding on the main content container */
+  [data-testid="stAppViewContainer"] .block-container{
+    padding-top: 0 !important;   /* or 8px if you want a tiny buffer */
+  }
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
+st.markdown(
+    """
+<style>
+  /* Remove top margin that headings (and some components) add at the page start */
+  [data-testid="stAppViewContainer"] .block-container > *:first-child {
+    margin-top: 0 !important;
+    padding-top: 0 !important;
+  }
+  /* Belt & suspenders: common heading tags + your custom title class */
+  [data-testid="stAppViewContainer"] .block-container h1,
+  [data-testid="stAppViewContainer"] .block-container h2,
+  [data-testid="stAppViewContainer"] .block-container h3,
+  .page-title {
+    margin-top: 0 !important;
+  }
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
+st.markdown(
+    """
+<style>
+  /* FINAL OVERRIDES (place at very end of app.py) */
+
+  /* Hide Streamlit chrome */
+  [data-testid="stHeader"]  { height: 0 !important; visibility: hidden !important; }
+  [data-testid="stToolbar"] { display: none !important; }
+
+  /* Remove all top padding/margins from the main container */
+  [data-testid="stAppViewContainer"],
+  [data-testid="stAppViewContainer"] .block-container {
+    padding-top: 0 !important;
+    margin-top: 0 !important;
+  }
+
+  /* Kill any top margins headings/components try to add */
+  [data-testid="stAppViewContainer"] .block-container > *:first-child {
+    margin-top: 0 !important;
+    padding-top: 0 !important;
+  }
+  [data-testid="stAppViewContainer"] .block-container h1,
+  [data-testid="stAppViewContainer"] .block-container h2,
+  [data-testid="stAppViewContainer"] .block-container h3,
+  .page-title {
+    margin-top: 0 !important;
+  }
+
+  /* Micro-lift just the first row without affecting page height (no bottom clipping) */
+  :root { --lift: 200px; }  /* tweak 8–16px to taste */
+  [data-testid="stAppViewContainer"] .block-container > *:first-child {
+    transform: translateY(calc(-1 * var(--lift)));
+  }
+
+  /* Match the sidebar to that lift so its top aligns */
+  [data-testid="stSidebar"] > div:first-child {
+    padding-top: var(--lift) !important;
+  }
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
+st.markdown(
+    """
+<style>
+  /* Add extra scroll space so bottom isn’t clipped */
+  [data-testid="stAppViewContainer"] .block-container {{
+    padding-bottom: 200px !important;   /* adjust this value */
+  }}
+
+  /* Sidebar needs matching bottom room so it doesn’t crop */
+  [data-testid="stSidebar"] > div:first-child {{
+    padding-bottom: 200px !important;   /* same value as above */
+  }}
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
+
+st.markdown(
+    f"""
+<style>
+/* Base: make sidebar transitions smooth */
+[data-testid="stSidebar"] {{ transition: all .18s ease; }}
+    
+/* Expanded look (optional explicit sizing) */
+{'''
+[data-testid="stSidebar"]{
+  transform: none !important;
+  width: 18rem !important;
+  min-width: 18rem !important;
+  visibility: visible !important;
+}
+''' if st.session_state.get('sb_open', True) else '' }
+</style>
+""",
+    unsafe_allow_html=True,
+)
+st.markdown(
+    """
+<style>
+  /* Sidebar top offset to align with the main topbar.
+     Increase/decrease this value to match your current main margin tweak. */
+  [data-testid="stSidebar"] > div:first-child {
+    padding-top: 10px !important;   /* ← adjust this number */
+  }
+
+  /* If your brand row still looks tight, you can add a small gap under it too */
+  [data-testid="stSidebar"] .brand-row {
+    margin-top: 10px !important;   /* optional; tweak or remove */
+  }
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
+
 # Make theme color available to CSS as a custom property
 st.markdown(f"<style>:root {{ --blue-fill: {BLUE_FILL}; }}</style>", unsafe_allow_html=True)
 
@@ -52,6 +198,7 @@ if "_cal_month_start" not in st.session_state:
 
 # ========== TOP TOOLBAR (right-aligned icons) ==========
 st.markdown('<div class="topbar">', unsafe_allow_html=True)
+
 
 # Big spacer pushes icons to the far right
 t_spacer, t_globe, t_bell, t_full, t_theme, t_profile = st.columns(
@@ -142,10 +289,7 @@ with t_profile:
 
         st.markdown("</div>", unsafe_allow_html=True)  # close .upload-pop
         st.markdown("</div>", unsafe_allow_html=True)  # close .profile-pop
-
-
-# -------- Divider between top toolbar and the control row --------
-st.divider()
+        st.markdown("</div>", unsafe_allow_html=True)  # close .topbar
 
 
 # ===================== SIDEBAR: Journals (UI only) =====================
@@ -530,7 +674,10 @@ def _persist_journal_meta():
 st.markdown('<div class="controls">', unsafe_allow_html=True)
 c_left, c_month, c_filters = st.columns([12, 2, 2], gap="small")
 with c_left:
-    st.title("Trading Dashboard — MVP")
+    st.markdown(
+        "<h3 class='page-title'>Welcome, User</h3>",
+        unsafe_allow_html=True,
+    )
 
 # --- Month popover (with icon) ---
 with c_month:
@@ -869,3 +1016,5 @@ with tab_calendar:
         month_start=st.session_state["_cal_month_start"],
         key="cal",
     )
+
+st.markdown('<div id="tail-spacer" style="height: 200px"></div>', unsafe_allow_html=True)
