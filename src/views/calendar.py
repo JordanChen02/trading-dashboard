@@ -133,37 +133,14 @@ def render(
         padding:6px 10px 2px;
     }}
 
-    /* ARROWS: borderless + 34px */
-    #cal-nav [data-testid="stButton"] > button {{
-    background: transparent !important;
-    border: 0 !important;
-    box-shadow: none !important;
-    outline: none !important;
-    color: #e5e7eb !important;
-    font-size: 34px !important;     /* was 42px */
-    line-height: 1 !important;
-    height: 44px !important;         /* was 40px */
-    min-width: 44px !important;      /* was 40px */
-    border-radius: 8px !important;
-    padding: 0 8px !important;
-    }}
-    #cal-nav [data-testid="stButton"] > button:hover,
-    #cal-nav [data-testid="stButton"] > button:focus {{
-    background: transparent !important;  /* was rgba(...,0.06) */
-    border: 0 !important;
-    box-shadow: none !important;
-    outline: none !important;
-    }}
-
-
     /* Month-Year label in the center */
     .cal-month-label {{
         text-align:center;
-        font-weight:600;
-        font-size:32px;
+        font-weight:400;
+        font-size:48px;
         letter-spacing:.3px;
         color:#e5e7eb;
-        margin: 2px 0 0 0;
+        margin: 0px 0 0 0;
     }}
 
     /* If any selectboxes remain elsewhere, keep them compact */
@@ -198,20 +175,104 @@ def render(
     """,
         unsafe_allow_html=True,
     )
+
     st.markdown(
         """
     <style>
-    /* Make arrow glyphs larger — Streamlit wraps them in a <p> inside the button */
-    #cal-nav [data-testid="stButton"] > button {
-    font-size: 34px !important;     /* keep 34px */
-    height: 44px !important; 
+    /* Calendar arrows — borderless, 34px, scoped to the columns that contain .cal-nav-marker */
+    div:is([data-testid="stColumn"], [data-testid="column"]):has(.cal-nav-marker) [data-testid="stButton"] > button {
+    background: transparent !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    outline: none !important;
+
+    color: #e5e7eb !important;
+    font-size: 34px !important;     /* target size */
+    line-height: 1 !important;
+
+    height: 44px !important;        /* hit area */
     min-width: 44px !important;
+    border-radius: 8px !important;
+    padding: 0 8px !important;
     }
-    #cal-nav [data-testid="stButton"] > button p {
-    font-size: inherit !important;   /* was 42px */
+
+    div:is([data-testid="stColumn"], [data-testid="column"]):has(.cal-nav-marker) [data-testid="stButton"] > button:hover,
+    div:is([data-testid="stColumn"], [data-testid="column"]):has(.cal-nav-marker) [data-testid="stButton"] > button:focus {
+    background: transparent !important;  /* keep borderless on hover/focus */
+    border: 0 !important;
+    box-shadow: none !important;
+    outline: none !important;
+    }
+
+    /* Streamlit wraps button text in a <p> — keep it at 34px via inherit */
+    div:is([data-testid="stColumn"], [data-testid="column"]):has(.cal-nav-marker)
+    [data-testid="stButton"] > button p {
+    font-size: inherit !important;
     line-height: 1 !important;
     margin: 0 !important;
     }
+    </style>
+    """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        """
+    <style>
+    /* FORCE arrow font-size on the button and every child inside it */
+    div:is([data-testid="stColumn"], [data-testid="column"]):has(.cal-nav-marker)
+    [data-testid="stButton"] > button {
+    font-size: 34px !important;
+    line-height: 1 !important;
+    }
+
+    div:is([data-testid="stColumn"], [data-testid="column"]):has(.cal-nav-marker)
+    [data-testid="stButton"] > button :is(p, span, div, em, strong) {
+    font-size: inherit !important;      /* inherit the 34px from the button */
+    line-height: inherit !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    }
+
+    /* belt & suspenders: if Streamlit swaps wrappers, cover any descendant */
+    div:is([data-testid="stColumn"], [data-testid="column"]):has(.cal-nav-marker)
+    [data-testid="stButton"] > button * {
+    font-size: inherit !important;
+    line-height: inherit !important;
+    }
+    </style>
+    """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        """
+    <style>
+    /* Hover/focus fill for calendar arrows (still borderless) */
+    div:is([data-testid="stColumn"], [data-testid="column"]):has(.cal-nav-marker)
+    [data-testid="stButton"] > button:hover,
+    div:is([data-testid="stColumn"], [data-testid="column"]):has(.cal-nav-marker)
+    [data-testid="stButton"] > button:focus-visible {
+    background: rgba(255, 255, 255, 0.08) !important;  /* ← hover fill */
+    border: 0 !important;
+    box-shadow: none !important;
+    outline: none !important;
+    transition: background 120ms ease-in-out;
+    }
+
+    /* (Optional) pressed state */
+    div:is([data-testid="stColumn"], [data-testid="column"]):has(.cal-nav-marker)
+    [data-testid="stButton"] > button:active {
+    background: rgba(255, 255, 255, 0.14) !important;
+    }
+    </style>
+    """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        """
+    <style>
 
 
     /* Add space BETWEEN each stat pair (Trades | Wins | Profits | Percent) */
@@ -248,10 +309,12 @@ def render(
     st.markdown("<div id='cal-nav'>", unsafe_allow_html=True)
 
     with c_prev:
+        st.markdown('<span class="cal-nav-marker"></span>', unsafe_allow_html=True)  # ← marker
         if st.button("‹", key=f"{key}_prev"):
             anchor = (anchor - pd.offsets.MonthBegin(1)).normalize().replace(day=1)
 
     with c_next:
+        st.markdown('<span class="cal-nav-marker"></span>', unsafe_allow_html=True)  # ← marker
         if st.button("›", key=f"{key}_next"):
             anchor = (anchor + pd.offsets.MonthBegin(1)).normalize().replace(day=1)
 
