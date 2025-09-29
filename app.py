@@ -1,5 +1,6 @@
 # app.py (top of file)
 import json  # read/write sidecar metadata for notes/tags
+from datetime import date, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -41,6 +42,8 @@ inject_header_layout_css()
 inject_filters_css()
 inject_isolated_ui_css()
 inject_topbar_css()
+inject_upload_css()
+
 
 st.markdown(
     """
@@ -247,7 +250,10 @@ with t_profile:
         st.subheader("Account")
         col_p1, col_p2 = st.columns([1, 3])
         with col_p1:
-            st.image("https://via.placeholder.com/64x64.png?text= ", width=48)
+            st.image(
+                "https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png?20150327203541",
+                width=180,
+            )
         with col_p2:
             st.caption("Signed in as")
             st.write("**squintz**")
@@ -289,7 +295,6 @@ with t_profile:
 
         st.markdown("</div>", unsafe_allow_html=True)  # close .upload-pop
         st.markdown("</div>", unsafe_allow_html=True)  # close .profile-pop
-        st.markdown("</div>", unsafe_allow_html=True)  # close .topbar
 
 
 # ===================== SIDEBAR: Journals (UI only) =====================
@@ -670,6 +675,167 @@ def _persist_journal_meta():
         st.warning(f"Couldn't save journal metadata: {e}")
 
 
+# ===================== CONTROLS BAR (appears inline with tabs) =====================
+
+
+st.markdown(
+    """
+<style>
+  /* Make controls + tabs look like one row */
+  .controls-bar { margin-bottom: 2px; }           /* shrink gap above tabs */
+  div[data-baseweb="tab-list"] { margin-top: 0; } /* tabs top margin */
+
+  /* Compact sizing */
+  .jr-wrap{ width: 220px; display:inline-block; } /* ← adjust select width */
+  .jr-wrap .stSelectbox{ width: 100%; }
+  .jr-plus > div button{ width:40px; height:40px; padding:0; border-radius:10px; }
+  .seg-btn > div button{ height:40px; }
+  .date-box .stDateInput{ min-width: 210px; }
+  .date-box .stDateInput input{ text-align:center; }
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
+with st.container():
+    st.markdown("<div class='controls-bar'>", unsafe_allow_html=True)
+    jr_col, plus_col, b7_col, b30_col, dd_col, from_col, to_col = st.columns(
+        [0.32, 0.08, 0.12, 0.16, 0.22, 0.35, 0.35], gap="small"
+    )
+
+    # -------- Ensure Account column (derive if missing) --------
+    if "Account" not in df.columns:
+        sym = df.get("symbol", None)
+        if sym is None:
+            sym = df.get("Symbol", None)
+        if sym is not None:
+            s = sym.astype(str).str.upper()
+            df["Account"] = np.select(
+                [s.eq("NQ"), s.eq("BTCUSDT")],
+                ["NQ", "Crypto (Prop)"],
+                default="Crypto (Live)",
+            )
+        else:
+            df["Account"] = "NQ"
+    df["Account"] = (
+        df["Account"]
+        .astype(str)
+        .str.strip()
+        .replace(
+            {
+                "Journal: NQ": "NQ",
+                "Journal: Crypto": "Crypto (Live)",
+                "Journal: Crypto (Live)": "Crypto (Live)",
+                "Journal: Crypto (Prop)": "Crypto (Prop)",
+            }
+        )
+    )
+    base_accounts = ["NQ", "Crypto (Prop)", "Crypto (Live)"]
+    present_accounts = [a for a in base_accounts if a in df["Account"].unique().tolist()]
+    st.session_state.setdefault("journal_groups", {})
+    group_names = sorted(list(st.session_state["journal_groups"].keys()))
+    journal_options = ["ALL"] + present_accounts + group_names
+
+    # -------- Journal select --------
+    with jr_col:
+        st.markdown("<div class='jr-wrap'>", unsafe_allow_html=True)
+        default_idx = (
+            journal_options.index(st.session_state["global_journal_sel"])
+            if st.session_state.get("global_journal_sel") in journal_options
+            else 0
+        )
+        sel = st.selectbox(
+            "Journal",
+            options=journal_options,
+            index=default_idx,
+            key="global_journal_sel",
+            label_visibility="collapsed",
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    # -------- ＋ group creator --------
+    with plus_col:
+        st.markdown("<div class='jr-plus'>", unsafe_allow_html=True)
+        pop = st.popover("＋", use_container_width=True)
+        with pop:
+            st.markdown("**Create journal group**")
+            g_name = st.text_input("Group name", placeholder="e.g., Crypto (All)")
+            pick = st.multiselect(
+                "Include accounts",
+                options=base_accounts,
+                default=["Crypto (Prop)", "Crypto (Live)"],
+            )
+            if st.button(
+                "Save group", use_container_width=True, disabled=(not g_name.strip() or not pick)
+            ):
+                st.session_state["journal_groups"][g_name.strip()] = pick
+                st.session_state["global_journal_sel"] = g_name.strip()
+                st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    # -------- Quick ranges + date range --------
+    today = date.today()
+    st.session_state.setdefault("date_from", today - timedelta(days=6))
+    st.session_state.setdefault("date_to", today)
+
+    with b7_col:
+        st.markdown("<div class='seg-btn'>", unsafe_allow_html=True)
+        if st.button("Recent 7 Days", use_container_width=True):
+            st.session_state["date_from"] = today - timedelta(days=6)
+            st.session_state["date_to"] = today
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with b30_col:
+        st.markdown("<div class='seg-btn'>", unsafe_allow_html=True)
+        if st.button("Recent 30 Days", use_container_width=True):
+            st.session_state["date_from"] = today - timedelta(days=29)
+            st.session_state["date_to"] = today
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with dd_col:
+        options = {"Recent 60 Days": 59, "Recent 90 Days": 89, "Recent 120 Days": 119}
+        choice = st.selectbox("Recent", list(options.keys()), index=0, label_visibility="collapsed")
+        # When user changes choice, keep "to" as today and move "from" back N days:
+        offs = options.get(choice, 59)
+        if choice:
+            st.session_state["date_from"] = today - timedelta(days=offs)
+            st.session_state["date_to"] = today
+
+    with from_col:
+        st.markdown("<div class='date-box'>", unsafe_allow_html=True)
+        st.session_state["date_from"] = st.date_input(
+            "From", value=st.session_state["date_from"], label_visibility="collapsed"
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with to_col:
+        st.markdown("<div class='date-box'>", unsafe_allow_html=True)
+        st.session_state["date_to"] = st.date_input(
+            "To", value=st.session_state["date_to"], label_visibility="collapsed"
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# -------- Apply journal + date filters to df (global) --------
+sel = st.session_state.get("global_journal_sel", "ALL")
+if sel == "ALL":
+    df = df.copy()
+elif sel in st.session_state["journal_groups"]:
+    df = df[df["Account"].isin(st.session_state["journal_groups"][sel])].copy()
+else:
+    df = df[df["Account"].astype(str).str.strip() == sel].copy()
+
+# Date filter (if your df has a date column)
+date_col = "date" if "date" in df.columns else ("Date" if "Date" in df.columns else None)
+if date_col is not None:
+    dfrom, dto = pd.to_datetime(st.session_state["date_from"]), pd.to_datetime(
+        st.session_state["date_to"]
+    )
+    mask = (pd.to_datetime(df[date_col]) >= dfrom) & (pd.to_datetime(df[date_col]) <= dto)
+    df = df[mask].copy()
+
+
 # ===== CONTROL ROW (Title + Month + Filters) =====
 st.markdown('<div class="controls">', unsafe_allow_html=True)
 (c_left,) = st.columns([1], gap="small")
@@ -678,6 +844,7 @@ with c_left:
         "<h3 class='page-title'>Welcome, User</h3>",
         unsafe_allow_html=True,
     )
+
 
 # ===================== RUNTIME SETTINGS (no UI) =====================
 # Defaults for now; we'll move breakeven policy into Filters later
@@ -890,14 +1057,6 @@ def render_active_filters(key_suffix: str = ""):
                 st.caption(f"Calendar filter: **{ws} → {we}**")
         else:
             st.caption("Calendar filter: **none**")
-
-    # Clear button (only useful if a filter exists)
-    with right:
-        if cal_sel:
-            if st.button("Clear", key=f"clear_cal_filter_{key_suffix}", use_container_width=True):
-                st.session_state._cal_filter = None
-                st.toast("Calendar filter cleared")
-                st.rerun()
 
 
 # Apply in-session notes to df/df_view so the 'note' column reflects saved edits

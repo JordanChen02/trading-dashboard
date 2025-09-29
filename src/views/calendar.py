@@ -133,26 +133,28 @@ def render(
         padding:6px 10px 2px;
     }}
 
-    /* ARROWS: borderless + bigger (global so it actually applies) */
-    .stButton > button {{
-        background: transparent !important;
-        border: 0 !important;
-        color: #e5e7eb !important;
-        font-size: 42px !important;
-        height: 40px !important;
-        min-width: 40px !important;
-        border-radius: 8px !important;
-        padding: 0 8px !important;
-        box-shadow: none !important;
-        outline: none !important;
+    /* ARROWS: borderless + 34px */
+    #cal-nav [data-testid="stButton"] > button {{
+    background: transparent !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    outline: none !important;
+    color: #e5e7eb !important;
+    font-size: 34px !important;     /* was 42px */
+    line-height: 1 !important;
+    height: 44px !important;         /* was 40px */
+    min-width: 44px !important;      /* was 40px */
+    border-radius: 8px !important;
+    padding: 0 8px !important;
     }}
-    .stButton > button:hover,
-    .stButton > button:focus {{
-        background: rgba(255,255,255,0.06) !important;
-        border: 0 !important;
-        box-shadow: none !important;
-        outline: none !important;
+    #cal-nav [data-testid="stButton"] > button:hover,
+    #cal-nav [data-testid="stButton"] > button:focus {{
+    background: transparent !important;  /* was rgba(...,0.06) */
+    border: 0 !important;
+    box-shadow: none !important;
+    outline: none !important;
     }}
+
 
     /* Month-Year label in the center */
     .cal-month-label {{
@@ -200,15 +202,17 @@ def render(
         """
     <style>
     /* Make arrow glyphs larger — Streamlit wraps them in a <p> inside the button */
-    .stButton > button{ 
-        font-size: 34px !important;      /* outer button */
-        height: 46px !important; 
-        min-width: 46px !important;
+    #cal-nav [data-testid="stButton"] > button {
+    font-size: 34px !important;     /* keep 34px */
+    height: 44px !important; 
+    min-width: 44px !important;
     }
-    .stButton > button p{ 
-        font-size: 34px !important;      /* the actual ‹ › text node */
-        line-height: 1 !important;
+    #cal-nav [data-testid="stButton"] > button p {
+    font-size: inherit !important;   /* was 42px */
+    line-height: 1 !important;
+    margin: 0 !important;
     }
+
 
     /* Add space BETWEEN each stat pair (Trades | Wins | Profits | Percent) */
     .cal-stats{ 
@@ -241,6 +245,8 @@ def render(
     # centered & compact: [spacer][‹][Month][Year][›][spacer]
     sL, c_prev, c_label, c_next, c_stats, sR = st.columns([0.4, 0.3, 2.0, 0.5, 6.0, 0.3])
 
+    st.markdown("<div id='cal-nav'>", unsafe_allow_html=True)
+
     with c_prev:
         if st.button("‹", key=f"{key}_prev"):
             anchor = (anchor - pd.offsets.MonthBegin(1)).normalize().replace(day=1)
@@ -254,6 +260,8 @@ def render(
             f"<div class='cal-month-label'>{anchor.strftime('%B %Y')}</div>",
             unsafe_allow_html=True,
         )
+
+    st.markdown("</div>", unsafe_allow_html=True)
 
     # persist chosen month
     st.session_state["_cal_month_start"] = anchor
