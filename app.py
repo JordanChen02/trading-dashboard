@@ -20,7 +20,7 @@ from src.styles import (
     inject_upload_css,
 )
 from src.theme import BLUE_FILL
-from src.utils import create_journal, ensure_journal_store, load_journal_index
+from src.utils import ensure_journal_store, load_journal_index
 from src.views.calendar import render as render_calendar
 from src.views.checklist import render as render_checklist
 from src.views.journal import render as render_journal
@@ -54,6 +54,11 @@ st.markdown(
 
 /* Pull main content to the very top (robust selector) */
 [data-testid="stAppViewContainer"] .block-container { padding-top: 0 !important; }
+/* Hide sidebar collapse "hamburger" button */
+[data-testid="stSidebarCollapse"] {
+  display: none !important;
+}
+
 </style>
 """,
     unsafe_allow_html=True,
@@ -181,10 +186,7 @@ st.markdown(
     padding-top: 10px !important;   /* ← adjust this number */
   }
 
-  /* If your brand row still looks tight, you can add a small gap under it too */
-  [data-testid="stSidebar"] .brand-row {
-    margin-top: 10px !important;   /* optional; tweak or remove */
-  }
+
 </style>
 """,
     unsafe_allow_html=True,
@@ -300,43 +302,37 @@ with t_profile:
 # ===================== SIDEBAR: Journals (UI only) =====================
 ensure_journal_store()
 with st.sidebar:
-    # ===== Brand header =====
-    BRAND = "Wavemark"  # <— change to taste
+    st.image("assets/edgeboard_blue.png", use_container_width=True)
 
     st.markdown(
         """
     <style>
-    .brand-row{
-    display:flex; align-items:center; justify-content:space-between;
-    margin: 6px 0 8px 0;
+    /* Logo container: edge-to-edge (matches your nav row bleed) */
+    [data-testid="stSidebar"] .stImage {
+    margin: 6px -12px 12px;            /* bleed left/right to align with nav pills */
+    width: calc(100%);
+    padding: -10px 12px -14px;
+    margin: -96px -12px -36px;
+    border-bottom: 1px solid #202b3b;
     }
-    .brand-name{
-    font-weight: 800; letter-spacing: .6px;
-    font-size: 20px; color: #dbe5ff;
-    }
-    .brand-accent{ color:#3579ba; }  /* your theme blue */
-    .brand-burger{
-    font-weight:700; font-size: 20px; color:#3579ba; opacity:.9;
+
+    /* Image tweaks */
+    [data-testid="stSidebar"] .stImage img {
+    display: block;
+    margin: 0 auto;
+    max-width: 100px;                  /* adjust to taste */
+    width: 100%;
+    height: auto;
+    filter: drop-shadow(0 2px 6px rgba(0,0,0,.25));  /* optional */
+    border-radius: 8px;                                   /* optional */
     }
     </style>
     """,
         unsafe_allow_html=True,
     )
 
-    st.markdown(
-        f"""
-    <div class="brand-row">
-    <div class="brand-name">{BRAND}<span class="brand-accent">.</span></div>
-    <div class="brand-burger">≡</div>
-    </div>
-    """,
-        unsafe_allow_html=True,
-    )
-
-    # st.markdown("## Navigation")
-
     # ===================== SIDEBAR: Navigation =====================
-    _options = ["Dashboard", "Journal", "Accounts", "Checklist"]
+    _options = ["Dashboard", "Performance", "Calendar", "Journal", "Account", "Checklist"]
 
     # Ensure a default exactly once
     if "nav" not in st.session_state:
@@ -367,14 +363,14 @@ with st.sidebar:
     [data-testid="stSidebar"] .stRadio > div[role="radiogroup"] > label {
     display: flex;
     align-items: center;
-    height: 40px;
-    padding: 0 12px;
+    height: 60px;
+    padding: 0 12px 0 20px;   /* top right bottom left */
     margin: 0;                           /* no gaps between rows */
     border-radius: 10px;
     background: transparent;
     position: relative;
-    left: -8px;                          /* bleed to left edge */
-    width: calc(100% + 16px);            /* bleed to both edges */
+    left: 0px;                          /* bleed to left edge */
+    width: calc(100% + 62px);            /* bleed to both edges */
     border-bottom: 1px solid #202b3b;    /* thin separator */
     }
 
@@ -404,7 +400,8 @@ with st.sidebar:
     [data-testid="stSidebar"] .stRadio label p {
     color: #d5deed !important;
     font-weight: 600 !important;
-    letter-spacing: .2px;
+    font-size: 1.1rem !important; 
+    letter-spacing: 1px;
     }
 
     /* === ICONS (inline SVG, colored by --brand via CSS mask) === */
@@ -412,7 +409,7 @@ with st.sidebar:
     /* Create an icon box before the label text */
     [data-testid="stSidebar"] .stRadio > div[role="radiogroup"] > label::before{
     content: "";
-    width: 22px; height: 22px;
+    width: 26px; height: 26px;
     margin-right: 10px;
     display:inline-block;
     background-color: var(--brand);      /* icon color */
@@ -421,91 +418,57 @@ with st.sidebar:
     opacity:.95;
     }
 
-    /* Row order mapping: 1=Dashboard, 2=Journal, 3=Accounts  */
+    /* Row order mapping: 1=Dashboard, 2=Performance, 3=Calendar, 4=Journal, 5=Account, 6=Checklist */
+
     /* DASHBOARD icon: grid */
-    [data-testid="stSidebar"] .stRadio > div[role="radiogroup"] > label:nth-of-type(1)::before{
-    -webkit-mask-image: url("data:image/svg+xml;utf8,\
-    <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'>\
-        <rect x='3' y='3' width='8' height='8' rx='2' ry='2' fill='black'/>\
-        <rect x='13' y='3' width='8' height='5' rx='2' ry='2' fill='black'/>\
-        <rect x='13' y='10' width='8' height='11' rx='2' ry='2' fill='black'/>\
-        <rect x='3' y='13' width='8' height='8' rx='2' ry='2' fill='black'/>\
-    </svg>");
-            mask-image: url("data:image/svg+xml;utf8,\
-    <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'>\
-        <rect x='3' y='3' width='8' height='8' rx='2' ry='2' fill='black'/>\
-        <rect x='13' y='3' width='8' height='5' rx='2' ry='2' fill='black'/>\
-        <rect x='13' y='10' width='8' height='11' rx='2' ry='2' fill='black'/>\
-        <rect x='3' y='13' width='8' height='8' rx='2' ry='2' fill='black'/>\
-    </svg>");
+    [data-testid="stSidebar"] .stRadio > div[role="radiogroup"] > label:nth-of-type(1)::before {
+    -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect x='3' y='3' width='8' height='8' rx='2' ry='2' fill='black'/><rect x='13' y='3' width='8' height='5' rx='2' ry='2' fill='black'/><rect x='13' y='10' width='8' height='11' rx='2' ry='2' fill='black'/><rect x='3' y='13' width='8' height='8' rx='2' ry='2' fill='black'/></svg>");
+            mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect x='3' y='3' width='8' height='8' rx='2' ry='2' fill='black'/><rect x='13' y='3' width='8' height='5' rx='2' ry='2' fill='black'/><rect x='13' y='10' width='8' height='11' rx='2' ry='2' fill='black'/><rect x='3' y='13' width='8' height='8' rx='2' ry='2' fill='black'/></svg>");
+    }
+
+    /* PERFORMANCE icon: bar chart */
+    [data-testid="stSidebar"] .stRadio > div[role="radiogroup"] > label:nth-of-type(2)::before {
+    -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M3 3h2v18H3V3zm7 6h2v12h-2V9zm7-4h2v16h-2V5z' fill='black'/></svg>");
+            mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M3 3h2v18H3V3zm7 6h2v12h-2V9zm7-4h2v16h-2V5z' fill='black'/></svg>");
+    }
+
+    /* CALENDAR icon */
+    [data-testid="stSidebar"] .stRadio > div[role="radiogroup"] > label:nth-of-type(3)::before {
+    -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M19 4h-1V2h-2v2H8V2H6v2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V9h14v11z' fill='black'/></svg>");
+            mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M19 4h-1V2h-2v2H8V2H6v2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V9h14v11z' fill='black'/></svg>");
     }
 
     /* JOURNAL icon: pencil */
-    [data-testid="stSidebar"] .stRadio > div[role="radiogroup"] > label:nth-of-type(2)::before{
+    [data-testid="stSidebar"] .stRadio > div[role="radiogroup"] > label:nth-of-type(4)::before {
+    -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25z' fill='black'/><path d='M20.71 7.04a1 1 0 0 0 0-1.42L18.37 3.3a1 1 0 0 0-1.42 0l-1.34 1.34 3.75 3.75 1.34-1.35z' fill='black'/></svg>");
+            mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25z' fill='black'/><path d='M20.71 7.04a1 1 0 0 0 0-1.42L18.37 3.3a1 1 0 0 0-1.42 0l-1.34 1.34 3.75 3.75 1.34-1.35z' fill='black'/></svg>");
+    }
+
+    /* ACCOUNT icon: user */
+    [data-testid="stSidebar"] .stRadio > div[role="radiogroup"] > label:nth-of-type(5)::before {
+    -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8V22h19.2v-2.8c0-3.2-6.4-4.8-9.6-4.8z' fill='black'/></svg>");
+            mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8V22h19.2v-2.8c0-3.2-6.4-4.8-9.6-4.8z' fill='black'/></svg>");
+    }
+
+    /* CHECKLIST icon: simple checkmark */
+    [data-testid="stSidebar"] .stRadio > div[role="radiogroup"] > label:nth-of-type(6)::before {
     -webkit-mask-image: url("data:image/svg+xml;utf8,\
-    <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'>\
-        <path d='M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25z' fill='black'/>\
-        <path d='M20.71 7.04a1 1 0 0 0 0-1.42L18.37 3.3a1 1 0 0 0-1.42 0l-1.34 1.34 3.75 3.75 1.34-1.35z' fill='black'/>\
+    <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'>\
+    <path d='M5 13l4 4L19 7'/>\
     </svg>");
             mask-image: url("data:image/svg+xml;utf8,\
-    <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'>\
-        <path d='M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25z' fill='black'/>\
-        <path d='M20.71 7.04a1 1 0 0 0 0-1.42L18.37 3.3a1 1 0 0 0-1.42 0l-1.34 1.34 3.75 3.75 1.34-1.35z' fill='black'/>\
+    <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'>\
+    <path d='M5 13l4 4L19 7'/>\
     </svg>");
     }
 
-    /* ACCOUNTS icon: stacked cards */
-    [data-testid="stSidebar"] .stRadio > div[role="radiogroup"] > label:nth-of-type(3)::before{
-    -webkit-mask-image: url("data:image/svg+xml;utf8,\
-    <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'>\
-        <rect x='4' y='6' width='14' height='10' rx='2' ry='2' fill='black'/>\
-        <rect x='6' y='4' width='14' height='10' rx='2' ry='2' fill='black'/>\
-    </svg>");
-            mask-image: url("data:image/svg+xml;utf8,\
-    <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'>\
-        <rect x='4' y='6' width='14' height='10' rx='2' ry='2' fill='black'/>\
-        <rect x='6' y='4' width='14' height='10' rx='2' ry='2' fill='black'/>\
-    </svg>");
-    }
+
     </style>
     """,
         unsafe_allow_html=True,
     )
 
     st.divider()
-
-    st.header("Journals")
-
-    # Load registry
-    idx = load_journal_index()
-    journals = idx.get("journals", [])
-
-    # Create new journal (popover keeps UI clean)
-    with st.popover("➕ New Journal"):
-        jname = st.text_input("Name", placeholder="e.g., NQ, Crypto, Swings")
-        if st.button("Create"):
-            if not jname.strip():
-                st.warning("Please enter a name.")
-            else:
-                rec = create_journal(jname.strip())
-                st.success(f"Created '{rec['name']}'")
-                st.session_state.selected_journal = rec["id"]
-                st.rerun()
-
-    # Selector (only if any exist)
-    names = [j["name"] for j in journals]
-    ids = [j["id"] for j in journals]
-    default_ix = 0 if ids else None
-
-    selected_name = st.selectbox(
-        "Select journal",
-        options=names,
-        index=default_ix,
-        placeholder="No journals yet",
-    )
-    if names:
-        selected_id = ids[names.index(selected_name)]
-        st.session_state.selected_journal = selected_id
 
 
 # ===================== MAIN: Upload OR Journal Fallback =====================
@@ -942,9 +905,6 @@ def winrate_half_donut(wr: float, height: int = 110, hole: float = 0.72, half: s
     return fig
 
 
-# ===================== TABS =====================
-tab_overview, tab_perf, tab_calendar = st.tabs(["Overview", "Performance", "Calendar"])
-
 # ===================== OVERVIEW KPI CARDS (Timeframe-aware) =====================
 # Try to detect a date column once so we can filter by timeframe
 _possible_date_cols = [
@@ -1036,6 +996,51 @@ if _date_col is not None and total_v > 0:
         _daily_wr_v = float((_daily_pnl_v > 0).mean() * 100.0)
         _daily_wr_display = f"{_daily_wr_v:.1f}%"
 
+# ===================== ROUTER: MAIN VIEWS =====================
+if st.session_state["nav"] == "Dashboard":
+    render_overview(
+        df_view,
+        start_equity,
+        _date_col,
+        st.session_state["_cal_month_start"],
+        win_rate_v,
+        avg_win_loss_ratio_v,
+        avg_win_v,
+        avg_loss_v,
+        pnl_v,
+        wins_mask_v,
+        losses_mask_v,
+    )
+
+elif st.session_state["nav"] == "Performance":
+    render_performance(
+        df_view,
+        start_equity,
+        _date_col,
+        tf,
+        win_rate_v,
+        avg_win_v,
+        avg_loss_v,
+    )
+
+elif st.session_state["nav"] == "Calendar":
+    render_calendar(
+        df_view=df_view,
+        _date_col=_date_col,
+        month_start=st.session_state["_cal_month_start"],
+        key="cal",
+    )
+
+elif st.session_state["nav"] == "Journal":
+    render_journal(df)
+
+elif st.session_state["nav"] == "Account":
+    st.subheader("Account")
+    st.info("Account settings page (placeholder)")
+
+elif st.session_state["nav"] == "Checklist":
+    render_checklist(df)
+
 
 # --- Helper: render active filters banner ---
 def render_active_filters(key_suffix: str = ""):
@@ -1082,47 +1087,5 @@ if len(_tags_map) > 0:
             df.at[_idx, "tag"] = _tg
     df_view = df.loc[df_view.index]
 
-# --- Render the four Overview cards for the selected timeframe ---
-with tab_overview:
-    render_overview(
-        df_view,
-        start_equity,
-        _date_col,
-        st.session_state["_cal_month_start"],
-        win_rate_v,
-        avg_win_loss_ratio_v,
-        avg_win_v,
-        avg_loss_v,
-        pnl_v,
-        wins_mask_v,
-        losses_mask_v,
-    )
-
-
-with tab_perf:
-    render_active_filters("perf")
-    render_performance(df_view, start_equity, _date_col, tf, win_rate_v, avg_win_v, avg_loss_v)
-
-
-with tab_calendar:
-    st.subheader("Trade Calendar")
-    st.caption(f"Using Range: {tf}")
-
-    # Ensure a month anchor (prefer last available date in the current view)
-    if "_cal_month_start" not in st.session_state:
-        if _date_col and _date_col in df_view.columns:
-            _dt_tmp = pd.to_datetime(df_view[_date_col], errors="coerce").dropna()
-            anchor = _dt_tmp.max() if len(_dt_tmp) else pd.Timestamp.today()
-        else:
-            anchor = pd.Timestamp.today()
-        st.session_state["_cal_month_start"] = anchor.normalize().replace(day=1)
-
-    # Draw the original Plotly calendar from src/views/calendar.py
-    render_calendar(
-        df_view=df_view,
-        _date_col=_date_col,
-        month_start=st.session_state["_cal_month_start"],
-        key="cal",
-    )
 
 st.markdown('<div id="tail-spacer" style="height: 200px"></div>', unsafe_allow_html=True)
