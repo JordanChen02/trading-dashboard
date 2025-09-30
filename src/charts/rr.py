@@ -8,7 +8,7 @@ import pandas as pd
 import plotly.graph_objects as go
 
 # theme colors
-from src.theme import AXIS_WEAK, BG, BLUE_LIGHT
+from src.theme import AXIS_WEAK, BG, BLUE
 
 # ---------- helpers ----------
 
@@ -172,7 +172,7 @@ def plot_rr(
     y_top = int(np.ceil(rr_max)) + 2  # headroom like your sample
 
     # Single theme color for all bars
-    colors = [BLUE_LIGHT] * len(rr_vals)
+    colors = [BLUE] * len(rr_vals)
 
     # --- figure ---
     fig = go.Figure()

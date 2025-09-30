@@ -15,6 +15,134 @@ from src.components.winstreak import render_winstreak
 from src.styles import inject_overview_css
 from src.theme import BLUE
 
+# import plotly.graph_objects as go   # (only if you don’t already have it)
+# import pandas as pd                 # (only if you don’t already have it)
+
+
+def _build_top_assets_donut_and_summary(df, max_assets: int = 5):
+    """
+    Returns (fig, summary_df, colors) for the Most Traded Assets donut.
+      - Uses the already-filtered df (df_view)
+      - Counts UNIQUE trades per symbol when a trade id column exists
+      - Top N (=5), rest bucketed as 'Others'
+      - Thin donut, no inner text, center label = total trades
+      - Muted palette for dark theme
+    summary_df columns: ['asset','trades','pct','color'] ordered by trades desc
+    """
+    if df is None or df.empty:
+        return None, None, None
+
+    sym_col = next(
+        (
+            c
+            for c in ["Symbol", "symbol", "Asset", "asset", "Ticker", "ticker", "Pair", "pair"]
+            if c in df.columns
+        ),
+        None,
+    )
+    if not sym_col:
+        return None, None, None
+
+    trade_id_col = next(
+        (c for c in ["trade_id", "TradeID", "tradeId", "ID", "Id", "id"] if c in df.columns), None
+    )
+
+    g = df.copy()
+    g[sym_col] = g[sym_col].astype(str).str.strip()
+
+    if trade_id_col:
+        counts = g.groupby(sym_col)[trade_id_col].nunique().sort_values(ascending=False)
+    else:
+        counts = g[sym_col].value_counts()
+
+    if counts.empty:
+        return None, None, None
+
+    total = int(counts.sum())
+    top = counts.head(max_assets)
+    others = counts.iloc[max_assets:].sum()
+    labels = top.index.tolist() + (["Others"] if others > 0 else [])
+    values = top.values.tolist() + ([int(others)] if others > 0 else [])
+
+    # Muted palette (last reserved for Others)
+    palette = [
+        "#7aa2f7",  # soft blue (primary accent)
+        "#59c7d9",  # cyan-teal
+        "#8b93e6",  # indigo/violet
+        "#63d3a6",  # sea-green
+        "#e5c07b",  # sand (one warm)
+        "#ef8fa0",  # soft red (only if needed)
+        "#475569",  # slate (Others)
+    ]
+
+    colors = palette[: len(labels)]
+    if labels and labels[-1] == "Others":
+        colors[-1] = "#7b8794"
+
+    # Build summary table
+    pct = [round(v * 100 / total, 1) for v in values]
+    summary_df = pd.DataFrame(
+        {
+            "asset": labels,
+            "trades": values,
+            "pct": pct,
+            "color": colors,
+        }
+    )
+
+    # Thin donut + center total
+    fig = go.Figure(
+        go.Pie(
+            labels=labels,
+            values=values,
+            hole=0.76,  # thinner ring
+            rotation=315,
+            direction="clockwise",
+            textinfo="none",
+            sort=False,
+            hovertemplate="%{label}: %{value} trades (%{percent})<extra></extra>",
+            hoverlabel=dict(bgcolor="rgba(17,24,39,0.9)", font=dict(size=12, color="#E5E7EB")),
+            marker=dict(colors=colors, line=dict(color="rgba(0,0,0,0.35)", width=1)),
+            showlegend=False,  # legend handled by our table
+        )
+    )
+    fig.update_layout(
+        height=260,
+        margin=dict(l=0, r=0, t=0, b=0),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        annotations=[
+            dict(  # small label
+                x=0.5,
+                y=0.54,
+                xref="paper",
+                yref="paper",
+                text="Total Trades",
+                showarrow=False,
+                align="center",
+                font=dict(size=12, color="#9AA4B2"),
+            ),
+            dict(  # big number, a bit lower -> this creates vertical gap
+                x=0.5,
+                y=0.46,
+                xref="paper",
+                yref="paper",
+                text=f"<b>{total}</b>",  # <b> is allowed
+                showarrow=False,
+                align="center",
+                font=dict(size=22, color="#E5E7EB", family="inherit"),
+            ),
+        ],
+    )
+    fig.update_traces(
+        hoverlabel=dict(
+            bgcolor="rgba(17,24,39,0.92)",
+            font=dict(size=12, color="#E5E7EB"),
+        )
+    )
+
+    return fig, summary_df, colors
+
 
 def render_overview(
     df_view: pd.DataFrame,
@@ -273,6 +401,55 @@ def render_overview(
             if "side" in df_view.columns
             else pd.Series(dtype=float)
         )
+
+        # ===== Most Traded Assets (donut + legend/table) — ABOVE Equity Curve =====
+        with st.container(border=True):
+            st.markdown(
+                "<div style='font-weight:600; margin:2px 0 12px;'>Most Traded Assets</div>",
+                unsafe_allow_html=True,
+            )
+
+            left, right = st.columns([1.2, 1], gap="large")
+
+            with left:
+                fig, summary_df, colors = _build_top_assets_donut_and_summary(df_view, max_assets=5)
+                if fig is not None:
+                    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+                else:
+                    st.caption("No trades to summarize.")
+
+            with right:
+                if summary_df is not None and not summary_df.empty:
+                    # Build a compact HTML legend + table with color swatches
+                    rows_html = []
+                    for _, r in summary_df.iterrows():
+                        swatch = f"<span style='display:inline-block;width:10px;height:10px;border-radius:2px;background:{r.color};margin-right:8px;'></span>"
+                        rows_html.append(
+                            "<tr>"
+                            f"<td style='padding:8px 8px;border:none;'>{swatch}"
+                            f"<span style='color:#D5DEED'>{r.asset}</span></td>"
+                            f"<td style='padding:8px 8px;text-align:right;color:#E5E7EB;border:none;'>{int(r.trades)}</td>"
+                            f"<td style='padding:8px 8px;text-align:right;color:#9AA4B2;border:none;'>{r.pct:.1f}%</td>"
+                            "</tr>"
+                        )
+
+                    table_html = (
+                        "<table style='width:100%;border-collapse:separate;border-spacing:0;"
+                        "border:none;outline:none;box-shadow:none;'>"
+                        "<thead>"
+                        "<tr>"
+                        "<th style='text-align:left;padding:6px 8px;color:#9AA4B2;font-weight:600;border:none;'>Asset</th>"
+                        "<th style='text-align:right;padding:6px 8px;color:#9AA4B2;font-weight:600;border:none;'>Trades</th>"
+                        "<th style='text-align:right;padding:6px 8px;color:#9AA4B2;font-weight:600;border:none;'>%</th>"
+                        "</tr>"
+                        "</thead>"
+                        "<tbody>" + "".join(rows_html) + "</tbody>"
+                        "</table>"
+                    )
+
+                    st.markdown(table_html, unsafe_allow_html=True)
+                else:
+                    st.empty()
 
         # === Equity Curve (bottom of s_left) — with tabs and date x-axis ===
         with st.container(border=True):

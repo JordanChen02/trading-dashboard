@@ -312,7 +312,7 @@ with st.sidebar:
     margin: 6px -12px 12px;            /* bleed left/right to align with nav pills */
     width: calc(100%);
     padding: -10px 12px -14px;
-    margin: -96px -12px -36px;
+    margin: -92px -12px -36px;
     border-bottom: 1px solid #202b3b;
     }
 
@@ -922,31 +922,14 @@ _possible_date_cols = [
 _date_col = next((c for c in _possible_date_cols if c in df.columns), None)
 _dt_full = pd.to_datetime(df[_date_col], errors="coerce") if _date_col is not None else None
 
-# --- Timeframe selector (like the screenshot) ---
-tf = st.radio(
-    "Range",
-    ["All", "This Week", "This Month", "This Year"],
-    horizontal=True,
-)
+# Use the already-filtered df (journal + date_from/to) as the view
+df_view = df.copy()
 
-# --- Build a view DataFrame (df_view) based on the selected timeframe ---
-df_view = df
-if _dt_full is not None and len(df) > 0:
-    today = pd.Timestamp.today().normalize()
-    if tf == "This Week":
-        # start of week (Mon=0). Adjust if you prefer Sun start: use .weekday() -> (weekday+1)%7
-        start = today - pd.Timedelta(days=today.weekday())
-        mask = _dt_full >= start
-        df_view = df[mask]
-    elif tf == "This Month":
-        start = today.replace(day=1)
-        mask = _dt_full >= start
-        df_view = df[mask]
-    elif tf == "This Year":
-        start = today.replace(month=1, day=1)
-        mask = _dt_full >= start
-        df_view = df[mask]
-# else: keep df_view = df (All)
+# Nice label for the current range (from the date inputs)
+dfrom, dto = pd.to_datetime(st.session_state["date_from"]), pd.to_datetime(
+    st.session_state["date_to"]
+)
+tf_display = f"{dfrom:%b %d, %Y} → {dto:%b %d, %Y}"
 
 # -------- Apply Calendar selection (optional) to df_view --------
 # We’ll store the calendar selection in st.session_state._cal_filter
@@ -1017,11 +1000,12 @@ elif st.session_state["nav"] == "Performance":
         df_view,
         start_equity,
         _date_col,
-        tf,
+        tf_display,
         win_rate_v,
         avg_win_v,
         avg_loss_v,
     )
+
 
 elif st.session_state["nav"] == "Calendar":
     render_calendar(
@@ -1049,7 +1033,7 @@ def render_active_filters(key_suffix: str = ""):
 
     # Range chip (always present)
     with left:
-        st.caption(f"Range: **{tf}**")
+        st.caption(f"Range: **{tf_display}**")
 
     # Calendar filter status (optional)
     with mid:
