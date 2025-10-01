@@ -86,9 +86,6 @@ def render(
     Timeframe-aware: all stats computed from df_view.
     """
 
-    st.subheader("Performance")
-    st.caption(f"Using Range: **{tf}**")
-
     # ========= CORE SERIES (timeframe-aware) =========
     pnl = pd.to_numeric(df_view.get("pnl", 0.0), errors="coerce").fillna(0.0)
     wins_mask = pnl > 0

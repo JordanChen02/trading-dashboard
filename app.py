@@ -144,14 +144,14 @@ st.markdown(
     """
 <style>
   /* Add extra scroll space so bottom isn’t clipped */
-  [data-testid="stAppViewContainer"] .block-container {{
+  [data-testid="stAppViewContainer"] .block-container {
     padding-bottom: 200px !important;   /* adjust this value */
-  }}
+  }
 
   /* Sidebar needs matching bottom room so it doesn’t crop */
-  [data-testid="stSidebar"] > div:first-child {{
+  [data-testid="stSidebar"] > div:first-child {
     padding-bottom: 200px !important;   /* same value as above */
-  }}
+  }
 </style>
 """,
     unsafe_allow_html=True,
@@ -196,22 +196,126 @@ st.markdown(
 # Make theme color available to CSS as a custom property
 st.markdown(f"<style>:root {{ --blue-fill: {BLUE_FILL}; }}</style>", unsafe_allow_html=True)
 
+st.markdown(
+    """
+<style>
+/* Nudge the two selects down so they align with the icon row */
+.topbar .tb-select { margin-top: 6px !important; }
+
+/* Compact rounded selects to match your icon height */
+.topbar .tb-select [data-baseweb="select"] > div {
+  min-height: 36px; height: 36px; border-radius: 10px;
+}
+.topbar .tb-select [data-baseweb="select"] input { height: 36px; }
+.topbar .tb-select .stSelectbox div[data-baseweb="select"] span { line-height: 36px; }
+.topbar .tb-select .stSelectbox label { display: none !important; }
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
+# ---- Global timeframe state (defaults to YTD) + handlers used by topbar ----
+
+_today = date.today()
+st.session_state.setdefault("date_from", date(_today.year, 1, 1))  # YTD start
+st.session_state.setdefault("date_to", _today)
+st.session_state.setdefault("recent_select", "Year to Date (YTD)")
+
+RECENT_OPTIONS = [
+    "Year to Date (YTD)",
+    "All Dates",
+    "Recent 7 Days",
+    "Recent 30 Days",
+    "Recent 60 Days",
+    "Recent 90 Days",
+]
+
+
+def _apply_range(label: str):
+    """Update date_from/date_to in session based on a label."""
+    today = date.today()
+    lo = st.session_state.get("_data_min", today)
+    hi = st.session_state.get("_data_max", today)
+
+    if label == "Year to Date (YTD)":
+        st.session_state["date_from"] = date(today.year, 1, 1)
+        st.session_state["date_to"] = today
+        return
+
+    if label == "All Dates":
+        st.session_state["date_from"] = lo
+        st.session_state["date_to"] = hi
+        return
+
+    if label.startswith("Recent "):
+        n = int(label.split()[1])  # "Recent 60 Days" -> 60
+        st.session_state["date_from"] = today - timedelta(days=n - 1)
+        st.session_state["date_to"] = today
+        return
+
+
+def _on_recent_change():
+    _apply_range(st.session_state.get("recent_select") or "Year to Date (YTD)")
+
+
+# Seed account options so the topbar has something useful on first render
+st.session_state.setdefault("journal_options", ["ALL", "NQ", "Crypto (Live)"])
+st.session_state.setdefault("global_journal_sel", "ALL")
 
 # default month in session (first of current month)
 if "_cal_month_start" not in st.session_state:
     st.session_state["_cal_month_start"] = pd.Timestamp.today().normalize().replace(day=1)
 
-# ========== TOP TOOLBAR (right-aligned icons) ==========
+
+# ========== TOP TOOLBAR (title spacer | timeframe | account | icons) ==========
 st.markdown('<div class="topbar">', unsafe_allow_html=True)
 
-
-# Big spacer pushes icons to the far right
-t_spacer, t_globe, t_bell, t_full, t_theme, t_profile = st.columns(
-    [100, 5, 5, 5, 5, 5], gap="small"
+t_spacer, t_tf, t_acct, t_globe, t_bell, t_full, t_theme, t_profile = st.columns(
+    [70, 12, 16, 5, 5, 5, 5, 5], gap="small"
 )
+
 with t_spacer:
     st.empty()
 
+
+# -- Timeframe (compact select) --
+with t_tf:
+    st.markdown("<div class='tb tb-select'>", unsafe_allow_html=True)
+    # show current selection; if missing, default to YTD
+    _idx = (
+        RECENT_OPTIONS.index(st.session_state["recent_select"])
+        if st.session_state.get("recent_select") in RECENT_OPTIONS
+        else 0
+    )
+    st.selectbox(
+        "Timeframe",
+        RECENT_OPTIONS,
+        index=_idx,
+        key="recent_select",
+        on_change=_on_recent_change,
+        label_visibility="collapsed",
+    )
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# -- Account (populated after DF load; we show whatever is in session now) --
+with t_acct:
+    st.markdown("<div class='tb tb-select'>", unsafe_allow_html=True)
+    _acct_options = st.session_state.get("journal_options", ["ALL"])
+    _acct_idx = (
+        _acct_options.index(st.session_state["global_journal_sel"])
+        if st.session_state.get("global_journal_sel") in _acct_options
+        else 0
+    )
+    st.selectbox(
+        "Account",
+        _acct_options,
+        index=_acct_idx,
+        key="global_journal_sel",
+        label_visibility="collapsed",
+    )
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# -- Icons (unchanged) --
 with t_globe:
     st.markdown('<span class="tb"></span>', unsafe_allow_html=True)
     try:
@@ -470,7 +574,6 @@ with st.sidebar:
 
     st.divider()
 
-
 # ===================== MAIN: Upload OR Journal Fallback =====================
 df = None
 source_label = ""
@@ -576,6 +679,53 @@ if issues:
 
 df = add_pnl(df)
 
+# --- Detect a usable date column ONCE and compute bounds for "All Dates" ---
+_possible_date_cols = [
+    "date",
+    "Date",
+    "entry_time",
+    "Entry Time",
+    "Entry Time (Local)",
+    "exit_time",
+    "Exit Time",
+    "timestamp",
+    "Timestamp",
+    "datetime",
+    "Datetime",
+]
+_date_col_for_bounds = next((c for c in _possible_date_cols if c in df.columns), None)
+
+if _date_col_for_bounds is not None and len(df):
+    _dt_full_bounds = pd.to_datetime(df[_date_col_for_bounds], errors="coerce")
+    if not _dt_full_bounds.empty:
+        st.session_state["_data_min"] = _dt_full_bounds.min().date()
+        st.session_state["_data_max"] = _dt_full_bounds.max().date()
+        # If "All Dates" was selected before we knew bounds, apply now
+        if st.session_state.get("recent_select") == "All Dates":
+            _apply_range("All Dates")
+
+# --- Build Account options for the topbar (kept in session so topbar can render early) ---
+_prev_opts = tuple(st.session_state.get("journal_options", []))
+_acc_series = None
+for _c in ("Account", "account"):
+    if _c in df.columns:
+        _acc_series = df[_c]
+        break
+
+if _acc_series is not None and len(_acc_series):
+    _present = sorted(set(_acc_series.astype(str).str.strip()))
+    _groups = sorted(list(st.session_state.get("journal_groups", {}).keys()))
+    _new_opts = ["ALL"] + _present + _groups
+else:
+    _new_opts = ["ALL", "NQ", "Crypto (Live)"]
+
+st.session_state["journal_options"] = _new_opts
+
+# If options changed since first render, re-run once so the topbar shows them
+if tuple(_new_opts) != _prev_opts:
+    st.rerun()
+
+
 # ---- Router: open Journal page if selected ----
 if st.session_state.get("nav", "Dashboard") == "Journal":
     render_journal(df)  # df is already loaded/validated above
@@ -638,147 +788,28 @@ def _persist_journal_meta():
         st.warning(f"Couldn't save journal metadata: {e}")
 
 
-# ===================== CONTROLS BAR (appears inline with tabs) =====================
+# --- Compute data bounds for "All Dates" ---
+# Pick a date column you already use later:
+_date_col = "date" if "date" in df.columns else ("Date" if "Date" in df.columns else None)
+if _date_col is not None and len(df):
+    _dt_full = pd.to_datetime(df[_date_col], errors="coerce")
+    if not _dt_full.empty:
+        st.session_state["_data_min"] = _dt_full.min().date()
+        st.session_state["_data_max"] = _dt_full.max().date()
 
+# If user picked "All Dates", apply it now that we know true bounds
+if st.session_state.get("recent_select") == "All Dates":
+    _apply_range("All Dates")
 
-st.markdown(
-    """
-<style>
-  /* Make controls + tabs look like one row */
-  .controls-bar { margin-bottom: 2px; }           /* shrink gap above tabs */
-  div[data-baseweb="tab-list"] { margin-top: 0; } /* tabs top margin */
+# --- Build Account options for the topbar (kept in session so topbar can render early) ---
+acc_series = df.get("Account")
+if acc_series is not None:
+    present = sorted(set(acc_series.astype(str).str.strip()))
+    groups = sorted(list(st.session_state.get("journal_groups", {}).keys()))
+    st.session_state["journal_options"] = ["ALL"] + present + groups
+else:
+    st.session_state["journal_options"] = ["ALL"]
 
-  /* Compact sizing */
-  .jr-wrap{ width: 220px; display:inline-block; } /* ← adjust select width */
-  .jr-wrap .stSelectbox{ width: 100%; }
-  .jr-plus > div button{ width:40px; height:40px; padding:0; border-radius:10px; }
-  .seg-btn > div button{ height:40px; }
-  .date-box .stDateInput{ min-width: 210px; }
-  .date-box .stDateInput input{ text-align:center; }
-</style>
-""",
-    unsafe_allow_html=True,
-)
-
-with st.container():
-    st.markdown("<div class='controls-bar'>", unsafe_allow_html=True)
-    jr_col, plus_col, b7_col, b30_col, dd_col, from_col, to_col = st.columns(
-        [0.32, 0.08, 0.12, 0.16, 0.22, 0.35, 0.35], gap="small"
-    )
-
-    # -------- Ensure Account column (derive if missing) --------
-    if "Account" not in df.columns:
-        sym = df.get("symbol", None)
-        if sym is None:
-            sym = df.get("Symbol", None)
-        if sym is not None:
-            s = sym.astype(str).str.upper()
-            df["Account"] = np.select(
-                [s.eq("NQ"), s.eq("BTCUSDT")],
-                ["NQ", "Crypto (Prop)"],
-                default="Crypto (Live)",
-            )
-        else:
-            df["Account"] = "NQ"
-    df["Account"] = (
-        df["Account"]
-        .astype(str)
-        .str.strip()
-        .replace(
-            {
-                "Journal: NQ": "NQ",
-                "Journal: Crypto": "Crypto (Live)",
-                "Journal: Crypto (Live)": "Crypto (Live)",
-                "Journal: Crypto (Prop)": "Crypto (Prop)",
-            }
-        )
-    )
-    base_accounts = ["NQ", "Crypto (Prop)", "Crypto (Live)"]
-    present_accounts = [a for a in base_accounts if a in df["Account"].unique().tolist()]
-    st.session_state.setdefault("journal_groups", {})
-    group_names = sorted(list(st.session_state["journal_groups"].keys()))
-    journal_options = ["ALL"] + present_accounts + group_names
-
-    # -------- Journal select --------
-    with jr_col:
-        st.markdown("<div class='jr-wrap'>", unsafe_allow_html=True)
-        default_idx = (
-            journal_options.index(st.session_state["global_journal_sel"])
-            if st.session_state.get("global_journal_sel") in journal_options
-            else 0
-        )
-        sel = st.selectbox(
-            "Journal",
-            options=journal_options,
-            index=default_idx,
-            key="global_journal_sel",
-            label_visibility="collapsed",
-        )
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    # -------- ＋ group creator --------
-    with plus_col:
-        st.markdown("<div class='jr-plus'>", unsafe_allow_html=True)
-        pop = st.popover("＋", use_container_width=True)
-        with pop:
-            st.markdown("**Create journal group**")
-            g_name = st.text_input("Group name", placeholder="e.g., Crypto (All)")
-            pick = st.multiselect(
-                "Include accounts",
-                options=base_accounts,
-                default=["Crypto (Prop)", "Crypto (Live)"],
-            )
-            if st.button(
-                "Save group", use_container_width=True, disabled=(not g_name.strip() or not pick)
-            ):
-                st.session_state["journal_groups"][g_name.strip()] = pick
-                st.session_state["global_journal_sel"] = g_name.strip()
-                st.rerun()
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    # -------- Quick ranges + date range --------
-    today = date.today()
-    st.session_state.setdefault("date_from", today - timedelta(days=6))
-    st.session_state.setdefault("date_to", today)
-
-    with b7_col:
-        st.markdown("<div class='seg-btn'>", unsafe_allow_html=True)
-        if st.button("Recent 7 Days", use_container_width=True):
-            st.session_state["date_from"] = today - timedelta(days=6)
-            st.session_state["date_to"] = today
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    with b30_col:
-        st.markdown("<div class='seg-btn'>", unsafe_allow_html=True)
-        if st.button("Recent 30 Days", use_container_width=True):
-            st.session_state["date_from"] = today - timedelta(days=29)
-            st.session_state["date_to"] = today
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    with dd_col:
-        options = {"Recent 60 Days": 59, "Recent 90 Days": 89, "Recent 120 Days": 119}
-        choice = st.selectbox("Recent", list(options.keys()), index=0, label_visibility="collapsed")
-        # When user changes choice, keep "to" as today and move "from" back N days:
-        offs = options.get(choice, 59)
-        if choice:
-            st.session_state["date_from"] = today - timedelta(days=offs)
-            st.session_state["date_to"] = today
-
-    with from_col:
-        st.markdown("<div class='date-box'>", unsafe_allow_html=True)
-        st.session_state["date_from"] = st.date_input(
-            "From", value=st.session_state["date_from"], label_visibility="collapsed"
-        )
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    with to_col:
-        st.markdown("<div class='date-box'>", unsafe_allow_html=True)
-        st.session_state["date_to"] = st.date_input(
-            "To", value=st.session_state["date_to"], label_visibility="collapsed"
-        )
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    st.markdown("</div>", unsafe_allow_html=True)
 
 # -------- Apply journal + date filters to df (global) --------
 sel = st.session_state.get("global_journal_sel", "ALL")
@@ -797,16 +828,6 @@ if date_col is not None:
     )
     mask = (pd.to_datetime(df[date_col]) >= dfrom) & (pd.to_datetime(df[date_col]) <= dto)
     df = df[mask].copy()
-
-
-# ===== CONTROL ROW (Title + Month + Filters) =====
-st.markdown('<div class="controls">', unsafe_allow_html=True)
-(c_left,) = st.columns([1], gap="small")
-with c_left:
-    st.markdown(
-        "<h3 class='page-title'>Welcome, User</h3>",
-        unsafe_allow_html=True,
-    )
 
 
 # ===================== RUNTIME SETTINGS (no UI) =====================
