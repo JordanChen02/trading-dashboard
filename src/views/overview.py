@@ -1,4 +1,5 @@
 # src/views/overview.py
+import re
 from typing import Optional
 
 import numpy as np
@@ -9,14 +10,11 @@ import streamlit as st
 from src.charts.equity import plot_equity
 from src.charts.pnl import plot_pnl
 from src.charts.rr import plot_rr
-from src.components.last_trades import placeholder_last_trades, render_last_trades
+from src.components.last_trades import render_last_trades
 from src.components.monthly_stats import render_monthly_stats
 from src.components.winstreak import render_winstreak
 from src.styles import inject_overview_css
 from src.theme import BLUE
-
-# import plotly.graph_objects as go   # (only if you don’t already have it)
-# import pandas as pd                 # (only if you don’t already have it)
 
 
 def _build_top_assets_donut_and_summary(df, max_assets: int = 5):
@@ -630,14 +628,172 @@ def render_overview(
             # top padding
             st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
 
-            render_last_trades(
-                placeholder_last_trades(),
-                title="Last 5 Trades",
-                key_prefix="ov_last5",
-            )
+            # ---- build real Last 5 Trades from df_view ----
+            d = df_view.copy()
+            last5 = []
+            if d is not None and len(d) > 0:
+                # choose a date to sort by (prefer exit_time)
+                date_cols = [
+                    "exit_time",
+                    "Exit Time",
+                    "entry_time",
+                    "Entry Time",
+                    "Date",
+                    "Datetime",
+                    "Timestamp",
+                ]
+                _dcol = next((c for c in date_cols if c in d.columns), None)
+                if _dcol:
+                    d[_dcol] = pd.to_datetime(d[_dcol], errors="coerce")
+                    d = d.dropna(subset=[_dcol]).sort_values(_dcol, ascending=False)
 
-            # bottom padding
-            st.markdown("<div style='height:32px'></div>", unsafe_allow_html=True)
+                # symbol & side columns (best-effort)
+                sym_col = (
+                    "symbol"
+                    if "symbol" in d.columns
+                    else ("Symbol" if "Symbol" in d.columns else None)
+                )
+                side_col = (
+                    "side"
+                    if "side" in d.columns
+                    else ("Direction" if "Direction" in d.columns else None)
+                )
+
+                # R multiple: find any plausible R column; otherwise compute from pnl / risk
+                risk_cols = [
+                    "risk",
+                    "risk_amount",
+                    "risk_$",
+                    "risk_usd",
+                    "max_loss",
+                    "planned_loss",
+                ]
+
+                def _norm_name(s: str) -> str:
+                    return re.sub(r"[^a-z0-9]", "", str(s).lower())
+
+                def _parse_r_value(v):
+                    # Accept: "1.2", "1.2R", "×1.2", "1.2x", "+1.2", "−1.2", etc.
+                    if pd.isna(v):
+                        return np.nan
+                    s = str(v)
+                    s = s.replace("×", "x").replace("−", "-")  # normalize unicode
+                    m = re.search(r"[-+]?\d*\.?\d+", s)
+                    if not m:
+                        return np.nan
+                    try:
+                        return float(m.group(0))
+                    except Exception:
+                        return np.nan
+
+                def _find_r_column(frame: pd.DataFrame) -> str | None:
+                    # Preferred normalized names
+                    preferred = {
+                        "r",
+                        "rr",
+                        "rmultiple",
+                        "rmultiple",
+                        "rratio",
+                        "r_r",
+                        "rcolonr",
+                        "rmultipleactual",
+                    }
+                    best = None
+                    best_nonnull = 0
+                    for c in frame.columns:
+                        n = _norm_name(c)
+                        if n in preferred or n.endswith("r") or "rmultiple" in n or n == "r":
+                            vals = frame[c].apply(_parse_r_value)
+                            nonnull = int(vals.notna().sum())
+                            if nonnull > best_nonnull:
+                                best_nonnull = nonnull
+                                best = c
+                    return best
+
+                _r_col = _find_r_column(d)
+
+                def _rr(row):
+                    # 1) direct column if found
+                    if _r_col is not None and _r_col in d.columns:
+                        val = _parse_r_value(row.get(_r_col))
+                        if pd.notna(val):
+                            return val
+                    # 2) compute from pnl / risk-like column
+                    if "pnl" in d.columns and pd.notna(row.get("pnl")):
+                        for rc in risk_cols:
+                            if rc in d.columns and pd.notna(row.get(rc)):
+                                rv = _parse_r_value(row.get(rc))
+                                if pd.notna(rv) and rv > 0:
+                                    return float(row["pnl"]) / rv
+                    return np.nan
+
+                # Percent gain: prefer explicit pct columns; else derive from pnl / starting equity map (default $5k)
+                pct_cols = ["pct", "return_pct", "roi", "ROI %", "pnl_pct"]
+                _eq_map = st.session_state.get("starting_equity", {"__default__": 5000.0})
+
+                def _start_equity_for_row(row):
+                    acc = str(row.get("Account", "")).strip()
+                    if acc and acc in _eq_map:
+                        return float(_eq_map[acc])
+                    return float(_eq_map.get("__default__", 5000.0))
+
+                def _pct(row):
+                    # 1) use explicit percentage if provided
+                    for c in pct_cols:
+                        if c in d.columns and pd.notna(row.get(c)):
+                            return float(row[c])
+                    # 2) derive from pnl and starting equity
+                    if "pnl" in d.columns and pd.notna(row.get("pnl")):
+                        eq = _start_equity_for_row(row)
+                        if eq and eq > 0:
+                            return (float(row["pnl"]) / eq) * 100.0
+                    return np.nan
+
+                # entry type / setup label (optional)
+                setup_cols = [
+                    "entry_type",
+                    "Type",
+                    "Setup",
+                    "Setup Tier",
+                    "Strategy",
+                    "Tag",
+                    "Label",
+                    "Notes",
+                ]
+
+                def _etype(row):
+                    for c in setup_cols:
+                        if c in d.columns and pd.notna(row.get(c)) and str(row[c]).strip():
+                            return str(row[c]).strip()
+                    return ""
+
+                for _, row in d.head(5).iterrows():
+                    last5.append(
+                        {
+                            "symbol": (str(row.get(sym_col, "")) if sym_col else ""),
+                            "side": (str(row.get(side_col, "")).upper() if side_col else ""),
+                            "entry_type": _etype(row),
+                            "date_from": pd.to_datetime(
+                                row.get(
+                                    "entry_time",
+                                    row.get("Entry Time", row.get("Date", row.get(_dcol))),
+                                )
+                            ),
+                            "date_to": pd.to_datetime(
+                                row.get("exit_time", row.get("Exit Time", row.get(_dcol)))
+                            ),
+                            "rr": _rr(row),
+                            "pct": _pct(row),
+                            "pnl": (
+                                float(row.get("pnl", 0.0))
+                                if "pnl" in d.columns and pd.notna(row.get("pnl"))
+                                else 0.0
+                            ),
+                        }
+                    )
+
+            render_last_trades(last5, title="Last 5 Trades", key_prefix="ov_last5")
+            # -------------------------------------------------
 
     # --- Right column bottom: Monthly Stats (replaces Calendar) ---
     render_monthly_stats(

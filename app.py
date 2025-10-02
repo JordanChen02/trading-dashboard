@@ -30,6 +30,20 @@ from src.views.performance import render as render_performance
 
 # (other imports are fine above or below — imports don’t matter)
 
+# ------- Session defaults for topbar (set-before-widgets) -------
+if "recent_select" not in st.session_state:
+    st.session_state["recent_select"] = "All Dates"  # or "Year to Date (YTD)" if you prefer
+if "global_journal_sel" not in st.session_state:
+    st.session_state["global_journal_sel"] = "ALL"
+if "date_from" not in st.session_state:
+    st.session_state["date_from"] = None
+if "date_to" not in st.session_state:
+    st.session_state["date_to"] = None
+if "starting_equity" not in st.session_state:
+    st.session_state["starting_equity"] = {"__default__": 5000.0}
+
+# ---------------------------------------------------------------
+
 # ---------- FLEXIBLE CSV/Journal normalizer ----------
 
 _ALIAS_MAP = {
@@ -419,7 +433,8 @@ def _apply_range(label: str):
 
 
 def _on_recent_change():
-    _apply_range(st.session_state.get("recent_select") or "Year to Date (YTD)")
+    label = st.session_state.get("recent_select", "All Dates")
+    _apply_range(label)  # this just sets date_from/date_to
 
 
 # Journal page can overwrite these; we keep safe defaults here.
