@@ -36,6 +36,7 @@ _ALIAS_MAP = {
     # ids
     "id": "trade_id",
     "tradeID": "trade_id",
+    "Trade #": "trade_id",  # <-- Journal
     "Symbol": "symbol",
     "Ticker": "symbol",
     "Asset": "symbol",
@@ -43,11 +44,11 @@ _ALIAS_MAP = {
     "time": "entry_time",
     "timestamp": "entry_time",
     "Timestamp": "entry_time",
-    "Date": "entry_time",
+    "Date": "entry_time",  # <-- Journal (we’ll backfill exit_time from this if missing)
     "Datetime": "entry_time",
-    "Entry Time": "entry_time",
+    "Entry Time": "entry_time",  # <-- Journal
     "Entry Time (Local)": "entry_time",
-    "Exit Time": "exit_time",
+    "Exit Time": "exit_time",  # <-- Journal
     "Exit Time (Local)": "exit_time",
     # prices
     "entry": "entry_price",
@@ -61,7 +62,9 @@ _ALIAS_MAP = {
     "fee": "fees",
     # side
     "direction": "side",
-    "PnL": "pnl",
+    "Direction": "side",  # <-- Journal
+    # pnl
+    "PnL": "pnl",  # <-- Journal
     "PNL": "pnl",
     "profit": "pnl",
 }
@@ -100,6 +103,17 @@ def normalize_trades(
     for c in ["entry_price", "exit_price", "qty", "fees", "pnl"]:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce")
+
+    # Backfill exit_time from entry_time if missing/empty (Journal often has only a single Date)
+    if "exit_time" not in df.columns:
+        df["exit_time"] = df.get("entry_time")
+    else:
+        _et = pd.to_datetime(df["exit_time"], errors="coerce")
+        df.loc[_et.isna(), "exit_time"] = df.get("entry_time")
+
+    # If trade_id still missing, use a stable row index as a fallback (prevents drops)
+    if "trade_id" not in df.columns:
+        df["trade_id"] = np.arange(1, len(df) + 1)
 
     # Side normalization
     if "side" in df.columns:
@@ -709,52 +723,6 @@ base_journal_raw = st.session_state.get("journal_df", pd.DataFrame()).copy()
 base_journal, _j_issues = normalize_trades(base_journal_raw, account_label="Journal")
 df = base_journal
 
-# ---- Journal schema shim: map Journal columns to the flexible loader schema ----
-if not base_journal_raw.empty:
-    jr = base_journal_raw.copy()
-
-    # IDs
-    if "trade_id" not in jr.columns and "Trade #" in jr.columns:
-        jr["trade_id"] = jr["Trade #"]
-
-    # Timestamps: Journal has a single "Date" → use it for both entry/exit
-    if "entry_time" not in jr.columns and "Date" in jr.columns:
-        jr["entry_time"] = pd.to_datetime(jr["Date"], errors="coerce")
-    if "exit_time" not in jr.columns and "entry_time" in jr.columns:
-        jr["exit_time"] = jr["entry_time"]
-
-    # Side: Journal uses "Direction" with strings like "Long"/"Short" (or Buy/Sell)
-    if "side" not in jr.columns and "Direction" in jr.columns:
-        _side_map = {
-            "long": "long",
-            "short": "short",
-            "buy": "long",
-            "sell": "short",
-            "l": "long",
-            "s": "short",
-            "Long": "long",
-            "Short": "short",
-            "Buy": "long",
-            "Sell": "short",
-        }
-        jr["side"] = jr["Direction"].astype(str).str.strip().map(_side_map)
-
-    # Symbol: unify to 'symbol'
-    if "symbol" not in jr.columns and "Symbol" in jr.columns:
-        jr["symbol"] = jr["Symbol"].astype(str).str.strip()
-
-    # Account (keep as-is; required for the topbar filter)
-    if "Account" in jr.columns:
-        jr["Account"] = jr["Account"].astype(str).str.strip()
-
-    # PnL: if Journal already has a numeric PnL column, adopt it.
-    # (Some journals store 'PnL' or 'PNL'; if absent we skip — our charts still work for counts/filters.)
-    for cand in ["pnl", "PnL", "PNL", "Profit", "profit"]:
-        if cand in jr.columns:
-            jr["pnl"] = pd.to_numeric(jr[cand], errors="coerce")
-            break
-
-    base_journal_raw = jr
 
 # ===================== COMPOSE MULTI-ACCOUNT VIEW (Journal + any uploaded CSVs) =====================
 # Keep Journal account names as-is. Only add a fallback if column is missing.
@@ -817,6 +785,13 @@ def _flexible_validate_df(df_in: pd.DataFrame) -> list[str]:
     for c in ["entry_price", "exit_price", "qty", "fees", "pnl"]:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce")
+
+    # Backfill exit_time from entry_time if exit_time is missing/empty
+    if "exit_time" not in df.columns:
+        df["exit_time"] = df.get("entry_time")
+    else:
+        _et = pd.to_datetime(df["exit_time"], errors="coerce")
+        df.loc[_et.isna(), "exit_time"] = df.get("entry_time")
 
     # Normalize side
     side_map = {
