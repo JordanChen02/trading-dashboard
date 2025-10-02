@@ -1,5 +1,6 @@
 # app.py (top of file)
 import json  # read/write sidecar metadata for notes/tags
+import re
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -9,7 +10,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 # 👇 our modules
-from src.io import load_trades, validate
+from src.io import load_trades
 from src.metrics import add_pnl
 from src.state import ensure_defaults
 from src.styles import (
@@ -28,6 +29,147 @@ from src.views.overview import render_overview
 from src.views.performance import render as render_performance
 
 # (other imports are fine above or below — imports don’t matter)
+
+# ---------- FLEXIBLE CSV/Journal normalizer ----------
+
+_ALIAS_MAP = {
+    # ids
+    "id": "trade_id",
+    "tradeID": "trade_id",
+    "Symbol": "symbol",
+    "Ticker": "symbol",
+    "Asset": "symbol",
+    # times
+    "time": "entry_time",
+    "timestamp": "entry_time",
+    "Timestamp": "entry_time",
+    "Date": "entry_time",
+    "Datetime": "entry_time",
+    "Entry Time": "entry_time",
+    "Entry Time (Local)": "entry_time",
+    "Exit Time": "exit_time",
+    "Exit Time (Local)": "exit_time",
+    # prices
+    "entry": "entry_price",
+    "Entry Price": "entry_price",
+    "exit": "exit_price",
+    "Exit Price": "exit_price",
+    # qty / fees
+    "quantity": "qty",
+    "size": "qty",
+    "amount": "qty",
+    "fee": "fees",
+    # side
+    "direction": "side",
+    "PnL": "pnl",
+    "PNL": "pnl",
+    "profit": "pnl",
+}
+
+
+def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    out.columns = [str(c).strip() for c in out.columns]
+    # Map aliases if present
+    for old, new in _ALIAS_MAP.items():
+        if old in out.columns and new not in out.columns:
+            out.rename(columns={old: new}, inplace=True)
+    return out
+
+
+def normalize_trades(
+    raw: pd.DataFrame, *, account_label: str | None = None
+) -> tuple[pd.DataFrame, list[str]]:
+    issues: list[str] = []
+    if raw is None or raw.empty:
+        return pd.DataFrame(), ["Empty file"]
+
+    df = _normalize_columns(raw)
+
+    # Required “identity” fields
+    required_base = ["trade_id", "symbol", "side", "entry_time", "exit_time"]
+    for c in required_base:
+        if c not in df.columns:
+            df[c] = np.nan
+            issues.append(f"Missing required column '{c}'")
+
+    # Coerce types
+    for c in ["entry_time", "exit_time"]:
+        if c in df.columns:
+            df[c] = pd.to_datetime(df[c], errors="coerce")
+    for c in ["entry_price", "exit_price", "qty", "fees", "pnl"]:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+
+    # Side normalization
+    if "side" in df.columns:
+        side_map = {
+            "buy": "long",
+            "long": "long",
+            "l": "long",
+            "sell": "short",
+            "short": "short",
+            "s": "short",
+        }
+        df["side"] = df["side"].astype(str).str.strip().str.lower().map(side_map)
+    else:
+        df["side"] = np.nan
+
+    # Fees default
+    if "fees" not in df.columns:
+        df["fees"] = 0.0
+    df["fees"] = df["fees"].fillna(0.0)
+
+    # If PNL missing but we have components, compute it
+    has_components = all(col in df.columns for col in ["entry_price", "exit_price", "qty"])
+    if "pnl" not in df.columns and has_components:
+        df["pnl"] = (df["exit_price"] - df["entry_price"]) * df["qty"]
+        # sign for short
+        df.loc[df["side"] == "short", "pnl"] *= -1
+        df["pnl"] = df["pnl"] - df["fees"]
+    # If pnl exists, keep it; we do NOT require qty/prices then
+    if "pnl" not in df.columns:
+        issues.append("No 'pnl' and missing price/qty components → cannot compute PNL")
+
+    # Drop rows that lack the absolute minimum identity fields
+    base_ok = (
+        df["trade_id"].notna()
+        & df["symbol"].notna()
+        & df["side"].isin(["long", "short"])
+        & df["entry_time"].notna()
+        & df["exit_time"].notna()
+    )
+    # Also require either pnl, or all components (guard when 'pnl' is missing)
+    _pnl = pd.to_numeric(df.get("pnl"), errors="coerce")
+    pnl_or_components = _pnl.notna() | (
+        df.get("entry_price", pd.Series(index=df.index, dtype="float64")).notna()
+        & df.get("exit_price", pd.Series(index=df.index, dtype="float64")).notna()
+        & df.get("qty", pd.Series(index=df.index, dtype="float64")).notna()
+    )
+
+    keep = base_ok & pnl_or_components
+    dropped = (~keep).sum()
+    if dropped:
+        issues.append(f"Dropped {int(dropped)} rows that failed minimal checks")
+
+    df = df.loc[keep].copy()
+
+    # Ensure Account label
+    if "Account" not in df.columns:
+        df["Account"] = account_label or "Journal"
+    else:
+        df["Account"] = (
+            df["Account"].astype(str).str.strip().replace("", account_label or "Journal")
+        )
+
+    # Nice standard helpers for downstream charts
+    # Prefer a single working date column _date
+    if "entry_time" in df.columns:
+        df["_date"] = pd.to_datetime(df["entry_time"], errors="coerce")
+    elif "exit_time" in df.columns:
+        df["_date"] = pd.to_datetime(df["exit_time"], errors="coerce")
+
+    return df, issues
 
 
 ensure_defaults()
@@ -214,12 +356,21 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# ------ Ensure Journal session is initialized (provides journal_df & accounts_options) ------
+try:
+    from src.views.journal import _init_session_state as _journal_bootstrap
+
+    _journal_bootstrap()  # populates st.session_state.journal_df and st.session_state.accounts_options
+except Exception as _e:
+    # Safe fallback: if Journal module changes, just continue
+    pass
+
 # ---- Global timeframe state (defaults to YTD) + handlers used by topbar ----
 
 _today = date.today()
 st.session_state.setdefault("date_from", date(_today.year, 1, 1))  # YTD start
 st.session_state.setdefault("date_to", _today)
-st.session_state.setdefault("recent_select", "Year to Date (YTD)")
+st.session_state.setdefault("recent_select", "All Dates")
 
 RECENT_OPTIONS = [
     "Year to Date (YTD)",
@@ -234,8 +385,6 @@ RECENT_OPTIONS = [
 def _apply_range(label: str):
     """Update date_from/date_to in session based on a label."""
     today = date.today()
-    lo = st.session_state.get("_data_min", today)
-    hi = st.session_state.get("_data_max", today)
 
     if label == "Year to Date (YTD)":
         st.session_state["date_from"] = date(today.year, 1, 1)
@@ -243,8 +392,9 @@ def _apply_range(label: str):
         return
 
     if label == "All Dates":
-        st.session_state["date_from"] = lo
-        st.session_state["date_to"] = hi
+        # Turn OFF date filtering entirely
+        st.session_state["date_from"] = None
+        st.session_state["date_to"] = None
         return
 
     if label.startswith("Recent "):
@@ -258,149 +408,34 @@ def _on_recent_change():
     _apply_range(st.session_state.get("recent_select") or "Year to Date (YTD)")
 
 
-# Seed account options so the topbar has something useful on first render
-st.session_state.setdefault("journal_options", ["ALL", "NQ", "Crypto (Live)"])
-st.session_state.setdefault("global_journal_sel", "ALL")
+# Journal page can overwrite these; we keep safe defaults here.
+st.session_state.setdefault("accounts_options", ["NQ", "Crypto (Live)", "Crypto (Prop)"])
+st.session_state.setdefault(
+    "journal_groups",
+    {
+        "NQ": ["NQ"],
+        "Crypto (Live)": ["Crypto (Live)"],
+        "Crypto (Prop)": ["Crypto (Prop)"],
+    },
+)
 
 # default month in session (first of current month)
 if "_cal_month_start" not in st.session_state:
     st.session_state["_cal_month_start"] = pd.Timestamp.today().normalize().replace(day=1)
 
+# ---- journal account/groups defaults (so topbar never crashes) ----
+# Pull the account list from Journal if present; otherwise use sane defaults.
+st.session_state.setdefault("accounts_options", ["NQ", "Crypto (Live)", "Crypto (Prop)"])
 
-# ========== TOP TOOLBAR (title spacer | timeframe | account | icons) ==========
-st.markdown('<div class="topbar">', unsafe_allow_html=True)
-
-t_spacer, t_tf, t_acct, t_globe, t_bell, t_full, t_theme, t_profile = st.columns(
-    [70, 12, 16, 5, 5, 5, 5, 5], gap="small"
+# Minimal groups (can be expanded later). This prevents KeyError.
+st.session_state.setdefault(
+    "journal_groups",
+    {
+        "NQ": ["NQ"],
+        "Crypto (Live)": ["Crypto (Live)"],
+        "Crypto (Prop)": ["Crypto (Prop)"],
+    },
 )
-
-with t_spacer:
-    st.empty()
-
-
-# -- Timeframe (compact select) --
-with t_tf:
-    st.markdown("<div class='tb tb-select'>", unsafe_allow_html=True)
-    # show current selection; if missing, default to YTD
-    _idx = (
-        RECENT_OPTIONS.index(st.session_state["recent_select"])
-        if st.session_state.get("recent_select") in RECENT_OPTIONS
-        else 0
-    )
-    st.selectbox(
-        "Timeframe",
-        RECENT_OPTIONS,
-        index=_idx,
-        key="recent_select",
-        on_change=_on_recent_change,
-        label_visibility="collapsed",
-    )
-    st.markdown("</div>", unsafe_allow_html=True)
-
-# -- Account (populated after DF load; we show whatever is in session now) --
-with t_acct:
-    st.markdown("<div class='tb tb-select'>", unsafe_allow_html=True)
-    _acct_options = st.session_state.get("journal_options", ["ALL"])
-    _acct_idx = (
-        _acct_options.index(st.session_state["global_journal_sel"])
-        if st.session_state.get("global_journal_sel") in _acct_options
-        else 0
-    )
-    st.selectbox(
-        "Account",
-        _acct_options,
-        index=_acct_idx,
-        key="global_journal_sel",
-        label_visibility="collapsed",
-    )
-    st.markdown("</div>", unsafe_allow_html=True)
-
-# -- Icons (unchanged) --
-with t_globe:
-    st.markdown('<span class="tb"></span>', unsafe_allow_html=True)
-    try:
-        st.button("", key="btn_globe", icon=":material/language:")
-    except TypeError:
-        st.button("🌐", key="btn_globe")
-
-with t_bell:
-    st.markdown('<span class="tb"></span>', unsafe_allow_html=True)
-    try:
-        st.button("", key="btn_bell", icon=":material/notifications:")
-    except TypeError:
-        st.button("🔔", key="btn_bell")
-
-with t_full:
-    st.markdown('<span class="tb"></span>', unsafe_allow_html=True)
-    try:
-        st.button("", key="btn_full", icon=":material/fullscreen:")
-    except TypeError:
-        st.button("⛶", key="btn_full")
-
-with t_theme:
-    st.markdown('<span class="tb"></span>', unsafe_allow_html=True)
-    try:
-        st.button("", key="btn_theme", icon=":material/light_mode:")
-    except TypeError:
-        st.button("☼", key="btn_theme")
-
-with t_profile:
-    st.markdown('<span class="tb"></span>', unsafe_allow_html=True)
-    try:
-        pp = st.popover("", icon=":material/account_circle:")
-    except TypeError:
-        pp = st.popover("🙂")
-    with pp:
-        st.markdown('<div class="profile-pop">', unsafe_allow_html=True)
-
-        st.subheader("Account")
-        col_p1, col_p2 = st.columns([1, 3])
-        with col_p1:
-            st.image(
-                "https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png?20150327203541",
-                width=180,
-            )
-        with col_p2:
-            st.caption("Signed in as")
-            st.write("**squintz**")
-            if st.button("Settings ⚙️", use_container_width=True):
-                st.toast("Settings (placeholder)")
-
-        st.divider()
-        st.subheader("Data")
-        inject_upload_css()
-        st.markdown('<div class="upload-pop">', unsafe_allow_html=True)
-
-        if "_uploaded_files" not in st.session_state:
-            st.session_state["_uploaded_files"] = {}
-
-        _newfile = st.file_uploader("Browse file", type=["csv"], key="file_menu")
-        if _newfile is not None:
-            st.session_state["_uploaded_files"][_newfile.name] = _newfile.read()
-            st.toast(f"Saved '{_newfile.name}'")
-            st.session_state["_selected_upload"] = _newfile.name
-
-        if st.session_state["_uploaded_files"]:
-            _names = list(st.session_state["_uploaded_files"].keys())
-            _sel_ix = _names.index(st.session_state.get("_selected_upload", _names[0]))
-            _sel = st.selectbox(
-                "Uploaded files", options=_names, index=_sel_ix, key="uploaded_files_select"
-            )
-            st.session_state["_selected_upload"] = _sel
-
-            if st.button("Use this file", use_container_width=True):
-                import io
-
-                file = io.BytesIO(st.session_state["_uploaded_files"][_sel])
-                file.name = _sel
-                st.session_state["_menu_file_obj"] = file
-                st.toast(f"Using '{_sel}' as current dataset")
-                st.rerun()
-        else:
-            st.caption("No uploads yet.")
-
-        st.markdown("</div>", unsafe_allow_html=True)  # close .upload-pop
-        st.markdown("</div>", unsafe_allow_html=True)  # close .profile-pop
 
 
 # ===================== SIDEBAR: Journals (UI only) =====================
@@ -669,15 +704,181 @@ if df is None:
 # st.caption(f"Data source: **{source_label}**")
 st.toast(f"✅ Loaded {len(df)} trades from {source_label}")
 
+# Use Journal as the base, normalized
+base_journal_raw = st.session_state.get("journal_df", pd.DataFrame()).copy()
+base_journal, _j_issues = normalize_trades(base_journal_raw, account_label="Journal")
+df = base_journal
+
+# ---- Journal schema shim: map Journal columns to the flexible loader schema ----
+if not base_journal_raw.empty:
+    jr = base_journal_raw.copy()
+
+    # IDs
+    if "trade_id" not in jr.columns and "Trade #" in jr.columns:
+        jr["trade_id"] = jr["Trade #"]
+
+    # Timestamps: Journal has a single "Date" → use it for both entry/exit
+    if "entry_time" not in jr.columns and "Date" in jr.columns:
+        jr["entry_time"] = pd.to_datetime(jr["Date"], errors="coerce")
+    if "exit_time" not in jr.columns and "entry_time" in jr.columns:
+        jr["exit_time"] = jr["entry_time"]
+
+    # Side: Journal uses "Direction" with strings like "Long"/"Short" (or Buy/Sell)
+    if "side" not in jr.columns and "Direction" in jr.columns:
+        _side_map = {
+            "long": "long",
+            "short": "short",
+            "buy": "long",
+            "sell": "short",
+            "l": "long",
+            "s": "short",
+            "Long": "long",
+            "Short": "short",
+            "Buy": "long",
+            "Sell": "short",
+        }
+        jr["side"] = jr["Direction"].astype(str).str.strip().map(_side_map)
+
+    # Symbol: unify to 'symbol'
+    if "symbol" not in jr.columns and "Symbol" in jr.columns:
+        jr["symbol"] = jr["Symbol"].astype(str).str.strip()
+
+    # Account (keep as-is; required for the topbar filter)
+    if "Account" in jr.columns:
+        jr["Account"] = jr["Account"].astype(str).str.strip()
+
+    # PnL: if Journal already has a numeric PnL column, adopt it.
+    # (Some journals store 'PnL' or 'PNL'; if absent we skip — our charts still work for counts/filters.)
+    for cand in ["pnl", "PnL", "PNL", "Profit", "profit"]:
+        if cand in jr.columns:
+            jr["pnl"] = pd.to_numeric(jr[cand], errors="coerce")
+            break
+
+    base_journal_raw = jr
+
+# ===================== COMPOSE MULTI-ACCOUNT VIEW (Journal + any uploaded CSVs) =====================
+# Keep Journal account names as-is. Only add a fallback if column is missing.
+if "Account" not in df.columns:
+    df["Account"] = "Journal (Base)"
+else:
+    df["Account"] = df["Account"].astype(str).str.strip()
+
+# If you’ve stored uploads in the profile menu (top-right), they live in st.session_state["_uploaded_files"].
+# We’ll add each one as its own Account, labelled by filename (without extension).
+extra_frames = []
+_uploaded = st.session_state.get("_uploaded_files", {}) or {}
+if _uploaded:
+    import io
+    import os
+
+    for _fname, _bytes in _uploaded.items():
+        try:
+            raw = pd.read_csv(io.BytesIO(_bytes))
+        except Exception as e:
+            st.warning(f"Failed to read '{_fname}': {e}")
+            continue
+        label = os.path.splitext(os.path.basename(_fname))[0] or "CSV"
+        clean, _c_issues = normalize_trades(raw, account_label=label)
+        extra_frames.append(clean)
+
+if extra_frames:
+    df = pd.concat([df] + extra_frames, ignore_index=True)
+    st.toast(f"📎 Merged {len(extra_frames)} uploaded file(s) as Account(s)")
+
+
+def _flexible_validate_df(df_in: pd.DataFrame) -> list[str]:
+    """
+    Accept rows that have the base identity fields AND either:
+      - a numeric 'pnl' column, OR
+      - the trio entry_price/exit_price/qty (so we can compute PnL).
+    Optional columns ('fees','session','notes') are auto-created if missing.
+    """
+    problems: list[str] = []
+    df = df_in.copy()
+
+    # Always-required (existence)
+    base_req = ["trade_id", "symbol", "side", "entry_time", "exit_time"]
+    missing_base = [c for c in base_req if c not in df.columns]
+    if missing_base:
+        problems.append(f"Missing required columns: {missing_base}")
+        return problems
+
+    # Optional defaults (so downstream charts don’t crash)
+    if "fees" not in df.columns:
+        df["fees"] = 0.0
+    if "session" not in df.columns:
+        df["session"] = ""
+    if "notes" not in df.columns:
+        df["notes"] = ""
+
+    # Coerce types
+    for c in ["entry_time", "exit_time"]:
+        df[c] = pd.to_datetime(df[c], errors="coerce")
+    for c in ["entry_price", "exit_price", "qty", "fees", "pnl"]:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+
+    # Normalize side
+    side_map = {
+        "buy": "long",
+        "long": "long",
+        "l": "long",
+        "sell": "short",
+        "short": "short",
+        "s": "short",
+    }
+    df["side"] = df["side"].astype(str).str.strip().str.lower().map(side_map)
+
+    # Row viability: base identity present & either pnl or components present
+    base_ok = (
+        df["trade_id"].notna()
+        & df["symbol"].notna()
+        & df["side"].isin(["long", "short"])
+        & df["entry_time"].notna()
+        & df["exit_time"].notna()
+    )
+    pnl_ser = pd.to_numeric(df.get("pnl"), errors="coerce")
+    has_pnl = pnl_ser.notna()
+    has_components = (
+        df.get("entry_price", pd.Series(index=df.index, dtype="float64")).notna()
+        & df.get("exit_price", pd.Series(index=df.index, dtype="float64")).notna()
+        & df.get("qty", pd.Series(index=df.index, dtype="float64")).notna()
+    )
+    viable = base_ok & (has_pnl | has_components)
+
+    dropped = int((~viable).sum())
+    if dropped:
+        problems.append(f"Dropped {dropped} rows that failed minimal checks")
+
+    return problems
+
+
 # ===================== PIPELINE: Validate → PnL → Preview =====================
-issues = validate(df)
+issues = _flexible_validate_df(df)
 if issues:
     st.error("We found issues in your CSV:")
     for i, msg in enumerate(issues, start=1):
         st.write(f"{i}. {msg}")
     st.stop()
 
-df = add_pnl(df)
+# If a PnL column already exists, keep it. Otherwise compute PnL only if we have price/qty.
+if "pnl" in df.columns:
+    # nothing to do; downstream charts will use df["pnl"] as provided
+    pass
+else:
+    needed = {"entry_price", "exit_price", "qty"}
+    if needed.issubset(set(df.columns)):
+        df = add_pnl(df)
+    else:
+        # We reach here only if there's no 'pnl' and we also can't compute it.
+        missing_needed = sorted(list(needed - set(df.columns)))
+        st.error("We found issues in your CSV:")
+        st.write(
+            f"1. Missing required columns to compute PnL: {missing_needed}. "
+            f"Provide a 'pnl' column OR include entry_price, exit_price, and qty."
+        )
+        st.stop()
+
 
 # --- Detect a usable date column ONCE and compute bounds for "All Dates" ---
 _possible_date_cols = [
@@ -695,6 +896,8 @@ _possible_date_cols = [
 ]
 _date_col_for_bounds = next((c for c in _possible_date_cols if c in df.columns), None)
 
+st.session_state["_date_col"] = _date_col_for_bounds
+
 if _date_col_for_bounds is not None and len(df):
     _dt_full_bounds = pd.to_datetime(df[_date_col_for_bounds], errors="coerce")
     if not _dt_full_bounds.empty:
@@ -704,26 +907,172 @@ if _date_col_for_bounds is not None and len(df):
         if st.session_state.get("recent_select") == "All Dates":
             _apply_range("All Dates")
 
-# --- Build Account options for the topbar (kept in session so topbar can render early) ---
+# --- Build Account options for the topbar (Journal + CSV + Groups) ---
 _prev_opts = tuple(st.session_state.get("journal_options", []))
-_acc_series = None
-for _c in ("Account", "account"):
-    if _c in df.columns:
-        _acc_series = df[_c]
-        break
 
-if _acc_series is not None and len(_acc_series):
-    _present = sorted(set(_acc_series.astype(str).str.strip()))
-    _groups = sorted(list(st.session_state.get("journal_groups", {}).keys()))
-    _new_opts = ["ALL"] + _present + _groups
-else:
-    _new_opts = ["ALL", "NQ", "Crypto (Live)"]
+# 1) Accounts defined by journal.py (preferred source of truth)
+journal_accounts = list(
+    dict.fromkeys(
+        [str(x).strip() for x in st.session_state.get("accounts_options", []) if str(x).strip()]
+    )
+)
 
-st.session_state["journal_options"] = _new_opts
+# 2) Accounts present in the current Journal dataframe (ensures we capture real data labels)
+present_journal_accounts = []
+_jdf = st.session_state.get("journal_df", pd.DataFrame())
+if "Account" in _jdf.columns and len(_jdf):
+    present_journal_accounts = sorted(
+        _jdf["Account"].astype(str).str.strip().dropna().unique().tolist()
+    )
+
+# 3) Accounts present in the combined df (journal + uploads)
+present_all_accounts = []
+if "Account" in df.columns and len(df):
+    present_all_accounts = sorted(df["Account"].astype(str).str.strip().dropna().unique().tolist())
+
+# 4) Named groups
+group_names = list(st.session_state.get("journal_groups", {}).keys())
+
+# Merge and de-dup: ALL + groups + journal.py list + journal_df present + combined present
+combo = ["ALL"] + group_names + journal_accounts + present_journal_accounts + present_all_accounts
+new_opts = list(dict.fromkeys(combo))
+
+st.session_state["journal_options"] = new_opts
 
 # If options changed since first render, re-run once so the topbar shows them
-if tuple(_new_opts) != _prev_opts:
+if tuple(new_opts) != _prev_opts:
     st.rerun()
+
+# ========== TOP TOOLBAR (title spacer | timeframe | account | icons) ==========
+st.markdown('<div class="topbar">', unsafe_allow_html=True)
+
+t_spacer, t_tf, t_acct, t_globe, t_bell, t_full, t_theme, t_profile = st.columns(
+    [70, 12, 16, 5, 5, 5, 5, 5], gap="small"
+)
+
+with t_spacer:
+    st.empty()
+
+# -- Timeframe (compact select) --
+with t_tf:
+    st.markdown("<div class='tb tb-select'>", unsafe_allow_html=True)
+    _idx = (
+        RECENT_OPTIONS.index(st.session_state.get("recent_select", RECENT_OPTIONS[0]))
+        if st.session_state.get("recent_select") in RECENT_OPTIONS
+        else 0
+    )
+    st.selectbox(
+        "Timeframe",
+        RECENT_OPTIONS,
+        index=_idx,
+        key="recent_select",
+        on_change=_on_recent_change,
+        label_visibility="collapsed",
+    )
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# -- Account (NOW after options were built) --
+with t_acct:
+    st.markdown("<div class='tb tb-select'>", unsafe_allow_html=True)
+    _acct_options = st.session_state.get("journal_options", ["ALL"])
+    _current = st.session_state.get("global_journal_sel", None)
+    _acct_idx = _acct_options.index(_current) if (_current in _acct_options) else 0
+    st.selectbox(
+        "Account",
+        _acct_options,
+        index=_acct_idx,
+        key="global_journal_sel",
+        label_visibility="collapsed",
+    )
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# -- Icons (unchanged) --
+with t_globe:
+    st.markdown('<span class="tb"></span>', unsafe_allow_html=True)
+    try:
+        st.button("", key="btn_globe", icon=":material/language:")
+    except TypeError:
+        st.button("🌐", key="btn_globe")
+
+with t_bell:
+    st.markdown('<span class="tb"></span>', unsafe_allow_html=True)
+    try:
+        st.button("", key="btn_bell", icon=":material/notifications:")
+    except TypeError:
+        st.button("🔔", key="btn_bell")
+
+with t_full:
+    st.markdown('<span class="tb"></span>', unsafe_allow_html=True)
+    try:
+        st.button("", key="btn_full", icon=":material/fullscreen:")
+    except TypeError:
+        st.button("⛶", key="btn_full")
+
+with t_theme:
+    st.markdown('<span class="tb"></span>', unsafe_allow_html=True)
+    try:
+        st.button("", key="btn_theme", icon=":material/light_mode:")
+    except TypeError:
+        st.button("☼", key="btn_theme")
+
+with t_profile:
+    st.markdown('<span class="tb"></span>', unsafe_allow_html=True)
+    try:
+        pp = st.popover("", icon=":material/account_circle:")
+    except TypeError:
+        pp = st.popover("🙂")
+    with pp:
+        st.markdown('<div class="profile-pop">', unsafe_allow_html=True)
+
+        st.subheader("Account")
+        col_p1, col_p2 = st.columns([1, 3])
+        with col_p1:
+            st.image(
+                "https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png?20150327203541",
+                width=180,
+            )
+        with col_p2:
+            st.caption("Signed in as")
+            st.write("**squintz**")
+            if st.button("Settings ⚙️", use_container_width=True):
+                st.toast("Settings (placeholder)")
+
+        st.divider()
+        st.subheader("Data")
+        inject_upload_css()
+        st.markdown('<div class="upload-pop">', unsafe_allow_html=True)
+
+        if "_uploaded_files" not in st.session_state:
+            st.session_state["_uploaded_files"] = {}
+
+        _newfile = st.file_uploader("Browse file", type=["csv"], key="file_menu")
+        if _newfile is not None:
+            st.session_state["_uploaded_files"][_newfile.name] = _newfile.read()
+            st.toast(f"Saved '{_newfile.name}'")
+            st.session_state["_selected_upload"] = _newfile.name
+
+        if st.session_state["_uploaded_files"]:
+            _names = list(st.session_state["_uploaded_files"].keys())
+            _sel_ix = _names.index(st.session_state.get("_selected_upload", _names[0]))
+            _sel = st.selectbox(
+                "Uploaded files", options=_names, index=_sel_ix, key="uploaded_files_select"
+            )
+            st.session_state["_selected_upload"] = _sel
+
+            if st.button("Use this file", use_container_width=True):
+                import io
+
+                file = io.BytesIO(st.session_state["_uploaded_files"][_sel])
+                file.name = _sel
+                st.session_state["_menu_file_obj"] = file
+                st.toast(f"Using '{_sel}' as current dataset")
+                st.rerun()
+        else:
+            st.caption("No uploads yet.")
+
+        st.markdown("</div>", unsafe_allow_html=True)  # close .upload-pop
+        st.markdown("</div>", unsafe_allow_html=True)  # close .profile-pop
+# ====================================================================
 
 
 # ---- Router: open Journal page if selected ----
@@ -788,46 +1137,37 @@ def _persist_journal_meta():
         st.warning(f"Couldn't save journal metadata: {e}")
 
 
-# --- Compute data bounds for "All Dates" ---
-# Pick a date column you already use later:
-_date_col = "date" if "date" in df.columns else ("Date" if "Date" in df.columns else None)
-if _date_col is not None and len(df):
-    _dt_full = pd.to_datetime(df[_date_col], errors="coerce")
-    if not _dt_full.empty:
-        st.session_state["_data_min"] = _dt_full.min().date()
-        st.session_state["_data_max"] = _dt_full.max().date()
-
-# If user picked "All Dates", apply it now that we know true bounds
-if st.session_state.get("recent_select") == "All Dates":
-    _apply_range("All Dates")
-
-# --- Build Account options for the topbar (kept in session so topbar can render early) ---
-acc_series = df.get("Account")
-if acc_series is not None:
-    present = sorted(set(acc_series.astype(str).str.strip()))
-    groups = sorted(list(st.session_state.get("journal_groups", {}).keys()))
-    st.session_state["journal_options"] = ["ALL"] + present + groups
-else:
-    st.session_state["journal_options"] = ["ALL"]
+def _norm_ac(s: str) -> str:
+    # lowercase + strip all non [a-z0-9] to make 'NQ (Live)' match 'nq live'
+    return re.sub(r"[^a-z0-9]+", "", str(s).lower())
 
 
-# -------- Apply journal + date filters to df (global) --------
 sel = st.session_state.get("global_journal_sel", "ALL")
-if sel == "ALL":
-    df = df.copy()
-elif sel in st.session_state["journal_groups"]:
-    df = df[df["Account"].isin(st.session_state["journal_groups"][sel])].copy()
-else:
-    df = df[df["Account"].astype(str).str.strip() == sel].copy()
+if sel != "ALL":
+    if sel in st.session_state.get("journal_groups", {}):
+        targets = st.session_state["journal_groups"][sel]
+        mask = df["Account"].astype(str).isin(targets)
+        df = df.loc[mask].copy()
+    else:
+        target_norm = _norm_ac(sel)
+        acc_norm = df["Account"].astype(str).map(_norm_ac)
+        df = df.loc[acc_norm == target_norm].copy()
+# else: ALL → no filter
 
-# Date filter (if your df has a date column)
-date_col = "date" if "date" in df.columns else ("Date" if "Date" in df.columns else None)
-if date_col is not None:
-    dfrom, dto = pd.to_datetime(st.session_state["date_from"]), pd.to_datetime(
-        st.session_state["date_to"]
-    )
-    mask = (pd.to_datetime(df[date_col]) >= dfrom) & (pd.to_datetime(df[date_col]) <= dto)
-    df = df[mask].copy()
+# Date filter (re-use the same detected column we used for bounds)
+date_col = st.session_state.get("_date_col")
+dfrom = st.session_state.get("date_from", None)
+dto = st.session_state.get("date_to", None)
+
+# If All Dates is selected → both are None → skip filtering entirely
+if date_col is not None and date_col in df.columns and not (dfrom is None and dto is None):
+    dtser = pd.to_datetime(df[date_col], errors="coerce")
+    mask = pd.Series(True, index=df.index)
+    if dfrom is not None:
+        mask &= dtser >= pd.to_datetime(dfrom)
+    if dto is not None:
+        mask &= dtser <= pd.to_datetime(dto)
+    df = df.loc[mask].copy()
 
 
 # ===================== RUNTIME SETTINGS (no UI) =====================
@@ -947,10 +1287,18 @@ _dt_full = pd.to_datetime(df[_date_col], errors="coerce") if _date_col is not No
 df_view = df.copy()
 
 # Nice label for the current range (from the date inputs)
-dfrom, dto = pd.to_datetime(st.session_state["date_from"]), pd.to_datetime(
-    st.session_state["date_to"]
-)
-tf_display = f"{dfrom:%b %d, %Y} → {dto:%b %d, %Y}"
+_raw_from = st.session_state.get("date_from", None)
+_raw_to = st.session_state.get("date_to", None)
+
+if _raw_from is None and _raw_to is None:
+    tf_display = "All Dates"
+elif _raw_from is None:
+    tf_display = f"… → {pd.to_datetime(_raw_to):%b %d, %Y}"
+elif _raw_to is None:
+    tf_display = f"{pd.to_datetime(_raw_from):%b %d, %Y} → …"
+else:
+    tf_display = f"{pd.to_datetime(_raw_from):%b %d, %Y} → {pd.to_datetime(_raw_to):%b %d, %Y}"
+
 
 # -------- Apply Calendar selection (optional) to df_view --------
 # We’ll store the calendar selection in st.session_state._cal_filter
@@ -999,6 +1347,18 @@ if _date_col is not None and total_v > 0:
     if len(_daily_pnl_v) > 0:
         _daily_wr_v = float((_daily_pnl_v > 0).mean() * 100.0)
         _daily_wr_display = f"{_daily_wr_v:.1f}%"
+
+# --- Symbol compatibility (some charts expect 'Symbol', some use 'symbol') ---
+if "symbol" in df.columns and "Symbol" not in df.columns:
+    df["Symbol"] = df["symbol"]
+elif "Symbol" in df.columns and "symbol" not in df.columns:
+    df["symbol"] = df["Symbol"]
+
+# Clean empty strings → NaN so groupbys don’t show 'nan' label
+if "symbol" in df.columns:
+    df["symbol"] = df["symbol"].astype(str).str.strip().replace({"": np.nan})
+if "Symbol" in df.columns:
+    df["Symbol"] = df["Symbol"].astype(str).str.strip().replace({"": np.nan})
 
 # ===================== ROUTER: MAIN VIEWS =====================
 if st.session_state["nav"] == "Dashboard":
