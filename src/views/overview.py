@@ -172,20 +172,28 @@ def render_overview(
     with k1:
         with st.container(border=True):
             st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-            balance_v = 0.00  # TODO: wire up real value later
-            net_profit_v = 0.00  # TODO: wire up real value later
-            green = "#61D0A8"
+            _net = (
+                float(pd.to_numeric(df_view.get("pnl", 0.0), errors="coerce").sum())
+                if df_view is not None
+                else 0.0
+            )
+            balance_v = float(start_equity) + _net
+            net_profit_v = _net
+            pos = "#61D0A8"  # same green as Last Trades
+            neg = "#E06B6B"  # same red as Last Trades
+            net_color = pos if net_profit_v >= 0 else neg
+
             st.markdown(
                 f"""
                 <div class="kpi-pair">
                 <div class="kcol">
                     <div class="k-label">Balance</div>
-                    <div class="k-value" style="color:{green};">${balance_v:,.2f}</div>
+                    <div class="k-value" style="color:{pos};">${balance_v:,.2f}</div>
                 </div>
                 <div class="k-sep"></div>
                 <div class="kcol">
                     <div class="k-label">Net Profit</div>
-                    <div class="k-value" style="color:{green};">${net_profit_v:,.2f}</div>
+                    <div class="k-value" style="color:{net_color};">${net_profit_v:,.2f}</div>
                 </div>
                 </div>
                 <style>
