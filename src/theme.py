@@ -22,3 +22,7 @@ BAR_STROKE = "rgba(255,255,255,0.12)"  # bar outline
 RED = "#E06B6B"  # markers / alerts
 RED_ALPHA = "rgba(239,68,68,0.65)"  # negative bars (transparent)
 HLINE = "#3a4557"  # neutral guideline
+
+# ---- Accent hues ----
+TEAL = "#4FD1C5"  # accent for Shorts (pairs well with BLUE)
+TEAL_ALPHA = "rgba(79,209,197,0.15)"  # light fill / bands (optional)
