@@ -19,6 +19,6 @@ AXIS_WEAK = "rgba(255,255,255,0.1)"  # zero lines / separators
 BAR_STROKE = "rgba(255,255,255,0.12)"  # bar outline
 
 # ---- Risk / status ----
-RED = "#ef4444"  # markers / alerts
+RED = "#E06B6B"  # markers / alerts
 RED_ALPHA = "rgba(239,68,68,0.65)"  # negative bars (transparent)
 HLINE = "#3a4557"  # neutral guideline

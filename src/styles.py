@@ -510,3 +510,32 @@ def inject_journal_css() -> None:
         """,
         unsafe_allow_html=True,
     )
+
+
+def inject_plot_rounding_css(radius_px: int = 12, add_shadow: bool = False) -> None:
+    """Round Plotly charts by clipping wrappers AND the SVG (no iframes, no JS)."""
+    shadow = "0 2px 14px rgba(0,0,0,0.25)" if add_shadow else "none"
+    st.markdown(
+        f"""
+<style>
+  /* Clip every likely wrapper so the SVG is contained */
+  div[data-testid="stPlotlyChart"],
+  div[data-testid="stPlotlyChart"] > div,
+  div[data-testid="stPlotlyChart"] .js-plotly-plot,
+  div[data-testid="stPlotlyChart"] .plot-container,
+  div[data-testid="stPlotlyChart"] .svg-container {{
+    border-radius: {radius_px}px !important;
+    overflow: hidden !important;
+    clip-path: inset(0 round {radius_px}px);
+    background-clip: padding-box;
+    box-shadow: {shadow};
+  }}
+
+  /* The actual SVG needs a clip-path for true rounded corners */
+  div[data-testid="stPlotlyChart"] .js-plotly-plot .main-svg {{
+    clip-path: inset(0 round {radius_px}px) !important;
+  }}
+</style>
+""",
+        unsafe_allow_html=True,
+    )
