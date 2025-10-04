@@ -162,7 +162,6 @@ def render_overview(
     PAD_K1 = 6  # Balance / Net Profit
     PAD_K2 = 18  # Win Rate
     PAD_K3 = 18  # Profit Factor
-    PAD_K4 = 33  # Avg Win / Avg Loss
     PAD_K5 = 10  # Winstreak
 
     # ===== TOP KPI ROW (full width) =====
@@ -259,6 +258,39 @@ def render_overview(
                 align="center",
             )
             st.plotly_chart(fig_win, use_container_width=True)
+            # --- Micro stats under Win Rate: Wins (left) | Losses (right) ---
+            p = pd.to_numeric(df_view.get("pnl", np.nan), errors="coerce").dropna()
+            wins = int((p > 0).sum())
+            losses = int((p < 0).sum())
+            wl_total = max(1, wins + losses)
+            win_pct = (wins / wl_total) * 100.0
+            loss_pct = (losses / wl_total) * 100.0
+
+            st.markdown(
+                f"""
+                <div class="wr-micro">
+                <span class="win">Wins&nbsp;<b>{win_pct:.1f}%</b>&nbsp;<span class="muted">({wins})</span></span>
+                <span class="loss">Losses&nbsp;<b>{loss_pct:.1f}%</b>&nbsp;<span class="muted">({losses})</span></span>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+            st.markdown(
+                """
+                <style>
+                .wr-micro {
+                    display:flex; justify-content:space-between; align-items:baseline;
+                    margin-top: 8px; font-size: 12px;
+                }
+                .wr-micro .muted { opacity: 0.7; font-weight: 500; }
+                .wr-micro .win  { color: #9AD8C3; }   /* subtle green-ish for wins */
+                .wr-micro .loss { color: #E06B6B; }   /* your loss red */
+                </style>
+                """,
+                unsafe_allow_html=True,
+            )
+
             st.markdown(f"<div style='height:{PAD_K2}px'></div>", unsafe_allow_html=True)
 
         # END COPY
@@ -313,42 +345,108 @@ def render_overview(
                 align="center",
             )
             st.plotly_chart(fig_pf, use_container_width=True)
+            # --- Micro stats under Profit Factor: Avg Win (left) | Avg Loss (right) ---
+            p = pd.to_numeric(df_view.get("pnl", np.nan), errors="coerce").dropna()
+            avg_win = float(p[p > 0].mean()) if (p > 0).any() else 0.0
+            avg_loss_abs = float((-p[p < 0]).mean()) if (p < 0).any() else 0.0  # absolute avg loss
+
+            def _fmt_money(x: float) -> str:
+                return f"${x:,.2f}"
+
+            st.markdown(
+                f"""
+                <div class="pf-micro">
+                <span class="left">Avg Win&nbsp;<b>{_fmt_money(avg_win)}</b></span>
+                <span class="right">Avg Loss&nbsp;<b style="color:#E06B6B;">-{_fmt_money(avg_loss_abs)}</b></span>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+            st.markdown(
+                """
+                <style>
+                .pf-micro {
+                    display:flex; justify-content:space-between; align-items:baseline;
+                    margin-top: 8px; font-size: 12px;
+                }
+                .pf-micro .left  { color: #D5F1E7; }  /* muted win label */
+                .pf-micro .right { color: #A8B2C1; }  /* muted loss label (value itself is red) */
+                </style>
+                """,
+                unsafe_allow_html=True,
+            )
             st.markdown(f"<div style='height:{PAD_K3}px'></div>", unsafe_allow_html=True)
         # END COPY
 
-    # -- k4: Avg Win / Avg Loss (reuse your pillbar card) --
+    # -- k4: Long vs Short (ratio pill) --
     with k4:
-        # (copy from your existing Avg Win/Loss card: kpi_row1[1])
         with st.container(border=True):
-            st.markdown('<div class="kpi-pack">', unsafe_allow_html=True)
-            _aw_al_num = (
-                "∞" if avg_win_loss_ratio_v == float("inf") else f"{avg_win_loss_ratio_v:.2f}"
-            )
             st.markdown(
-                f"""
-                <div class="kpi-center">
-                <div class="kpi-number">{_aw_al_num}</div>
-                <div class="kpi-label">Avg Win / Avg Loss</div>
-                </div>
-                """,
+                '<div style="text-align:center; font-weight:600; margin:0 0 8px;">Long vs Short</div>',
                 unsafe_allow_html=True,
             )
-            _aw = float(max(avg_win_v, 0.0))
-            _al = float(abs(avg_loss_v))
-            _total = _aw + _al
-            _blue_pct = 50.0 if _total <= 0 else (_aw / _total) * 100.0
-            _red_pct = 100.0 - _blue_pct
-            st.markdown(
-                f"""
-                <div class="pillbar" style="margin-top:6px;">
-                <div class="win"  style="width:{_blue_pct:.2f}%"></div>
-                <div class="loss" style="width:{_red_pct:.2f}%"></div>
-                </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-            st.markdown(f"<div style='height:{PAD_K4}px'></div>", unsafe_allow_html=True)
+
+            # Count longs/shorts (graceful if 'side' missing)
+            if ("side" in df_view.columns) and (len(df_view) > 0):
+                side = df_view["side"].astype(str).str.strip().str.lower()
+                n_long = int((side == "long").sum())
+                n_short = int((side == "short").sum())
+                total = n_long + n_short
+            else:
+                n_long = n_short = total = 0
+
+            if total == 0:
+                st.caption("No long/short information in this period.")
+            else:
+                p_long = (n_long / total) * 100.0
+                p_short = 100.0 - p_long
+
+                # Header labels with counts
+                st.markdown(
+                    f"""
+                    <div class="ls-head">
+                    <div class="ls-left">Longs <span>{p_long:.2f}%</span> <span class="muted">({n_long})</span></div>
+                    <div class="ls-right">Shorts <span>{p_short:.2f}%</span> <span class="muted">({n_short})</span></div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+                # The pill itself
+                st.markdown(
+                    f"""
+                    <div class="ls-pill">
+                    <div class="ls-long"  style="width:{p_long:.4f}%"></div>
+                    <div class="ls-short" style="width:{p_short:.4f}%"></div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+                # Local styles (kept self-contained to this card)
+                st.markdown(
+                    f"""
+                    <style>
+                    .ls-head {{
+                        display:flex; justify-content:space-between; align-items:baseline;
+                        margin: 2px 2px 8px 2px;
+                    }}
+                    .ls-head .ls-left, .ls-head .ls-right {{
+                        font-size:14px; color:#E5E7EB; font-weight:600;
+                    }}
+                    .ls-head span {{ color:#D5DEED; }}
+                    .ls-head .muted {{ color:#9AA4B2; font-weight:500; }}
+                    .ls-pill {{
+                        width:100%; height:12px; border-radius:999px; overflow:hidden;
+                        display:flex; background:rgba(148,163,184,0.16);
+                    }}
+                    .ls-long  {{ background:{BLUE}; }}
+                    .ls-short {{ background:%s; }}  # {{DARK}}
+                    </style>
+                    """,
+                    unsafe_allow_html=True,
+                )
 
     # -- k5: Winstreak (moved up here) --
     with k5:
