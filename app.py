@@ -1,8 +1,12 @@
 # app.py (top of file)
 import json  # read/write sidecar metadata for notes/tags
+import json as _json
 import re
 from datetime import date, timedelta
+
+# ---- Load saved settings (if any) and mirror into session ----
 from pathlib import Path
+from pathlib import Path as _Path
 
 import numpy as np
 import pandas as pd
@@ -22,6 +26,7 @@ from src.styles import (
 )
 from src.theme import BLUE_FILL
 from src.utils import ensure_journal_store, load_journal_index
+from src.views.account import render_account
 from src.views.calendar import render as render_calendar
 from src.views.checklist import render as render_checklist
 from src.views.journal import render as render_journal
@@ -29,6 +34,23 @@ from src.views.overview import render_overview
 from src.views.performance import render as render_performance
 
 # (other imports are fine above or below — imports don’t matter)
+
+
+_settings_path = _Path(__file__).with_name("settings.json")
+if _settings_path.exists() and "app_settings" not in st.session_state:
+    try:
+        _settings = _json.loads(_settings_path.read_text(encoding="utf-8"))
+        st.session_state["app_settings"] = _settings
+        st.session_state.setdefault(
+            "starting_equity", _settings.get("starting_equity", {"__default__": 5000.0})
+        )
+        st.session_state.setdefault("journal_groups", _settings.get("journal_groups", {}))
+        _d = _settings.get("defaults", {})
+        st.session_state.setdefault("recent_select", _d.get("timeframe", "All Dates"))
+        st.session_state.setdefault("global_journal_sel", _d.get("account", "ALL"))
+        st.session_state.setdefault("journal_view_mode", _d.get("journal_view", "Styled"))
+    except Exception:
+        pass
 
 # ------- Session defaults for topbar (set-before-widgets) -------
 if "recent_select" not in st.session_state:
@@ -42,7 +64,43 @@ if "date_to" not in st.session_state:
 if "starting_equity" not in st.session_state:
     st.session_state["starting_equity"] = {"__default__": 5000.0}
 
+
 # ---------------------------------------------------------------
+# ---- KPI inputs from df_view: Net Profit & Balance (per-account equity map) ----
+def _kpi_net_and_balance(df_view):
+    import streamlit as st
+
+    if df_view is None or len(df_view) == 0:
+        # No data → net = 0; balance = sum of starting_equity for any selected accounts (or default once)
+        eq_map = st.session_state.get("starting_equity", {"__default__": 5000.0})
+        # If no Account column, show single default equity
+        base_eq = float(eq_map.get("__default__", 5000.0))
+        return 0.0, base_eq
+
+    d = df_view.copy()
+
+    # Net Profit
+    net = float(d["pnl"].sum()) if "pnl" in d.columns else 0.0
+
+    # Starting equity per account (aggregate for ALL/group selections)
+    eq_map = st.session_state.get("starting_equity", {"__default__": 5000.0})
+    if "Account" in d.columns:
+        present_accounts = d["Account"].astype(str).str.strip().dropna().unique().tolist()
+        if not present_accounts:
+            base_eq = float(eq_map.get("__default__", 5000.0))
+        else:
+            base_eq = 0.0
+            for acc in present_accounts:
+                base_eq += float(eq_map.get(acc, eq_map.get("__default__", 5000.0)))
+    else:
+        # No Account column → single default
+        base_eq = float(eq_map.get("__default__", 5000.0))
+
+    balance = base_eq + net
+    return net, balance
+
+
+# -------------------------------------------------------------------------------
 
 # ---------- FLEXIBLE CSV/Journal normalizer ----------
 
@@ -398,7 +456,7 @@ except Exception as _e:
 _today = date.today()
 st.session_state.setdefault("date_from", date(_today.year, 1, 1))  # YTD start
 st.session_state.setdefault("date_to", _today)
-st.session_state.setdefault("recent_select", "All Dates")
+
 
 RECENT_OPTIONS = [
     "Year to Date (YTD)",
@@ -629,8 +687,6 @@ with st.sidebar:
     <path d='M5 13l4 4L19 7'/>\
     </svg>");
     }
-
-
     </style>
     """,
         unsafe_allow_html=True,
@@ -945,24 +1001,39 @@ with t_spacer:
 
 # -- Timeframe (compact select) --
 with t_tf:
+    # ⬇️ vertical nudge (px) for the Timeframe select
+    TOPBAR_TIMEFRAME_SHIFT = 10  # adjust to taste
+    st.markdown(f"<div style='height:{TOPBAR_TIMEFRAME_SHIFT}px'></div>", unsafe_allow_html=True)
+
     st.markdown("<div class='tb tb-select'>", unsafe_allow_html=True)
-    _idx = (
-        RECENT_OPTIONS.index(st.session_state.get("recent_select", RECENT_OPTIONS[0]))
-        if st.session_state.get("recent_select") in RECENT_OPTIONS
-        else 0
-    )
-    st.selectbox(
-        "Timeframe",
-        RECENT_OPTIONS,
-        index=_idx,
-        key="recent_select",
-        on_change=_on_recent_change,
-        label_visibility="collapsed",
-    )
+
+    if "recent_select" in st.session_state and st.session_state["recent_select"] in RECENT_OPTIONS:
+        st.selectbox(
+            "Timeframe",
+            RECENT_OPTIONS,
+            key="recent_select",
+            on_change=_on_recent_change,
+            label_visibility="collapsed",
+        )
+    else:
+        st.selectbox(
+            "Timeframe",
+            RECENT_OPTIONS,
+            index=RECENT_OPTIONS.index("All Dates"),
+            key="recent_select",
+            on_change=_on_recent_change,
+            label_visibility="collapsed",
+        )
+
     st.markdown("</div>", unsafe_allow_html=True)
+
 
 # -- Account (NOW after options were built) --
 with t_acct:
+    # ⬇️ vertical nudge (px) for the Account select
+    TOPBAR_ACCOUNT_SHIFT = 10  # adjust to taste
+    st.markdown(f"<div style='height:{TOPBAR_ACCOUNT_SHIFT}px'></div>", unsafe_allow_html=True)
+
     st.markdown("<div class='tb tb-select'>", unsafe_allow_html=True)
     _acct_options = st.session_state.get("journal_options", ["ALL"])
     _current = st.session_state.get("global_journal_sel", None)
@@ -975,6 +1046,7 @@ with t_acct:
         label_visibility="collapsed",
     )
     st.markdown("</div>", unsafe_allow_html=True)
+
 
 # -- Icons (unchanged) --
 with t_globe:
@@ -1390,8 +1462,7 @@ elif st.session_state["nav"] == "Journal":
     render_journal(df)
 
 elif st.session_state["nav"] == "Account":
-    st.subheader("Account")
-    st.info("Account settings page (placeholder)")
+    render_account()
 
 elif st.session_state["nav"] == "Checklist":
     render_checklist(df)
