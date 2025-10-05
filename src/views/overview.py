@@ -1,5 +1,6 @@
 # src/views/overview.py
 import re
+from textwrap import dedent
 from typing import Optional
 
 import numpy as np
@@ -13,8 +14,8 @@ from src.charts.pnl import plot_pnl
 from src.components.last_trades import render_last_trades
 from src.components.monthly_stats import render_monthly_stats
 from src.components.winstreak import render_winstreak
-from src.styles import inject_overview_css
-from src.theme import BLUE
+from src.styles import inject_overview_css, inject_ui_title_css
+from src.theme import BLUE, DARK
 
 
 def _build_top_assets_donut_and_summary(df, max_assets: int = 5):
@@ -142,6 +143,51 @@ def _build_top_assets_donut_and_summary(df, max_assets: int = 5):
     return fig, summary_df, colors
 
 
+# --- Helpers to place side micro-stats *inside* the donut --------------------
+_KPI_LABEL = dict(size=12, color="#E5E7EB", family=None)  # white-ish label
+_KPI_GREEN = "#9AD8C3"  # win/avg-win
+_KPI_RED = "#E06B6B"  # loss/avg-loss
+
+
+def _annotate_donut_title(fig, text, y=1.10):
+    # y>1.0 draws the title above the half-donut; raise/lower with y
+    fig.add_annotation(
+        x=0.5,
+        y=y,
+        xref="paper",
+        yref="paper",
+        text=f"<b>{text}</b>",
+        showarrow=False,
+        font=dict(size=14, color="#E5E7EB"),
+        align="center",
+    )
+
+
+def _annotate_donut_sides(
+    fig, left_label_html, right_label_html, x_left=0.12, y_left=0.60, x_right=0.88, y_right=0.60
+):
+    # Left
+    fig.add_annotation(
+        x=x_left,
+        y=y_left,
+        xref="paper",
+        yref="paper",
+        text=left_label_html,
+        showarrow=False,
+        align="left",
+    )
+    # Right
+    fig.add_annotation(
+        x=x_right,
+        y=y_right,
+        xref="paper",
+        yref="paper",
+        text=right_label_html,
+        showarrow=False,
+        align="right",
+    )
+
+
 def render_overview(
     df_view: pd.DataFrame,
     start_equity: float,
@@ -157,6 +203,7 @@ def render_overview(
 ) -> None:
 
     inject_overview_css()
+    inject_ui_title_css()
 
     # --- Per-card bottom spacers (px) — tune these freely
     PAD_K1 = 6  # Balance / Net Profit
@@ -214,19 +261,14 @@ def render_overview(
             )
             st.markdown(f"<div style='height:{PAD_K1}px'></div>", unsafe_allow_html=True)
 
-    # -- k2: Win Rate (reuse your donut) --
     with k2:
-        # (copy from your existing Win Rate card)
-        # START COPY of the block currently under: kpi_row1[0] -> with st.container(border=True): ...
         with st.container(border=True):
-            st.markdown(
-                '<div style="text-align:center; font-weight:600; margin:0 0 6px; transform: translateX(6px);">Win Rate</div>',
-                unsafe_allow_html=True,
-            )
+            # ---- Win Rate donut ----
             wr_pct = float(win_rate_v * 100.0)
             win_color = "#2E86C1"
             loss_color = "#212C47"
             panel_bg = "#0b0f19"
+
             fig_win = go.Figure(
                 go.Indicator(
                     mode="gauge",
@@ -241,12 +283,14 @@ def render_overview(
                             {"range": [wr_pct, 100.0], "color": loss_color},
                         ],
                     },
-                    domain={"x": [0, 1], "y": [0, 1]},
+                    domain={"x": [0, 1], "y": [0, 0.86]},
                 )
             )
             fig_win.update_layout(
-                margin=dict(l=8, r=8, t=6, b=0), height=90, paper_bgcolor=panel_bg
+                margin=dict(l=8, r=8, t=34, b=4), height=140, paper_bgcolor=panel_bg
             )
+
+            # center big number
             fig_win.add_annotation(
                 x=0.5,
                 y=0.10,
@@ -257,63 +301,55 @@ def render_overview(
                 font=dict(size=30, color="#e5e7eb", family="Inter, system-ui, sans-serif"),
                 align="center",
             )
-            st.plotly_chart(fig_win, use_container_width=True)
-            # --- Micro stats under Win Rate: Wins (left) | Losses (right) ---
+
+            # ---- INSIDE-donut title + left/right stacks ----
+            # compute wins/losses from the filtered view
             p = pd.to_numeric(df_view.get("pnl", np.nan), errors="coerce").dropna()
             wins = int((p > 0).sum())
             losses = int((p < 0).sum())
-            wl_total = max(1, wins + losses)
-            win_pct = (wins / wl_total) * 100.0
-            loss_pct = (losses / wl_total) * 100.0
+            wl_tot = max(1, wins + losses)
+            win_pct_real = (wins / wl_tot) * 100.0
+            loss_pct_real = (losses / wl_tot) * 100.0
 
-            st.markdown(
-                f"""
-                <div class="wr-micro">
-                <span class="win">Wins&nbsp;<b>{win_pct:.1f}%</b>&nbsp;<span class="muted">({wins})</span></span>
-                <span class="loss">Losses&nbsp;<b>{loss_pct:.1f}%</b>&nbsp;<span class="muted">({losses})</span></span>
-                </div>
-                """,
-                unsafe_allow_html=True,
+            # title inside chart
+            _annotate_donut_title(fig_win, "Win Rate", y=1.12)
+
+            # left/right stacks inside donut
+            left_html = (
+                '<span style="color:#E5E7EB; font-weight:600;">Win</span>'
+                f'<br><span style="color:#9AD8C3; font-weight:700;">{win_pct_real:.1f}% ({wins})</span>'
+            )
+            right_html = (
+                '<span style="color:#E5E7EB; font-weight:600;">Loss</span>'
+                f'<br><span style="color:#E06B6B; font-weight:700;">{loss_pct_real:.1f}% ({losses})</span>'
+            )
+            _annotate_donut_sides(
+                fig_win,
+                left_html,
+                right_html,
+                x_left=0.04,
+                y_left=0.63,  # move the "Win" stack
+                x_right=0.96,
+                y_right=0.61,  # move the "Loss" stack
             )
 
-            st.markdown(
-                """
-                <style>
-                .wr-micro {
-                    display:flex; justify-content:space-between; align-items:baseline;
-                    margin-top: 8px; font-size: 12px;
-                }
-                .wr-micro .muted { opacity: 0.7; font-weight: 500; }
-                .wr-micro .win  { color: #9AD8C3; }   /* subtle green-ish for wins */
-                .wr-micro .loss { color: #E06B6B; }   /* your loss red */
-                </style>
-                """,
-                unsafe_allow_html=True,
-            )
-
+            st.plotly_chart(fig_win, use_container_width=True)
             st.markdown(f"<div style='height:{PAD_K2}px'></div>", unsafe_allow_html=True)
 
-        # END COPY
-
-    # -- k3: Profit Factor (reuse your donut) --
     with k3:
-        # (copy from your existing Profit Factor card: kpi_row2[0])
-        # START COPY of the PF block...
         with st.container(border=True):
-            st.markdown(
-                '<div style="text-align:center; font-weight:600; margin:0 0 6px; transform: translateX(6px);">Profit Factor</div>',
-                unsafe_allow_html=True,
-            )
+            # ---- Profit Factor donut ----
             gross_profit_v = float(pnl_v[wins_mask_v].sum())
             gross_loss_v = float(pnl_v[losses_mask_v].sum())
             pf_v = (gross_profit_v / abs(gross_loss_v)) if gross_loss_v != 0 else float("inf")
-            pf_display = "∞" if pf_v == float("inf") else f"{pf_v:.2f}"
             max_pf = 4.0
             pf_clamped = max(0.0, min(float(pf_v if pf_v != float("inf") else max_pf), max_pf))
             pct = (pf_clamped / max_pf) * 100.0
+
             panel_bg = "#0b0f19"
             fill_col = "#2E86C1"
             rest_col = "#212C47"
+
             fig_pf = go.Figure(
                 go.Indicator(
                     mode="gauge",
@@ -328,12 +364,15 @@ def render_overview(
                             {"range": [pct, 100.0], "color": rest_col},
                         ],
                     },
-                    domain={"x": [0, 1], "y": [0, 1]},
+                    domain={"x": [0, 1], "y": [0, 0.86]},
                 )
             )
             fig_pf.update_layout(
-                margin=dict(l=8, r=8, t=6, b=0), height=90, paper_bgcolor=panel_bg, showlegend=False
+                margin=dict(l=8, r=8, t=34, b=4), height=140, paper_bgcolor=panel_bg
             )
+
+            # center big PF value
+            pf_display = "∞" if pf_v == float("inf") else f"{pf_v:.2f}"
             fig_pf.add_annotation(
                 x=0.5,
                 y=0.10,
@@ -344,50 +383,46 @@ def render_overview(
                 font=dict(size=28, color="#e5e7eb", family="Inter, system-ui, sans-serif"),
                 align="center",
             )
-            st.plotly_chart(fig_pf, use_container_width=True)
-            # --- Micro stats under Profit Factor: Avg Win (left) | Avg Loss (right) ---
+
+            # ---- INSIDE-donut title + left/right stacks ----
             p = pd.to_numeric(df_view.get("pnl", np.nan), errors="coerce").dropna()
             avg_win = float(p[p > 0].mean()) if (p > 0).any() else 0.0
-            avg_loss_abs = float((-p[p < 0]).mean()) if (p < 0).any() else 0.0  # absolute avg loss
+            avg_loss_abs = float((-p[p < 0]).mean()) if (p < 0).any() else 0.0
 
-            def _fmt_money(x: float) -> str:
-                return f"${x:,.2f}"
+            _annotate_donut_title(fig_pf, "Profit Factor", y=1.12)
 
-            st.markdown(
-                f"""
-                <div class="pf-micro">
-                <span class="left">Avg Win&nbsp;<b>{_fmt_money(avg_win)}</b></span>
-                <span class="right">Avg Loss&nbsp;<b style="color:#E06B6B;">-{_fmt_money(avg_loss_abs)}</b></span>
-                </div>
-                """,
-                unsafe_allow_html=True,
+            left_html = (
+                '<span style="color:#E5E7EB; font-weight:600;">Avg Win</span>'
+                f'<br><span style="color:#9AD8C3; font-weight:700;">${avg_win:,.2f}</span>'
+            )
+            right_html = (
+                '<span style="color:#E5E7EB; font-weight:600;">Avg Loss</span>'
+                f'<br><span style="color:#E06B6B; font-weight:700;">-${avg_loss_abs:,.2f}</span>'
+            )
+            _annotate_donut_sides(
+                fig_pf,
+                left_html,
+                right_html,
+                x_left=0.04,
+                y_left=0.635,  # Avg Win (left) – nudge as you like
+                x_right=0.96,
+                y_right=0.615,  # Avg Loss (right) – independently placed
             )
 
-            st.markdown(
-                """
-                <style>
-                .pf-micro {
-                    display:flex; justify-content:space-between; align-items:baseline;
-                    margin-top: 8px; font-size: 12px;
-                }
-                .pf-micro .left  { color: #D5F1E7; }  /* muted win label */
-                .pf-micro .right { color: #A8B2C1; }  /* muted loss label (value itself is red) */
-                </style>
-                """,
-                unsafe_allow_html=True,
-            )
+            st.plotly_chart(fig_pf, use_container_width=True)
             st.markdown(f"<div style='height:{PAD_K3}px'></div>", unsafe_allow_html=True)
-        # END COPY
 
     # -- k4: Long vs Short (ratio pill) --
     with k4:
         with st.container(border=True):
-            st.markdown(
-                '<div style="text-align:center; font-weight:600; margin:0 0 8px;">Long vs Short</div>',
-                unsafe_allow_html=True,
-            )
+            # ---- Long vs Short (title + text + pill move together) ----
 
-            # Count longs/shorts (graceful if 'side' missing)
+            # 3 simple knobs:
+            LS_CARD_SHIFT = 32  # moves the entire block down (title + text + pill)
+            LS_LEFT_SHIFT = 18  # nudges Longs text right (+) / left (-)
+            LS_RIGHT_SHIFT = 18  # nudges Shorts text left (+) / right (-)
+
+            # Count longs/shorts (same logic you already had)
             if ("side" in df_view.columns) and (len(df_view) > 0):
                 side = df_view["side"].astype(str).str.strip().str.lower()
                 n_long = int((side == "long").sum())
@@ -402,49 +437,64 @@ def render_overview(
                 p_long = (n_long / total) * 100.0
                 p_short = 100.0 - p_long
 
-                # Header labels with counts
                 st.markdown(
-                    f"""
-                    <div class="ls-head">
-                    <div class="ls-left">Longs <span>{p_long:.2f}%</span> <span class="muted">({n_long})</span></div>
-                    <div class="ls-right">Shorts <span>{p_short:.2f}%</span> <span class="muted">({n_short})</span></div>
-                    </div>
-                    """,
+                    dedent(
+                        f"""
+                        <div class="ls-card" style="margin-top:{LS_CARD_SHIFT}px">
+                        <div class="ui-title center">Long vs Short</div>
+
+                        <div class="ls-wrap">
+                        <div class="ls-row ls-labels">
+                            <div class="col left">Longs</div>
+                            <div class="col right">Shorts</div>
+                        </div>
+
+                        <div class="ls-row ls-values">
+                            <div class="col left"><b>{p_long:.2f}%</b> <span class="muted">({n_long})</span></div>
+                            <div class="col right"><b>{p_short:.2f}%</b> <span class="muted">({n_short})</span></div>
+                        </div>
+
+                        <div class="ls-pill">
+                            <div class="ls-long"  style="width:{p_long:.4f}%"></div>
+                            <div class="ls-short" style="width:{p_short:.4f}%"></div>
+                        </div>
+                        </div>
+                        </div>
+                        """
+                    ),
                     unsafe_allow_html=True,
                 )
 
-                # The pill itself
                 st.markdown(
-                    f"""
-                    <div class="ls-pill">
-                    <div class="ls-long"  style="width:{p_long:.4f}%"></div>
-                    <div class="ls-short" style="width:{p_short:.4f}%"></div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
+                    dedent(
+                        f"""
+                        <style>
+                        .ls-card {{ width:100%; }}
+                        .ls-title {{ text-align:center; font-weight:600; font-size:14px; color:#E5E7EB; margin:0 0 8px 0; }}
+                        .ls-wrap {{ width:100%; }}
 
-                # Local styles (kept self-contained to this card)
-                st.markdown(
-                    f"""
-                    <style>
-                    .ls-head {{
-                        display:flex; justify-content:space-between; align-items:baseline;
-                        margin: 2px 2px 8px 2px;
-                    }}
-                    .ls-head .ls-left, .ls-head .ls-right {{
-                        font-size:14px; color:#E5E7EB; font-weight:600;
-                    }}
-                    .ls-head span {{ color:#D5DEED; }}
-                    .ls-head .muted {{ color:#9AA4B2; font-weight:500; }}
-                    .ls-pill {{
-                        width:100%; height:12px; border-radius:999px; overflow:hidden;
-                        display:flex; background:rgba(148,163,184,0.16);
-                    }}
-                    .ls-long  {{ background:{BLUE}; }}
-                    .ls-short {{ background:%s; }}  # {{DARK}}
-                    </style>
-                    """,
+                        /* Center the two text rows; pill remains full width below */
+                        .ls-row {{
+                        display:grid; grid-template-columns:1fr 1fr; align-items:baseline;
+                        max-width:78%; margin:0 auto 6px;
+                        }}
+                        .ls-row .col.left  {{ text-align:left;  transform:translateX({LS_LEFT_SHIFT}px);  }}
+                        .ls-row .col.right {{ text-align:right; transform:translateX(-{LS_RIGHT_SHIFT}px); }}
+
+                        .ls-labels {{ font-size:13px; font-weight:600; color:#E5E7EB; }}
+                        .ls-values {{ font-size:13px; }}
+                        .ls-values b {{ font-weight:700; color:#D5DEED; }}
+                        .ls-values .muted {{ color:#9AA4B2; font-weight:500; }}
+
+                        .ls-pill {{
+                        width:95%; height:16px; border-radius:200px; overflow:hidden;
+                        display:flex; background:rgba(148,163,184,0.16); margin:0 auto;
+                        }}
+                        .ls-long  {{ background:{BLUE}; }}
+                        .ls-short {{ background:{DARK}; }}
+                        </style>
+                        """
+                    ),
                     unsafe_allow_html=True,
                 )
 

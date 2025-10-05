@@ -442,6 +442,58 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+st.markdown(
+    """
+<style>
+:root{
+  /* tweak to your blue accent */
+  --tb-accent: var(--blue-fill);
+}
+
+/* make the popover trigger match the other selects */
+.topbar .stPopover > div > button {
+  min-height: 36px; height: 36px;
+  padding: 0 12px; border-radius: 10px;
+  background: #0f1728; border: 1px solid #1f2a3a;
+  display: inline-flex; align-items: center; gap: 8px;
+  color: var(--tb-accent);
+}
+.topbar .stPopover > div > button:hover { background: #152138; }
+
+/* colorize the icon inside the button */
+.topbar .stPopover > div > button svg,
+.topbar .stPopover > div > button span,
+.topbar .stPopover > div > button [data-testid="stMarkdownContainer"] {
+  color: var(--tb-accent);
+  fill: var(--tb-accent);
+}
+
+/* keep the popover body compact */
+.topbar .stPopover .stPopoverContent {
+  border-radius: 12px; border: 1px solid #223045;
+}
+</style>
+""",
+    unsafe_allow_html=True,
+)
+st.markdown(
+    """
+<style>
+/* Hide the native date text completely so it can't ghost-underlap the overlay */
+[data-testid="stDateInput"] input{
+  color: transparent !important;
+  caret-color: transparent !important;
+  text-shadow: none !important;
+  font-size: 0 !important;         /* kills any remaining glyph width */
+}
+/* (optional) hide the built-in calendar icon since you draw your own */
+[data-testid="stDateInput"] svg{ display:none !important; }
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
+
 # ------ Ensure Journal session is initialized (provides journal_df & accounts_options) ------
 try:
     from src.views.journal import _init_session_state as _journal_bootstrap
@@ -493,6 +545,28 @@ def _apply_range(label: str):
 def _on_recent_change():
     label = st.session_state.get("recent_select", "All Dates")
     _apply_range(label)  # this just sets date_from/date_to
+
+
+def _default_range_from_preset():
+    """Return (from, to) based on session preset, or saved custom range."""
+    d_from = st.session_state.get("date_from")
+    d_to = st.session_state.get("date_to")
+    if d_from and d_to:
+        return d_from, d_to
+
+    preset = st.session_state.get("recent_select", "All Dates")
+    today = date.today()
+    if "Year to Date" in preset:
+        return date(today.year, 1, 1), today
+    if "Recent 7" in preset:
+        return today - timedelta(days=6), today
+    if "Recent 30" in preset:
+        return today - timedelta(days=29), today
+
+    # All Dates → fall back to bounds if you track them
+    _min_bound = st.session_state.get("_data_min", today)
+    _max_bound = st.session_state.get("_data_max", today)
+    return _min_bound, _max_bound
 
 
 # Journal page can overwrite these; we keep safe defaults here.
@@ -687,6 +761,46 @@ with st.sidebar:
     <path d='M5 13l4 4L19 7'/>\
     </svg>");
     }
+    </style>
+    """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        """
+    <style>
+    :root{ --tb-accent: var(--blue-fill); }
+
+    /* Style the actual Streamlit date input like a pill */
+    .topbar [data-testid="stDateInput"]{
+    width: var(--tb-range-width, 420px);
+    }
+    .topbar [data-testid="stDateInput"] > div > div{
+    background:#0f1728; border:1px solid #1f2a3a; border-radius:10px;
+    min-height:36px; height:36px; padding:0 10px 0 34px; display:flex; align-items:center;
+    }
+    .topbar [data-testid="stDateInput"] > div > div:hover{ background:#152138; }
+
+    /* Hide the native text; we draw the label ourselves */
+    .topbar [data-testid="stDateInput"] input{
+    color:transparent !important; caret-color:transparent !important;
+    }
+
+    /* Sibling overlay: visually sits ON TOP of the previous widget row */
+    .tb-overlay{
+    position:relative; height:0; margin-top:-36px;   /* pull overlay up onto pill */
+    pointer-events:none;
+    }
+    .tb-overlay .inner{
+    position:absolute; inset:0; display:flex; align-items:center; gap:10px; padding:0 12px;
+    }
+
+    /* Icon + text */
+    .tb-ico{ width:16px; height:16px; min-width:16px; margin-left:4px; color:var(--tb-accent); fill:var(--tb-accent); }
+    .tb-text{ color:#e5e7eb; font-weight:600; font-size:13px; letter-spacing:.1px; }
+
+    /* Round the BaseWeb datepicker popup to match */
+    [data-baseweb="datepicker"]{ border-radius:12px; border:1px solid #223045; }
     </style>
     """,
         unsafe_allow_html=True,
@@ -992,8 +1106,8 @@ if tuple(new_opts) != _prev_opts:
 # ========== TOP TOOLBAR (title spacer | timeframe | account | icons) ==========
 st.markdown('<div class="topbar">', unsafe_allow_html=True)
 
-t_spacer, t_tf, t_acct, t_globe, t_bell, t_full, t_theme, t_profile = st.columns(
-    [70, 12, 16, 5, 5, 5, 5, 5], gap="small"
+t_spacer, t_tf, t_range, t_acct, t_globe, t_bell, t_full, t_theme, t_profile = st.columns(
+    [66, 10, 12, 14, 5, 5, 5, 5, 5], gap="small"
 )
 
 with t_spacer:
@@ -1026,6 +1140,75 @@ with t_tf:
         )
 
     st.markdown("</div>", unsafe_allow_html=True)
+
+# --- TOPBAR: Custom Date Range ---------------------------------------------
+with t_range:
+    # vertical alignment with other dropdowns
+    TOPBAR_RANGE_SHIFT = 10
+    st.markdown(f"<div style='height:{TOPBAR_RANGE_SHIFT}px'></div>", unsafe_allow_html=True)
+
+    # === NEW: define all variables the widget needs ===
+    from datetime import date as _date
+
+    _RANGE_KEY = "topbar_range"
+
+    # Bounds for the picker; fall back safely if dataset bounds aren’t set yet
+    _min_bound = st.session_state.get("_data_min", _date(_date.today().year, 1, 1))
+    _max_bound = st.session_state.get("_data_max", _date.today())
+
+    # What should show today in the picker (uses your helper)
+    cur_from, cur_to = _default_range_from_preset()
+
+    def _on_range_change():
+        v = st.session_state.get(_RANGE_KEY)
+        # Range selection → tuple of two dates
+        if isinstance(v, tuple) and len(v) == 2:
+            st.session_state["date_from"], st.session_state["date_to"] = v
+        # Single date fallback (if Streamlit ever returns one)
+        elif v is not None:
+            st.session_state["date_from"] = v
+            st.session_state["date_to"] = v
+
+    # pill width
+    RANGE_WIDTH_PX = 420
+    st.markdown(
+        f"<style>:root{{ --tb-range-width:{RANGE_WIDTH_PX}px }}</style>",
+        unsafe_allow_html=True,
+    )
+
+    # The actual date widget (unchanged behavior)
+    st.date_input(
+        label="",
+        value=(cur_from, cur_to),
+        min_value=_min_bound,
+        max_value=_max_bound,
+        format="YYYY-MM-DD",
+        label_visibility="collapsed",
+        key=_RANGE_KEY,
+        on_change=_on_range_change,
+    )
+
+    # === Overlay label that visually replaces the input text (keeps clicks working) ===
+    d1 = st.session_state.get("date_from") or cur_from
+    d2 = st.session_state.get("date_to") or cur_to
+    label_txt = f"{d1:%Y-%m-%d}  \u2192  {d2:%Y-%m-%d}"  # note the spaces around the arrow
+
+    st.markdown(
+        f"""
+        <div class="tb-overlay" style="width:{RANGE_WIDTH_PX}px">
+          <div class="inner">
+            <span class="tb-ico">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                <path d="M7 2a1 1 0 0 1 1 1v1h8V3a1 1 0 1 1 2 0v1h1.5A2.5 2.5 0 0 1 22 6.5v13A2.5 2.5 0 0 1 19.5 22h-15A2.5 2.5 0 0 1 2 19.5v-13A2.5 2.5 0 0 1 4.5 4H6V3a1 1 0 1 1 2 0v1Zm12.5 6H4.5a.5.5 0 0 0-.5.5v10a.5.5 0 0 0 .5.5h15a.5.5 0 0 0 .5-.5v-10a.5.5 0 0 0-.5-.5ZM8 7H6v1a1 1 0 0 0 2 0V7Zm10 0h-2v1a1 1 0 1 0 2 0V7Z"/>
+              </svg>
+            </span>
+            <span class="tb-text">{label_txt}</span>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+# --- END TOPBAR: Custom Date Range -----------------------------------------
 
 
 # -- Account (NOW after options were built) --
@@ -1347,6 +1530,18 @@ _dt_full = pd.to_datetime(df[_date_col], errors="coerce") if _date_col is not No
 
 # Use the already-filtered df (journal + date_from/to) as the view
 df_view = df.copy()
+
+# --- Apply TOPBAR date_from/date_to (if set) to df_view ---
+_raw_from = st.session_state.get("date_from", None)
+_raw_to = st.session_state.get("date_to", None)
+
+if _date_col is not None and _date_col in df_view.columns and len(df_view) > 0:
+    _dates_series = pd.to_datetime(df_view[_date_col], errors="coerce").dt.date
+    if _raw_from is not None:
+        df_view = df_view[_dates_series >= _raw_from]
+    if _raw_to is not None:
+        df_view = df_view[_dates_series <= _raw_to]
+# --- end apply date range ---
 
 # Nice label for the current range (from the date inputs)
 _raw_from = st.session_state.get("date_from", None)

@@ -539,3 +539,33 @@ def inject_plot_rounding_css(radius_px: int = 12, add_shadow: bool = False) -> N
 """,
         unsafe_allow_html=True,
     )
+
+
+def inject_ui_title_css():
+    import streamlit as st
+
+    st.markdown(
+        """
+        <style>
+          :root{
+            --ui-title-size: 16px;      /* edit once to change all titles */
+            --ui-title-weight: 600;     /* 500–700 */
+            --ui-title-color: #E5E7EB;  /* light heading color */
+            --ui-title-spacing: .2px;   /* letter spacing */
+            --ui-title-mb: 8px;         /* space below titles */
+          }
+          .ui-title{
+            font-size: var(--ui-title-size);
+            font-weight: var(--ui-title-weight);
+            line-height: 1.2;
+            letter-spacing: var(--ui-title-spacing);
+            color: var(--ui-title-color);
+            margin: 0 0 var(--ui-title-mb) 0;
+          }
+          .ui-title.left   { text-align: left; }
+          .ui-title.center { text-align: center; }
+          .ui-title.right  { text-align: right; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
