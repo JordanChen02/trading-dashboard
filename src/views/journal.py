@@ -1166,18 +1166,3 @@ def render(*_args, **_kwargs) -> None:
 
     # Summary metrics (single row)
     _render_summary(df_view)
-
-
-# ===== DEBUG: sanity check that Journal is initializing state =====
-try:
-    import streamlit as st
-
-    if "journal_df" in st.session_state:
-        print("DEBUG journal_df length:", len(st.session_state["journal_df"]))
-    else:
-        print("DEBUG journal_df missing")
-
-    print("DEBUG accounts_options:", st.session_state.get("accounts_options"))
-except Exception as e:
-    print("DEBUG error printing journal state:", e)
-# =================================================================

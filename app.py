@@ -354,7 +354,7 @@ st.markdown(
   }
 
   /* Micro-lift just the first row without affecting page height (no bottom clipping) */
-  :root { --lift: 200px; }  /* tweak 8–16px to taste */
+  :root { --lift: 250px; }  /* tweak 8–16px to taste */
   [data-testid="stAppViewContainer"] .block-container > *:first-child {
     transform: translateY(calc(-1 * var(--lift)));
   }
@@ -446,36 +446,85 @@ st.markdown(
     """
 <style>
 :root{
-  /* tweak to your blue accent */
   --tb-accent: var(--blue-fill);
+  --tb-range-width: 520px;   /* adjust here; now it will actually apply */
+  --tb-range-height: 40px; 
 }
 
-/* make the popover trigger match the other selects */
-.topbar .stPopover > div > button {
-  min-height: 36px; height: 36px;
-  padding: 0 12px; border-radius: 10px;
-  background: #0f1728; border: 1px solid #1f2a3a;
-  display: inline-flex; align-items: center; gap: 8px;
-  color: var(--tb-accent);
+/* Range pill sizing & shape */
+.topbar [data-testid="stDateInput"]{
+  width: var(--tb-range-width) !important;
+  display: inline-block !important;
 }
-.topbar .stPopover > div > button:hover { background: #152138; }
+.topbar [data-testid="stDateInput"] > div {
+  border-radius: 10px !important;     /* match dropdowns */
+  overflow: hidden;                   /* keep corners crisp */
+}
+.topbar [data-testid="stDateInput"] > div > div{
+  background: #0f1728;
+  border: 1px solid #1f2a3a;
+  border-radius: 10px !important;     /* enforce consistent roundness */
+  min-height: 60px; height: 60px;
+  padding: 0 10px 0 34px;
+  display: flex; align-items: center;
+}
+.topbar [data-testid="stDateInput"] > div > div:hover{ background:#152138; }
 
-/* colorize the icon inside the button */
-.topbar .stPopover > div > button svg,
-.topbar .stPopover > div > button span,
-.topbar .stPopover > div > button [data-testid="stMarkdownContainer"] {
-  color: var(--tb-accent);
-  fill: var(--tb-accent);
+/* Hide native text because you draw your overlay label */
+.topbar [data-testid="stDateInput"] input{
+  color: transparent !important;
+  caret-color: transparent !important;
+  text-shadow: none !important;
+  font-size: 0 !important;
 }
 
-/* keep the popover body compact */
-.topbar .stPopover .stPopoverContent {
-  border-radius: 12px; border: 1px solid #223045;
-}
 </style>
 """,
     unsafe_allow_html=True,
 )
+
+st.markdown(
+    """
+<style>
+:root{ --tb-range-height: 0px; } /* change to 36/40/44/48 to taste */
+
+/* Make the actual BaseWeb input box respect our height */
+.topbar [data-testid="stDateInput"] div[data-baseweb="input"],
+.topbar [data-testid="stDateInput"] > div > div {
+  min-height: var(--tb-range-height) !important;
+  height: var(--tb-range-height) !important;
+  display: flex !important;
+  align-items: center !important;
+  box-sizing: border-box !important;
+
+  /* keep your look consistent with dropdowns */
+  background: #0f1728 !important;
+  border: 1px solid #1f2a3a !important;
+  border-radius: 10px !important;
+  padding: 0 10px 0 34px !important;
+}
+
+/* Round the outer wrapper as well so corners match perfectly */
+.topbar [data-testid="stDateInput"] > div {
+  border-radius: 10px !important;
+  overflow: hidden !important;
+}
+
+/* Keep overlay aligned with the same height */
+.tb-overlay{
+  position:relative; height:0;
+  margin-top: calc(-1 * var(--tb-range-height)) !important;
+  pointer-events:none;
+}
+
+/* (unchanged) icon + label styling */
+.tb-ico, .tb-ico svg { color:#3AA4EB !important; fill:#3AA4EB !important; }
+.tb-text { color:#e5e7eb; font-weight:400; font-size:16px; letter-spacing:.1px; }
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
 st.markdown(
     """
 <style>
@@ -488,6 +537,48 @@ st.markdown(
 }
 /* (optional) hide the built-in calendar icon since you draw your own */
 [data-testid="stDateInput"] svg{ display:none !important; }
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
+st.markdown(
+    """
+<style>
+/* Set your single source of truth height here */
+:root{ --tb-range-height: 40px; }  /* change to 36/40/44/48 to taste */
+
+/* 1) Make the pill box (the real BaseWeb input) use that height */
+[data-testid="stDateInput"] div[data-baseweb="input"]{
+  min-height: var(--tb-range-height) !important;
+  height:      var(--tb-range-height) !important;
+  display: flex !important;
+  align-items: center !important;
+  box-sizing: border-box !important;
+
+  /* match your dropdown look */
+  background: #0f1728 !important;
+  border: 1px solid #1f2a3a !important;
+  border-radius: 10px !important;
+  padding: 0 10px 0 34px !important;
+}
+
+/* Round the outer wrapper, too, so corners are perfect */
+[data-testid="stDateInput"] > div {
+  border-radius: 10px !important;
+  overflow: hidden !important;
+}
+
+/* 2) Keep your overlay perfectly aligned with the same height */
+.tb-overlay{
+  position:relative; height:0;
+  margin-top: calc(-1 * var(--tb-range-height)) !important;
+  pointer-events:none;
+}
+
+/* 3) Nudge the calendar icon vertically to line up with your text */
+.tb-ico{ display:inline-flex; align-items:center; height: var(--tb-range-height); }
+.tb-ico svg{ position: relative; top: 4px; }  /* tweak 0–3px if needed */
 </style>
 """,
     unsafe_allow_html=True,
@@ -772,12 +863,15 @@ with st.sidebar:
     :root{ --tb-accent: var(--blue-fill); }
 
     /* Style the actual Streamlit date input like a pill */
-    .topbar [data-testid="stDateInput"]{
-    width: var(--tb-range-width, 420px);
+    :root{
+    --tb-range-height: 44px;    /* ← set the height you want here (36px, 40px, 44px, etc.) */
     }
+
     .topbar [data-testid="stDateInput"] > div > div{
     background:#0f1728; border:1px solid #1f2a3a; border-radius:10px;
-    min-height:36px; height:36px; padding:0 10px 0 34px; display:flex; align-items:center;
+    min-height: var(--tb-range-height) !important;
+    height:      var(--tb-range-height) !important;
+    padding: 0 10px 0 34px; display:flex; align-items:center;
     }
     .topbar [data-testid="stDateInput"] > div > div:hover{ background:#152138; }
 
@@ -786,9 +880,10 @@ with st.sidebar:
     color:transparent !important; caret-color:transparent !important;
     }
 
-    /* Sibling overlay: visually sits ON TOP of the previous widget row */
+    /* Pull the overlay up by exactly the same height */
     .tb-overlay{
-    position:relative; height:0; margin-top:-36px;   /* pull overlay up onto pill */
+    position:relative; height:0;
+    margin-top: calc(-1 * var(--tb-range-height));  /* keep overlay perfectly aligned */
     pointer-events:none;
     }
     .tb-overlay .inner{
@@ -796,9 +891,17 @@ with st.sidebar:
     }
 
     /* Icon + text */
-    .tb-ico{ width:16px; height:16px; min-width:16px; margin-left:4px; color:var(--tb-accent); fill:var(--tb-accent); }
+    .tb-ico{ width:18px; height:18px; min-width:16px; margin-left:7px; color:#3AA4EB; fill:#3AA4EB; }
     .tb-text{ color:#e5e7eb; font-weight:600; font-size:13px; letter-spacing:.1px; }
+    .tb-text { word-spacing: 6px !important; }
 
+    /* Text size / weight */
+    .tb-text{
+    font-size: 16px !important;   /* ← change size here */
+    font-weight: 500 !important;  /* 400–700 */
+    position: relative;
+    top: 4px;                      /* ← nudge text up/down (+/- px) */
+    }
     /* Round the BaseWeb datepicker popup to match */
     [data-baseweb="datepicker"]{ border-radius:12px; border:1px solid #223045; }
     </style>
@@ -807,6 +910,7 @@ with st.sidebar:
     )
 
     st.divider()
+
 
 # ===================== MAIN: Upload OR Journal Fallback =====================
 df = None
@@ -1107,7 +1211,7 @@ if tuple(new_opts) != _prev_opts:
 st.markdown('<div class="topbar">', unsafe_allow_html=True)
 
 t_spacer, t_tf, t_range, t_acct, t_globe, t_bell, t_full, t_theme, t_profile = st.columns(
-    [66, 10, 12, 14, 5, 5, 5, 5, 5], gap="small"
+    [50, 10, 15, 14, 5, 5, 5, 5, 5], gap="small"
 )
 
 with t_spacer:
@@ -1159,27 +1263,46 @@ with t_range:
     # What should show today in the picker (uses your helper)
     cur_from, cur_to = _default_range_from_preset()
 
+    # stage machine: 0 = idle, 1 = user has clicked the "from" date (one pick)
+    st.session_state.setdefault("_range_stage", 0)
+    st.session_state.setdefault("_last_range_value", None)
+
     def _on_range_change():
         v = st.session_state.get(_RANGE_KEY)
-        # Range selection → tuple of two dates
+
+        # First selection (FROM) → just arm; no apply yet, no rerun needed.
+        if st.session_state.get("_range_stage", 0) == 0:
+            st.session_state["_range_stage"] = 1
+            return
+
+        # Second selection (TO) → apply and reset stage (Streamlit will rerun automatically).
+        st.session_state["_range_stage"] = 0
         if isinstance(v, tuple) and len(v) == 2:
             st.session_state["date_from"], st.session_state["date_to"] = v
-        # Single date fallback (if Streamlit ever returns one)
-        elif v is not None:
-            st.session_state["date_from"] = v
-            st.session_state["date_to"] = v
+            st.session_state["recent_select"] = "Custom Range"
+            # no st.rerun() here — Streamlit reruns once automatically after the callback
 
     # pill width
-    RANGE_WIDTH_PX = 420
+    RANGE_WIDTH_PX = 800
     st.markdown(
         f"<style>:root{{ --tb-range-width:{RANGE_WIDTH_PX}px }}</style>",
         unsafe_allow_html=True,
     )
 
+    # Clamp the default shown in the picker to its allowed bounds
+    cf, ct = cur_from, cur_to
+    if cf < _min_bound:
+        cf = _min_bound
+    if ct > _max_bound:
+        ct = _max_bound
+    # If the clamped range inverted (e.g., YTD starts before min), show full bounds
+    if cf > ct:
+        cf, ct = _min_bound, _max_bound
+
     # The actual date widget (unchanged behavior)
     st.date_input(
         label="",
-        value=(cur_from, cur_to),
+        value=(cf, ct),
         min_value=_min_bound,
         max_value=_max_bound,
         format="YYYY-MM-DD",
@@ -1198,7 +1321,7 @@ with t_range:
         <div class="tb-overlay" style="width:{RANGE_WIDTH_PX}px">
           <div class="inner">
             <span class="tb-ico">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
                 <path d="M7 2a1 1 0 0 1 1 1v1h8V3a1 1 0 1 1 2 0v1h1.5A2.5 2.5 0 0 1 22 6.5v13A2.5 2.5 0 0 1 19.5 22h-15A2.5 2.5 0 0 1 2 19.5v-13A2.5 2.5 0 0 1 4.5 4H6V3a1 1 0 1 1 2 0v1Zm12.5 6H4.5a.5.5 0 0 0-.5.5v10a.5.5 0 0 0 .5.5h15a.5.5 0 0 0 .5-.5v-10a.5.5 0 0 0-.5-.5ZM8 7H6v1a1 1 0 0 0 2 0V7Zm10 0h-2v1a1 1 0 1 0 2 0V7Z"/>
               </svg>
             </span>
