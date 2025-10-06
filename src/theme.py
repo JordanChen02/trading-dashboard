@@ -8,6 +8,7 @@ FG_MUTED = "#cbd5e1"  # captions, labels
 BLUE = "#3AA4EB"  # primary brand blue (lines, positive bars)
 BLUE_LIGHT = "#9ecbff"  # legacy/alt blue (thin lines)
 BLUE_FILL = "#212C47"  # area fill above baseline
+BLUE_DARK = "#27364A"
 
 # ---- Dark accents ----
 DARK = "#212C47"  # dark accent (below-baseline line, secondary fills)
@@ -26,3 +27,4 @@ HLINE = "#3a4557"  # neutral guideline
 # ---- Accent hues ----
 TEAL = "#4FD1C5"  # accent for Shorts (pairs well with BLUE)
 TEAL_ALPHA = "rgba(79,209,197,0.15)"  # light fill / bands (optional)
+CARD_BG = "#0E1624"

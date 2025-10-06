@@ -354,7 +354,7 @@ st.markdown(
   }
 
   /* Micro-lift just the first row without affecting page height (no bottom clipping) */
-  :root { --lift: 250px; }  /* tweak 8–16px to taste */
+  :root { --lift: 285px; }  /* tweak 8–16px to taste */
   [data-testid="stAppViewContainer"] .block-container > *:first-child {
     transform: translateY(calc(-1 * var(--lift)));
   }
@@ -1225,7 +1225,33 @@ with t_tf:
 
     st.markdown("<div class='tb tb-select'>", unsafe_allow_html=True)
 
-    if "recent_select" in st.session_state and st.session_state["recent_select"] in RECENT_OPTIONS:
+    # ---- Timeframe select (single source of truth + UI mirror) ----
+    if "recent_select" not in st.session_state:
+        st.session_state["recent_select"] = "All Dates"
+
+    RECENT_OPTIONS = [
+        "Year to Date (YTD)",
+        "All Dates",
+        "Recent 7 Days",
+        "Recent 30 Days",
+        "Recent 60 Days",
+        "Recent 90 Days",
+    ]
+
+    def _on_recent_change():
+        # Normal path: widget key is 'recent_select'
+        label = st.session_state.get("recent_select", "All Dates")
+        _apply_range(label)
+
+    def _on_recent_ui_change():
+        # Mirror path (when current state is 'Custom Range')
+        st.session_state["recent_select"] = st.session_state["recent_select_ui"]
+        _apply_range(st.session_state["recent_select"])
+
+    current = st.session_state.get("recent_select", "All Dates")
+
+    if current in RECENT_OPTIONS:
+        # Render the real widget bound to the real key (NO value/index passed)
         st.selectbox(
             "Timeframe",
             RECENT_OPTIONS,
@@ -1234,12 +1260,16 @@ with t_tf:
             label_visibility="collapsed",
         )
     else:
+        # State is something like 'Custom Range' (not in options).
+        # Render a *separate* UI widget to avoid the warning, then sync to state.
+        if "recent_select_ui" not in st.session_state:
+            st.session_state["recent_select_ui"] = "All Dates"
+
         st.selectbox(
             "Timeframe",
             RECENT_OPTIONS,
-            index=RECENT_OPTIONS.index("All Dates"),
-            key="recent_select",
-            on_change=_on_recent_change,
+            key="recent_select_ui",  # different key → no conflict
+            on_change=_on_recent_ui_change,
             label_visibility="collapsed",
         )
 
@@ -1301,7 +1331,7 @@ with t_range:
 
     # The actual date widget (unchanged behavior)
     st.date_input(
-        label="",
+        label="Date range",
         value=(cf, ct),
         min_value=_min_bound,
         max_value=_max_bound,

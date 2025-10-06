@@ -1,598 +1,447 @@
 # src/views/calendar.py
 from __future__ import annotations
 
-import calendar as _cal
+import calendar as pycal
+from dataclasses import dataclass
+from datetime import date, timedelta
+from typing import Dict, List, Tuple
 
 import pandas as pd
-import plotly.graph_objects as go
 import streamlit as st
 
+# Theme (fall back safely if your theme module differs)
+try:
+    from src.theme import BLUE, BLUE_FILL, FG, FG_MUTED, RED
+except Exception:
+    FG = "#dbe4ee"
+    FG_MUTED = "rgba(219,228,238,.6)"
+    BLUE = "#3AA4EB"
+    BLUE_FILL = "rgba(58,164,235,.12)"
+    RED = "#ef4444"
 
-# ---------- helpers ----------
-def _round_rect_path(x0: float, y0: float, x1: float, y1: float, r: float) -> str:
-    r = max(0.0, min(r, (x1 - x0) / 2, (y1 - y0) / 2))
-    return (
-        f"M{x0 + r},{y0} H{x1 - r} "
-        f"Q{x1},{y0} {x1},{y0 + r} V{y1 - r} "
-        f"Q{x1},{y1} {x1 - r},{y1} H{x0 + r} "
-        f"Q{x0},{y1} {x0},{y1 - r} V{y0 + r} "
-        f"Q{x0},{y0} {x0 + r},{y0} Z"
-    )
-
-
-def _controls(anchor: pd.Timestamp, min_dt, max_dt, *, key: str):
-    # year bounds from data
-    if (min_dt is not None) and (max_dt is not None) and pd.notna(min_dt) and pd.notna(max_dt):
-        y0, y1 = int(min_dt.year), int(max_dt.year)
-    else:
-        y0 = y1 = int(pd.Timestamp.today().year)
-    years = list(range(y0, y1 + 1))
-    months = list(_cal.month_name)[1:]
-
-    # centered & compact: [spacer][‹][Month][Year][›][spacer]
-    left, right = st.columns(
-        [6, 4]
-    )  # tweak ratios to taste (more right = push stats farther right)
-
-    with left:
-        c_prev, c_month, c_year, c_next = st.columns([0.45, 1.2, 0.9, 0.45])
-        # ... keep your prev/month/year/next widgets exactly as they are now, just under these columns ...
-
-    with right:
-        # wrap your stats HTML in a right-justified div
-        st.markdown(
-            """
-        <div style="display:flex; justify-content:flex-end;">
-        <div class="cal-stats">
-            <span><span class="k">Trades</span><span class="v">{trades_ct}</span></span>
-            <span><span class="k">Wins</span><span class="v">{wins_ct}</span></span>
-            <span><span class="k">Profits</span><span class="v">${profits:,.2f}</span></span>
-            <span><span class="k">Percent</span><span class="v">{win_pct:.2f}%</span></span>
-        </div>
-        </div>
-        """,
-            unsafe_allow_html=True,
-        )
-
-    with c_prev:
-        if st.button("‹", key=f"{key}_prev"):
-            anchor = (anchor - pd.offsets.MonthBegin(1)).normalize().replace(day=1)
-
-    with c_month:
-        m_idx = int(anchor.month) - 1
-        sel_month = st.selectbox(
-            "Month", months, index=m_idx, key=f"{key}_m", label_visibility="collapsed"
-        )
-        if months.index(sel_month) != m_idx:
-            anchor = anchor.replace(month=months.index(sel_month) + 1, day=1)
-
-    with c_year:
-        y_index = years.index(anchor.year) if anchor.year in years else len(years) - 1
-        sel_year = st.selectbox(
-            "Year", years, index=y_index, key=f"{key}_y", label_visibility="collapsed"
-        )
-        if sel_year is not None and int(sel_year) != anchor.year:
-            anchor = anchor.replace(year=int(sel_year), day=1)
-
-    with c_next:
-        if st.button("›", key=f"{key}_next"):
-            anchor = (anchor + pd.offsets.MonthBegin(1)).normalize().replace(day=1)
-
-    return anchor.normalize().replace(day=1)
+GREEN = "#22c55e"
+AMBER = "#f59e0b"
+GREEN_BG = "rgba(34,197,94,0.16)"
+GREEN_BD = "rgba(34,197,94,0.30)"
+RED_BG = "rgba(224,107,107,0.18)"
+RED_BD = "rgba(224,107,107,0.35)"
+AMBER_BG = "rgba(245,158,11,0.16)"
+AMBER_BD = "rgba(245,158,11,0.32)"
+NEUTRAL_BG = "rgba(148,163,184,0.12)"
+NEUTRAL_BD = "rgba(148,163,184,0.28)"
 
 
-# ---------- main ----------
-def render(
-    df_view: pd.DataFrame,
-    _date_col: str | None,
-    month_start: pd.Timestamp,
-    *,
-    key: str = "cal",
-):
-    # guards
-    if _date_col is None or _date_col not in df_view.columns or len(df_view) == 0:
-        st.info("No date/timestamp column found — calendar view unavailable for this dataset.")
-        return
-    _dt_full = pd.to_datetime(df_view[_date_col], errors="coerce")
-    if _dt_full.notna().sum() == 0:
-        st.info("No parseable dates in the current dataset.")
-        return
-    min_dt, max_dt = _dt_full.min(), _dt_full.max()
+@dataclass
+class DayStats:
+    pnl: float = 0.0
+    r: float = 0.0
+    pct: float = 0.0  # % vs equity *before* this day
+    equity_before: float = 0.0
+    equity_after: float = 0.0
 
-    # palette (subtle, tight)
-    panel_bg = "#0b0f19"
-    border_col = "#2a3444"
-    empty_fill = "#0e141f"
-    empty_border = "#18202e"
-    pos_fill = "rgba(34,197,94,0.22)"
-    pos_border = "rgba(34,197,94,0.55)"
-    neg_fill = "rgba(239,68,68,0.22)"
-    neg_border = "rgba(239,68,68,0.55)"
-    weekday_col = "#ffffff"
-    header_total = "#cbd5e1"
-    daynum_col = "#cbd5e1"
-    trades_col = "#ffffff"
-    pnl_green = "#86efac"
-    pnl_red = "#fca5a5"
-    accent_blue = "rgba(96,165,250,0.85)"
 
-    # radii & spacing
-    cell_radius = 0.05
-    card_radius = 0.12
-    inset = 0.02
-
-    # compact controls + selects
+# ---------- CSS ----------
+def _inject_css():
     st.markdown(
         f"""
-    <style>
-    /* optional wrapper if you still use it elsewhere */
-    .cal-card {{
-        background:{panel_bg};
-        border:1px solid {border_col};
-        border-radius:12px;
-        padding:6px 10px 2px;
-    }}
+<style>
+  .cal-wrap {{ margin-top: 4px; }}
 
-    /* Month-Year label in the center */
-    .cal-month-label {{
-        text-align:center;
-        font-weight:400;
-        font-size:48px;
-        letter-spacing:.3px;
-        color:#e5e7eb;
-        margin: 0px 0 0 0;
-    }}
+  .cal-header {{
+    display:flex; align-items:center; justify-content:space-between;
+    margin: 4px 0 12px 0;
+  }}
 
-    /* If any selectboxes remain elsewhere, keep them compact */
-    .cal-card [data-baseweb="select"] > div {{
-        background:#1b2230; border-color:{border_col}; border-radius:8px;
-        min-height:28px; width:max-content;
-    }}
-    .cal-card [data-baseweb="select"] div[role="button"] {{ padding:2px 8px; }}
+  .cal-left {{ display:flex; align-items:center; gap:10px; }}
+  .cal-title {{ margin:0; font-size:18px; color:{FG}; font-weight:800; letter-spacing:.2px; }}
 
-    /* Stats pill (right-aligned container uses HTML wrapper in Python) */
-    .cal-stats {{
-        background: rgba(37,99,235,0.16);
-        border: 1px solid rgba(96,165,250,0.75);
-        border-radius: 12px;
-        padding: 16px 20px;
-        display: inline-grid;
-        grid-auto-flow: column;
-        gap: 20px;
-        align-items: center;
-        white-space: nowrap;
+  /* Outline buttons (TODAY, VIEW TRADES) */
+  .btn-outline {{
+    background: transparent; color:{BLUE};
+    border:1px solid {BLUE}; padding:6px 12px; border-radius:10px; font-weight:800;
+    cursor:pointer; text-transform:uppercase;
+  }}
+  .btn-outline:hover {{ background:{BLUE_FILL}; }}
 
-    }}
-    .cal-stats .stat {{
-        display: grid;
-        grid-template-rows: auto auto; /* label above value */
-        justify-items: center;
-        text-align: center;
-    }}
-    .cal-stats .k {{ color:#93c5fd; font-size:16px; line-height:1; margin-bottom:4px; }}
-    .cal-stats .v {{ color:#e5e7eb; font-weight:600; font-size:18px; line-height:1; }}
-    </style>
-    """,
+  /* Chevron buttons (borderless) */
+  .chev-btn {{
+    background: transparent; color:{FG};
+    border:none; padding:6px 10px; border-radius:10px; font-weight:900; font-size:18px;
+    cursor:pointer; line-height:1; transform: translateY(-2px);
+  }}
+  .chev-btn:hover {{ background:{BLUE_FILL}; }}
+
+  /* Right side: chips in a single row, next to view trades */
+  .cal-agg {{
+    display:flex; align-items:center; gap:10px; flex-wrap:nowrap; white-space:nowrap;
+  }}
+
+  /* Plain chips (PnL and %): no background/border, keep weight */
+  .chip-plain {{
+    display:inline-flex; align-items:center; gap:6px;
+    padding: 0; border:none; background: transparent; font-weight:800; color:{FG};
+  }}
+
+  .tri-up {{
+    width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:8px solid {GREEN};
+    display:inline-block; transform: translateY(1px);
+  }}
+  .tri-down {{
+    width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:8px solid {RED};
+    display:inline-block; transform: translateY(-1px);
+  }}
+
+  /* Filled R:R chip – color will be inlined from Python */
+  .chip-rr {{
+    display:inline-flex; align-items:center; gap:6px;
+    padding: 6px 10px; border-radius:10px; font-weight:800;
+  }}
+
+  /* Slightly wider view trades */
+  .view-btn .btn-outline {{ padding:6px 16px; min-width:140px; }}
+
+  /* GRID */
+  .cal-grid {{
+    display:grid;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 8px;
+  }}
+
+  .cal-colhead {{
+    text-align:center;
+    font-size:14px;            /* slightly larger than before */
+    color:{{FG_MUTED}};        /* keep your muted tone */
+    padding:8px;
+    font-weight:800;
+    text-transform:capitalize;
+  }}
+
+  .cal-cell, .week-wrap {{
+    position: relative;
+    min-height: 180px;         /* <-- increase height here */
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 12px; padding: 8px;
+  }}
+
+  .cal-cell.blank {{ background: rgba(0,0,0,0.22); }}
+  .cal-cell.today {{ box-shadow: 0 0 0 1.5px {BLUE} inset; }}
+
+  .day-num {{ position:absolute; top:6px; left:8px; font-size:14px; color:{FG_MUTED}; font-weight:700; }}
+
+  .day-card, .week-card {{
+    margin-top: 20px; padding: 10px 10px 8px; border-radius: 14px; border: 1px solid transparent; font-size:14px; text-align:center;
+  }}
+
+  /* CENTER the PnL line inside day cards */
+  .day-card .money .pct {{ font-size:14px; font-weight:800; color:{FG}; margin-bottom:4px; text-align:center; }}
+
+  /* keep % and R slightly left for compact read, unchanged */
+  .pct   {{ color:{FG_MUTED}; display:flex; align-items:center; justify-content:center; gap:6px; margin-bottom:6px;}}
+  .rr    {{
+    display:inline-block; font-weight:800; font-size:12px; letter-spacing:.2px;
+    padding: 2px 8px; border-radius: 999px; color:#d1d5db; background: rgba(255,255,255,0.06);
+  }}
+
+  .week-label {{ display:none; }}
+
+
+</style>
+        """,
         unsafe_allow_html=True,
     )
 
-    st.markdown(
-        """
-    <style>
-    /* Calendar arrows — borderless, 34px, scoped to the columns that contain .cal-nav-marker */
-    div:is([data-testid="stColumn"], [data-testid="column"]):has(.cal-nav-marker) [data-testid="stButton"] > button {
-    background: transparent !important;
-    border: 0 !important;
-    box-shadow: none !important;
-    outline: none !important;
 
-    color: #e5e7eb !important;
-    font-size: 34px !important;     /* target size */
-    line-height: 1 !important;
+# ---------- data ----------
+def _ensure_df() -> pd.DataFrame:
+    if "journal_df" in st.session_state and isinstance(st.session_state.journal_df, pd.DataFrame):
+        df = st.session_state.journal_df.copy()
+        if "Date" in df.columns:
+            df["Date"] = pd.to_datetime(df["Date"]).dt.date
+        else:
+            df["Date"] = pd.NaT
+        if "PnL" not in df.columns:
+            df["PnL"] = 0.0
+        if "R Ratio" not in df.columns:
+            df["R Ratio"] = 0.0
+        return df
+    return pd.DataFrame(columns=["Date", "PnL", "R Ratio"])
 
-    height: 44px !important;        /* hit area */
-    min-width: 44px !important;
-    border-radius: 8px !important;
-    padding: 0 8px !important;
-    }
 
-    div:is([data-testid="stColumn"], [data-testid="column"]):has(.cal-nav-marker) [data-testid="stButton"] > button:hover,
-    div:is([data-testid="stColumn"], [data-testid="column"]):has(.cal-nav-marker) [data-testid="stButton"] > button:focus {
-    background: transparent !important;  /* keep borderless on hover/focus */
-    border: 0 !important;
-    box-shadow: none !important;
-    outline: none !important;
-    }
+def _fmt_money(x: float) -> str:
+    return f"${x:,.2f}"
 
-    /* Streamlit wraps button text in a <p> — keep it at 34px via inherit */
-    div:is([data-testid="stColumn"], [data-testid="column"]):has(.cal-nav-marker)
-    [data-testid="stButton"] > button p {
-    font-size: inherit !important;
-    line-height: 1 !important;
-    margin: 0 !important;
-    }
-    </style>
-    """,
-        unsafe_allow_html=True,
+
+def _fmt_pct(x: float) -> str:
+    sgn = "-" if x < 0 else ""
+    return f"{sgn}{abs(x):.2f} %"
+
+
+def _fmt_rr(x: float) -> str:
+    s = "+" if x > 0 else ("−" if x < 0 else "")
+    return f"{s}{abs(x):.2f}R"
+
+
+def _palette(pnl: float, r_sum: float) -> Tuple[str, str]:
+    if pnl > 0:
+        return GREEN_BG, GREEN_BD
+    if pnl == 0:
+        return NEUTRAL_BG, NEUTRAL_BD
+    if pnl < 0 and abs(r_sum) < 0.10:
+        return AMBER_BG, AMBER_BD
+    return RED_BG, RED_BD
+
+
+def _build_day_stats(df: pd.DataFrame, start_equity: float) -> Dict[date, DayStats]:
+    if df.empty:
+        return {}
+    dfg = (
+        pd.DataFrame(
+            {
+                "d": pd.to_datetime(df["Date"]).dt.date,
+                "PnL": pd.to_numeric(df["PnL"], errors="coerce").fillna(0.0),
+                "R": pd.to_numeric(df["R Ratio"], errors="coerce").fillna(0.0),
+            }
+        )
+        .groupby("d", sort=True, as_index=False)
+        .agg(pnl=("PnL", "sum"), r=("R", "sum"))
+        .sort_values("d")
     )
+    equity = float(start_equity)
+    out: Dict[date, DayStats] = {}
+    for _, row in dfg.iterrows():
+        d = row["d"]
+        pnl = float(row["pnl"])
+        r = float(row["r"])
+        before = equity
+        pct = (pnl / before * 100.0) if before != 0 else 0.0
+        after = before + pnl
+        out[d] = DayStats(pnl=pnl, r=r, pct=pct, equity_before=before, equity_after=after)
+        equity = after
+    return out
 
-    st.markdown(
-        """
-    <style>
-    /* FORCE arrow font-size on the button and every child inside it */
-    div:is([data-testid="stColumn"], [data-testid="column"]):has(.cal-nav-marker)
-    [data-testid="stButton"] > button {
-    font-size: 34px !important;
-    line-height: 1 !important;
-    }
 
-    div:is([data-testid="stColumn"], [data-testid="column"]):has(.cal-nav-marker)
-    [data-testid="stButton"] > button :is(p, span, div, em, strong) {
-    font-size: inherit !important;      /* inherit the 34px from the button */
-    line-height: inherit !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    }
+def _month_weeks(y: int, m: int) -> List[List[date]]:
+    cal = pycal.Calendar(firstweekday=0)  # Monday
+    return cal.monthdatescalendar(y, m)
 
-    /* belt & suspenders: if Streamlit swaps wrappers, cover any descendant */
-    div:is([data-testid="stColumn"], [data-testid="column"]):has(.cal-nav-marker)
-    [data-testid="stButton"] > button * {
-    font-size: inherit !important;
-    line-height: inherit !important;
-    }
-    </style>
-    """,
-        unsafe_allow_html=True,
+
+def _month_aggregates(month_anchor: date, stats: Dict[date, DayStats], start_equity: float):
+    days = [d for d in stats if d.year == month_anchor.year and d.month == month_anchor.month]
+    pnl = sum(stats[d].pnl for d in days)
+    r = sum(stats[d].r for d in days)
+
+    prior = month_anchor - timedelta(days=1)
+    eq_start = None
+    guard = 370
+    while eq_start is None and guard > 0:
+        if prior in stats:
+            eq_start = stats[prior].equity_after
+            break
+        prior -= timedelta(days=1)
+        guard -= 1
+    if eq_start is None:
+        eq_start = start_equity
+    pct = (pnl / eq_start * 100.0) if eq_start else 0.0
+    return pnl, pct, r
+
+
+def _render_header(month_dt: date, sum_pnl: float, sum_pct: float, sum_r: float):
+    scope_id = "cal-scope"
+    st.markdown(f'<div id="{scope_id}"></div>', unsafe_allow_html=True)
+    st.markdown('<div class="cal-wrap">', unsafe_allow_html=True)
+
+    # R:R chip color (reuse your colors)
+    rr_bg = (
+        "rgba(34,197,94,0.22)"
+        if sum_r > 0
+        else ("rgba(239,68,68,0.22)" if sum_r < 0 else "rgba(148,163,184,0.22)")
     )
+    rr_fg = GREEN if sum_r > 0 else (RED if sum_r < 0 else FG)
 
-    st.markdown(
-        """
-    <style>
-    /* Hover/focus fill for calendar arrows (still borderless) */
-    div:is([data-testid="stColumn"], [data-testid="column"]):has(.cal-nav-marker)
-    [data-testid="stButton"] > button:hover,
-    div:is([data-testid="stColumn"], [data-testid="column"]):has(.cal-nav-marker)
-    [data-testid="stButton"] > button:focus-visible {
-    background: rgba(255, 255, 255, 0.08) !important;  /* ← hover fill */
-    border: 0 !important;
-    box-shadow: none !important;
-    outline: none !important;
-    transition: background 120ms ease-in-out;
-    }
+    # --- Nav controls (no HTML, no query params) ---
+    c_today, c_prev, c_title, c_next, c_stats = st.columns([0.30, 0.1, 0.80, 0.9, 3.0])
+    today = date.today()
 
-    /* (Optional) pressed state */
-    div:is([data-testid="stColumn"], [data-testid="column"]):has(.cal-nav-marker)
-    [data-testid="stButton"] > button:active {
-    background: rgba(255, 255, 255, 0.14) !important;
-    }
-    </style>
-    """,
-        unsafe_allow_html=True,
-    )
-
-    st.markdown(
-        """
-    <style>
-
-
-    /* Add space BETWEEN each stat pair (Trades | Wins | Profits | Percent) */
-    .cal-stats{ 
-        gap: 26px !important;            /* spacing between the four pairs */
-    }
-
-    /* Add space WITHIN each pair: label → value (Trades 24, Wins 14, ...) */
-    .cal-stats .k{ 
-        margin-right: 10px !important;   /* increase if you want more */
-    }
-    .cal-stats .v{ 
-        margin-left: 2px !important;     /* tiny extra; optional */
-    }
-    </style>
-    """,
-        unsafe_allow_html=True,
-    )
-
-    # baseline anchor for this render (and persist across reruns)
-    anchor = (st.session_state.get("_cal_month_start") or month_start).normalize().replace(day=1)
-
-    # ---- Controls + Stats (same row) ----
-    y0 = int(min_dt.year) if pd.notna(min_dt) else int(pd.Timestamp.today().year)
-    y1 = int(max_dt.year) if pd.notna(max_dt) else y0
-    years = list(range(y0, y1 + 1))
-    if anchor.year not in years:
-        years.append(anchor.year)
-    years = sorted(set(years))
-
-    # centered & compact: [spacer][‹][Month][Year][›][spacer]
-    sL, c_prev, c_label, c_next, c_stats, sR = st.columns([0.4, 0.3, 2.0, 0.5, 6.0, 0.3])
-
-    st.markdown("<div id='cal-nav'>", unsafe_allow_html=True)
+    with c_today:
+        if st.button("TODAY", key="cal_today"):
+            st.session_state["cal_month"] = date(today.year, today.month, 1)
+            st.rerun()
 
     with c_prev:
-        st.markdown('<span class="cal-nav-marker"></span>', unsafe_allow_html=True)  # ← marker
-        if st.button("‹", key=f"{key}_prev"):
-            anchor = (anchor - pd.offsets.MonthBegin(1)).normalize().replace(day=1)
+        if st.button("◀", key="cal_prev", help="Previous month"):
+            base = st.session_state.get("cal_month", date(today.year, today.month, 1))
+            prev_m = (base.replace(day=1) - timedelta(days=1)).replace(day=1)
+            st.session_state["cal_month"] = prev_m
+            st.rerun()
 
-    with c_next:
-        st.markdown('<span class="cal-nav-marker"></span>', unsafe_allow_html=True)  # ← marker
-        if st.button("›", key=f"{key}_next"):
-            anchor = (anchor + pd.offsets.MonthBegin(1)).normalize().replace(day=1)
-
-    with c_label:
+    with c_title:
         st.markdown(
-            f"<div class='cal-month-label'>{anchor.strftime('%B %Y')}</div>",
+            f"<h2 class='cal-title' style='text-align:center;margin:0'>{month_dt.strftime('%B %Y')}</h2>",
             unsafe_allow_html=True,
         )
 
-    st.markdown("</div>", unsafe_allow_html=True)
+    with c_next:
+        if st.button("▶", key="cal_next", help="Next month"):
+            base = st.session_state.get("cal_month", date(today.year, today.month, 1))
+            next_m = (base.replace(day=28) + timedelta(days=7)).replace(day=1)
+            st.session_state["cal_month"] = next_m
+            st.rerun()
 
-    # persist chosen month
-    st.session_state["_cal_month_start"] = anchor
-
-    # compute month slice for stats
-    _month_start = anchor
-    _month_end = (_month_start + pd.offsets.MonthEnd(1)).normalize()
-    _dt_full = pd.to_datetime(df_view[_date_col], errors="coerce")
-    _mask_month = (_dt_full >= _month_start) & (_dt_full <= _month_end)
-    _dfm = df_view.loc[_mask_month].copy()
-
-    # stats: trades, wins, profits, win %
-    pnl_series = pd.to_numeric(_dfm.get("pnl", 0.0), errors="coerce")
-    trades_ct = int(pnl_series.notna().sum())
-    wins_ct = int((pnl_series > 0).sum())
-    profits = float(pnl_series.sum()) if trades_ct else 0.0
-    win_pct = (wins_ct / trades_ct * 100.0) if trades_ct else 0.0
-
-    # render stats pill at the right of controls
+    # Right-side chips (reuse your HTML so visuals stay the same)
     with c_stats:
         st.markdown(
             f"""
-            <div style="display:flex; width:100%; justify-content:flex-end;">
-            <div class="cal-stats">
-                <span><span class="k">Trades</span><span class="v">{trades_ct}</span></span>
-                <span><span class="k">Wins</span><span class="v">{wins_ct}</span></span>
-                <span><span class="k">Profits</span><span class="v">${profits:,.2f}</span></span>
-                <span><span class="k">Percent</span><span class="v">{win_pct:.2f}%</span></span>
-            </div>
+            <div class="cal-agg" style="display:flex;justify-content:flex-end;align-items:center;gap:10px">
+              <div class="chip-plain">{_fmt_money(sum_pnl)}</div>
+              <div class="chip-plain">{'<span class="tri-down"></span>' if sum_pct < 0 else '<span class="tri-up"></span>'}{_fmt_pct(sum_pct)}</div>
+              <div class="chip-rr" style="background:{rr_bg}; color:{rr_fg}; border:none;">{_fmt_rr(sum_r)}</div>
+              <div class="view-btn"><button class="btn-outline">VIEW TRADES -▸</button></div>
             </div>
             """,
             unsafe_allow_html=True,
         )
 
-    _dfm["_day"] = pd.to_datetime(_dfm[_date_col], errors="coerce").dt.date
-
-    _daily_stats = (
-        _dfm.assign(_pnl=pd.to_numeric(_dfm.get("pnl", 0.0), errors="coerce").fillna(0.0))
-        .groupby("_day")
-        .agg(NetPnL=("_pnl", "sum"), Trades=("_pnl", "count"))
-        .reset_index()
-    )
-    daily_map = {
-        r["_day"]: (float(r["NetPnL"]), int(r["Trades"])) for _, r in _daily_stats.iterrows()
-    }
-
-    # geometry (Sun..Sat + Total)
-    first_wd, n_days = _cal.monthrange(_month_start.year, _month_start.month)
-    leading = (first_wd + 1) % 7  # Sun=0 visual start
-    total_slots = leading + n_days
-    rows = (total_slots + 6) // 7
-
-    def slot_to_date(slot_idx: int):
-        day_n = slot_idx - leading + 1
-        if 1 <= day_n <= n_days:
-            return (_month_start + pd.Timedelta(days=day_n - 1)).date()
-        return None
-
-    # weekly totals
-    week_totals = []
-    for r in range(rows):
-        pnl_sum = 0.0
-        trade_sum = 0
-        for c in range(7):
-            d = slot_to_date(r * 7 + c)
-            if d is not None:
-                p, t = daily_map.get(d, (0.0, 0))
-                pnl_sum += p
-                trade_sum += t
-        week_totals.append((pnl_sum, trade_sum))
-
-    # draw
-    shapes, annos = [], []
-
-    # outer rounded area (8 cols incl TOTAL)
-    outer_path = _round_rect_path(-0.06, -0.80, 8.06, rows + 0.03, card_radius)
-    shapes.append(
-        dict(
-            type="path",
-            path=outer_path,
-            line=dict(color=border_col, width=1.0),
-            fillcolor=panel_bg,
-            layer="below",
-        )
+    st.markdown(
+        f"""
+    <style>
+    /* Target the very next Streamlit horizontal block after our marker */
+    #{scope_id} + div [data-testid="stButton"] > button {{
+    background: transparent !important;
+    border: none !important;              /* 2) borderless */
+    box-shadow: none !important;
+    color: {BLUE} !important;             /* 3) theme text color (matches View Trades) */
+    font-weight: 900;
+    font-size: 18px;
+    padding: 6px 10px;
+    border-radius: 10px;
+    line-height: 1;
+    }}
+    #{scope_id} + div [data-testid="stButton"] > button:hover {{
+    background: {BLUE_FILL} !important;   /* subtle hover */
+    }}
+    /* 1) nudge title up to align with buttons */
+    #{scope_id} + div h2.cal-title {{
+    position: relative; top: -4px;
+    }}
+    </style>
+    """,
+        unsafe_allow_html=True,
     )
 
-    # weekday header (slightly larger)
-    weekday_labels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Total"]
-    for c, label in enumerate(weekday_labels):
-        annos.append(
-            dict(
-                x=c + 0.5,
-                y=-0.28,
-                xref="x",
-                yref="y",
-                text=f"<b>{label}</b>",
-                showarrow=False,
-                font=dict(size=14, color=weekday_col if c < 7 else header_total),
-                xanchor="center",
-                yanchor="middle",
-            )
-        )
+    st.markdown("</div>", unsafe_allow_html=True)
 
-    # cells
-    for r in range(rows):
-        for c in range(8):
-            x0, x1 = c, c + 1
-            y0, y1 = r, r + 1
-            is_total = c == 7
 
-            if not is_total:
-                d = slot_to_date(r * 7 + c)
-                fill, border = empty_fill, empty_border
-                pnl_txt, pnl_col = "—", "#ffffff"
-                trades_txt, day_idx = "—", ""
+def _render_grid(month_dt: date, stats: Dict[date, DayStats]):
+    # Build ONE big HTML string; rendering once keeps the CSS grid intact.
+    weeks = _month_weeks(month_dt.year, month_dt.month)
+    today = date.today()
 
-                if d is not None:
-                    pnl_val, trade_ct = daily_map.get(d, (0.0, 0))
-                    day_idx = str(d.day)
-                    if trade_ct > 0:
-                        if pnl_val > 0:
-                            fill, border, pnl_col = pos_fill, pos_border, pnl_green
-                        elif pnl_val < 0:
-                            fill, border, pnl_col = neg_fill, neg_border, pnl_red
-                        pnl_txt = f"${pnl_val:,.2f}".replace("$-", "-$")
-                        trades_txt = f"{trade_ct} trade" if trade_ct == 1 else f"{trade_ct} trades"
+    html = []
+    html.append('<div class="cal-grid">')
 
-                cell_path = _round_rect_path(
-                    x0 + inset, y0 + inset, x1 - inset, y1 - inset, cell_radius
-                )
-                shapes.append(
-                    dict(
-                        type="path",
-                        path=cell_path,
-                        line=dict(color=border, width=1.0),
-                        fillcolor=fill,
-                        layer="below",
-                    )
-                )
+    # column headers
+    for h in [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+        "Sunday",
+        "Total",
+    ]:
+        html.append(f'<div class="cal-colhead">{h}</div>')
 
-                if d is not None:
-                    annos.append(
-                        dict(
-                            x=x0 + 0.10,
-                            y=y0 + 0.18,
-                            xref="x",
-                            yref="y",
-                            text=day_idx,
-                            showarrow=False,
-                            font=dict(size=12, color=daynum_col),
-                            xanchor="left",
-                            yanchor="middle",
-                        )
-                    )
-                annos.append(
-                    dict(
-                        x=x0 + 0.5,
-                        y=y0 + 0.46,
-                        xref="x",
-                        yref="y",
-                        text=pnl_txt,
-                        showarrow=False,
-                        font=dict(size=16, color=pnl_col),
-                        xanchor="center",
-                        yanchor="middle",
-                    )
-                )
-                annos.append(
-                    dict(
-                        x=x0 + 0.5,
-                        y=y0 + 0.76,
-                        xref="x",
-                        yref="y",
-                        text=trades_txt,
-                        showarrow=False,
-                        font=dict(size=11, color=trades_col),
-                        xanchor="center",
-                        yanchor="top",
-                    )
+    for week in weeks:
+        # day cells (Mon..Sun)
+        for d in week:
+            in_month = d.month == month_dt.month
+            classes = ["cal-cell"]
+            if not in_month:
+                classes.append("blank")
+            if d == today:
+                classes.append("today")
+            ds = stats.get(d)
+
+            if (not in_month) or ds is None:
+                html.append(
+                    f'<div class="{" ".join(classes)}"><div class="day-num">{d.day if in_month else ""}</div></div>'
                 )
             else:
-                # Weekly TOTAL column — keep normal fill/color logic, but add a blue, thicker border
-                pnl_sum, trade_sum = week_totals[r]
-
-                # default neutral
-                t_fill = empty_fill
-                t_color = "#ffffff"
-
-                if trade_sum > 0:
-                    if pnl_sum > 0:
-                        t_fill = pos_fill
-                        t_color = pnl_green
-                    elif pnl_sum < 0:
-                        t_fill = neg_fill
-                        t_color = pnl_red
-                    # pnl == 0 -> neutral fill + white text
-
-                # blue border ONLY (thicker)
-                t_border = accent_blue
-
-                tot_pnl_txt = "—" if trade_sum == 0 else f"${pnl_sum:,.2f}".replace("$-", "-$")
-                tot_trd_txt = (
-                    "—"
-                    if trade_sum == 0
-                    else (f"{trade_sum} trade" if trade_sum == 1 else f"{trade_sum} trades")
+                bg, bd = _palette(ds.pnl, ds.r)
+                tri = (
+                    '<span class="tri-down"></span>'
+                    if ds.pct < 0
+                    else '<span class="tri-up"></span>'
+                )
+                html.append(
+                    f"""
+<div class="{" ".join(classes)}">
+  <div class="day-num">{d.day}</div>
+  <div class="day-card" style="background:{bg}; border-color:{bd}">
+    <div class="money">{_fmt_money(ds.pnl)}</div>
+    <div class="pct">{tri}{_fmt_pct(ds.pct)}</div>
+    <span class="rr">{_fmt_rr(ds.r)}</span>
+  </div>
+</div>
+                    """.strip()
                 )
 
-                cell_path = _round_rect_path(
-                    x0 + inset, y0 + inset, x1 - inset, y1 - inset, cell_radius
-                )
-                shapes.append(
-                    dict(
-                        type="path",
-                        path=cell_path,
-                        line=dict(color=t_border, width=1.0),  # thicker blue border
-                        fillcolor=t_fill,
-                        layer="below",
-                    )
-                )
+        # week summary (right-most cell)
+        week_label = f"Week {d.isocalendar().week}"
+        pnl_w = sum((stats.get(dd, DayStats()).pnl for dd in week))
+        r_w = sum((stats.get(dd, DayStats()).r for dd in week))
 
-                annos.append(
-                    dict(
-                        x=x0 + 0.5,
-                        y=y0 + 0.46,
-                        xref="x",
-                        yref="y",
-                        text=tot_pnl_txt,
-                        showarrow=False,
-                        font=dict(size=16, color=t_color),  # keep green/red/white for PnL
-                        xanchor="center",
-                        yanchor="middle",
-                    )
-                )
-                annos.append(
-                    dict(
-                        x=x0 + 0.5,
-                        y=y0 + 0.76,
-                        xref="x",
-                        yref="y",
-                        text=tot_trd_txt,
-                        showarrow=False,
-                        font=dict(size=11, color=trades_col),  # trades remain white
-                        xanchor="center",
-                        yanchor="top",
-                    )
-                )
+        # equity baseline for the week = equity_before of first trading day in week; fallback search backward
+        eq_before = None
+        for dd in week:
+            if dd in stats:
+                eq_before = stats[dd].equity_before
+                break
+        if eq_before is None:
+            back = week[0] - timedelta(days=1)
+            hops = 31
+            while eq_before is None and hops > 0:
+                if back in stats:
+                    eq_before = stats[back].equity_after
+                back -= timedelta(days=1)
+                hops -= 1
+        pct_w = (pnl_w / eq_before * 100.0) if eq_before not in (None, 0) else 0.0
 
-    # figure (increased row height to make cells squarer)
-    fig = go.Figure()
-    fig.update_layout(
-        paper_bgcolor=panel_bg,
-        plot_bgcolor=panel_bg,
-        shapes=shapes,
-        annotations=annos,
-        xaxis=dict(
-            range=[0, 8], showgrid=False, zeroline=False, tickvals=[], ticktext=[], fixedrange=True
-        ),
-        yaxis=dict(
-            range=[rows, -1],
-            showgrid=False,
-            zeroline=False,
-            tickvals=[],
-            ticktext=[],
-            fixedrange=True,
-        ),
-        margin=dict(l=6, r=6, t=2, b=6),
-    )
-    cal_h = int(160 + rows * 160)  # <-- taller rows for “squared” look
-    fig.update_layout(height=cal_h)
+        bg_w, bd_w = _palette(pnl_w, r_w)
+        tri_w = '<span class="tri-down"></span>' if pct_w < 0 else '<span class="tri-up"></span>'
 
-    st.plotly_chart(fig, use_container_width=True, key=f"{key}_{_month_start.strftime('%Y%m')}")
+        html.append(
+            f"""
+<div class="week-wrap">
+  <div class="week-label">{week_label}</div>
+  <div class="week-card" style="background:{bg_w}; border-color:{bd_w}">
+    <div class="money">{_fmt_money(pnl_w)}</div>
+    <div class="pct">{tri_w}{_fmt_pct(pct_w)}</div>
+    <span class="rr">{_fmt_rr(r_w)}</span>
+  </div>
+</div>
+            """.strip()
+        )
+
+    html.append("</div>")  # .cal-grid
+    st.markdown("\n".join(html), unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)  # .cal-wrap
+
+
+def render(*_args, **_kwargs):
+    _inject_css()
+
+    df = _ensure_df()
+    start_equity = float(st.session_state.get("calendar_start_equity", 100000.0))
+    stats = _build_day_stats(df, start_equity)
+
+    # current month anchor
+    today = date.today()
+    month_dt = st.session_state.get("cal_month", date(today.year, today.month, 1))
+    st.session_state["cal_month"] = month_dt
+
+    m_pnl, m_pct, m_r = _month_aggregates(month_dt, stats, start_equity)
+    _render_header(month_dt, m_pnl, m_pct, m_r)
+    _render_grid(month_dt, stats)
