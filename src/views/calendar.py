@@ -11,7 +11,7 @@ import streamlit as st
 
 # Theme (fall back safely if your theme module differs)
 try:
-    from src.theme import BLUE, BLUE_FILL, FG, FG_MUTED, RED
+    from src.theme import BLUE, BLUE_FILL, CARD_BG, FG, FG_MUTED, RED
 except Exception:
     FG = "#dbe4ee"
     FG_MUTED = "rgba(219,228,238,.6)"
@@ -53,9 +53,12 @@ def _inject_css():
   }}
 
   .cal-left {{ display:flex; align-items:center; gap:10px; }}
-  .cal-title {{ margin:0; font-size:18px; color:{FG}; font-weight:800; letter-spacing:.2px; }}
+  .cal-title {{
+    margin:0; font-size:18px; color:{FG}; font-weight:800; letter-spacing:.2px;
+    position: relative; top: -6px;  /* title nudge */
+  }}
 
-  /* Outline buttons (TODAY, VIEW TRADES) */
+  /* Outline buttons (VIEW TRADES, legacy) */
   .btn-outline {{
     background: transparent; color:{BLUE};
     border:1px solid {BLUE}; padding:6px 12px; border-radius:10px; font-weight:800;
@@ -63,7 +66,7 @@ def _inject_css():
   }}
   .btn-outline:hover {{ background:{BLUE_FILL}; }}
 
-  /* Chevron buttons (borderless) */
+  /* Chevron buttons (legacy HTML variant — harmless if unused) */
   .chev-btn {{
     background: transparent; color:{FG};
     border:none; padding:6px 10px; border-radius:10px; font-weight:900; font-size:18px;
@@ -71,12 +74,11 @@ def _inject_css():
   }}
   .chev-btn:hover {{ background:{BLUE_FILL}; }}
 
-  /* Right side: chips in a single row, next to view trades */
+  /* Right side: chips next to view trades */
   .cal-agg {{
     display:flex; align-items:center; gap:10px; flex-wrap:nowrap; white-space:nowrap;
   }}
 
-  /* Plain chips (PnL and %): no background/border, keep weight */
   .chip-plain {{
     display:inline-flex; align-items:center; gap:6px;
     padding: 0; border:none; background: transparent; font-weight:800; color:{FG};
@@ -91,13 +93,11 @@ def _inject_css():
     display:inline-block; transform: translateY(-1px);
   }}
 
-  /* Filled R:R chip – color will be inlined from Python */
   .chip-rr {{
     display:inline-flex; align-items:center; gap:6px;
     padding: 6px 10px; border-radius:10px; font-weight:800;
   }}
 
-  /* Slightly wider view trades */
   .view-btn .btn-outline {{ padding:6px 16px; min-width:140px; }}
 
   /* GRID */
@@ -109,17 +109,20 @@ def _inject_css():
 
   .cal-colhead {{
     text-align:center;
-    font-size:14px;            /* slightly larger than before */
-    color:{{FG_MUTED}};        /* keep your muted tone */
+    font-size:16px;
+    color:{FG_MUTED};
+    border: 1px solid rgba(255,255,255,0.06);  
+    border-radius: 12px; padding: 8px;
+    background: {CARD_BG};
     padding:8px;
-    font-weight:800;
+    font-weight:700;
     text-transform:capitalize;
   }}
 
   .cal-cell, .week-wrap {{
     position: relative;
-    min-height: 180px;         /* <-- increase height here */
-    background: rgba(255,255,255,0.02);
+    min-height: 180px;
+    background: {CARD_BG};
     border: 1px solid rgba(255,255,255,0.06);
     border-radius: 12px; padding: 8px;
   }}
@@ -130,20 +133,68 @@ def _inject_css():
   .day-num {{ position:absolute; top:6px; left:8px; font-size:14px; color:{FG_MUTED}; font-weight:700; }}
 
   .day-card, .week-card {{
-    margin-top: 20px; padding: 10px 10px 8px; border-radius: 14px; border: 1px solid transparent; font-size:14px; text-align:center;
+    margin-top: 20px; padding: 25px 10px 8px; border-radius: 14px; border: 1px solid transparent; font-size:17px; font-weight:600;min-height: 130px;text-align:center;
   }}
 
-  /* CENTER the PnL line inside day cards */
   .day-card .money .pct {{ font-size:14px; font-weight:800; color:{FG}; margin-bottom:4px; text-align:center; }}
 
-  /* keep % and R slightly left for compact read, unchanged */
-  .pct   {{ color:{FG_MUTED}; display:flex; align-items:center; justify-content:center; gap:6px; margin-bottom:6px;}}
-  .rr    {{
-    display:inline-block; font-weight:800; font-size:12px; letter-spacing:.2px;
+  .pct {{
+    color:{FG_MUTED}; display:flex; align-items:center; justify-content:center; gap:6px; margin-bottom:6px;
+  }}
+  .rr {{
+    display:inline-block; font-weight:800; font-size:16px; letter-spacing:.2px;
     padding: 2px 8px; border-radius: 999px; color:#d1d5db; background: rgba(255,255,255,0.06);
   }}
 
   .week-label {{ display:none; }}
+
+/* TODAY (col 1): blue text + blue 1px border */
+div[data-testid="stHorizontalBlock"]:has(h2.cal-title)
+  [data-testid="stColumn"]:nth-of-type(1) [data-testid="stButton"] > button {{
+  background: transparent !important;
+  border: 1px solid {BLUE} !important;
+  color: {BLUE} !important;
+  box-shadow: none !important;
+  font-weight: 900;
+  font-size: 18px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  line-height: 1;
+  transform: translateY(62px);
+}}
+div[data-testid="stHorizontalBlock"]:has(h2.cal-title)
+  [data-testid="stColumn"]:nth-of-type(1) [data-testid="stButton"] > button:hover {{
+  background: {BLUE_FILL} !important;
+}}
+
+/* CHEVRONS (cols 2 & 4): white text, NO border, slight upward nudge */
+div[data-testid="stHorizontalBlock"]:has(h2.cal-title)
+  [data-testid="stColumn"]:nth-of-type(2) [data-testid="stButton"] > button,
+div[data-testid="stHorizontalBlock"]:has(h2.cal-title)
+  [data-testid="stColumn"]:nth-of-type(4) [data-testid="stButton"] > button {{
+  background: transparent !important;
+  border: none !important;
+  color: {FG} !important;
+  box-shadow: none !important;
+  font-weight: 900;
+  font-size: 18px;
+  padding: 0px 24px;
+  border-radius: 10px;
+  line-height: 1;
+  transform: translateY(46px);
+}}
+div[data-testid="stHorizontalBlock"]:has(h2.cal-title)
+  [data-testid="stColumn"]:nth-of-type(2) [data-testid="stButton"] > button:hover,
+div[data-testid="stHorizontalBlock"]:has(h2.cal-title)
+  [data-testid="stColumn"]:nth-of-type(4) [data-testid="stButton"] > button:hover {{
+  background: {BLUE_FILL} !important;
+}}
+
+/* Pull the whole header row (the one with the month title) upward to close the top gap */
+div[data-testid="stHorizontalBlock"]:has(h2.cal-title) {{
+  margin-top: -50px !important;   /* adjust: -20 to -36px as needed */
+  padding-top: 0 !important;
+}}
 
 
 </style>
@@ -260,7 +311,7 @@ def _render_header(month_dt: date, sum_pnl: float, sum_pct: float, sum_r: float)
     rr_fg = GREEN if sum_r > 0 else (RED if sum_r < 0 else FG)
 
     # --- Nav controls (no HTML, no query params) ---
-    c_today, c_prev, c_title, c_next, c_stats = st.columns([0.30, 0.1, 0.80, 0.9, 3.0])
+    c_today, c_prev, c_title, c_next, c_stats = st.columns([0.30, 0.2, 0.70, 0.90, 4.0])
     today = date.today()
 
     with c_today:
@@ -269,30 +320,34 @@ def _render_header(month_dt: date, sum_pnl: float, sum_pct: float, sum_r: float)
             st.rerun()
 
     with c_prev:
-        if st.button("◀", key="cal_prev", help="Previous month"):
+        st.markdown('<div class="cal-prev-wrap">', unsafe_allow_html=True)
+        if st.button("◀", key="cal_prev"):
             base = st.session_state.get("cal_month", date(today.year, today.month, 1))
             prev_m = (base.replace(day=1) - timedelta(days=1)).replace(day=1)
             st.session_state["cal_month"] = prev_m
             st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
 
     with c_title:
         st.markdown(
-            f"<h2 class='cal-title' style='text-align:center;margin:0'>{month_dt.strftime('%B %Y')}</h2>",
+            f"<h2 class='cal-title' style='text-align:center;margin:0;position:relative;top:45px'>{month_dt.strftime('%B %Y')}</h2>",
             unsafe_allow_html=True,
         )
 
     with c_next:
-        if st.button("▶", key="cal_next", help="Next month"):
+        st.markdown('<div class="cal-next-wrap">', unsafe_allow_html=True)
+        if st.button("▶", key="cal_next"):
             base = st.session_state.get("cal_month", date(today.year, today.month, 1))
             next_m = (base.replace(day=28) + timedelta(days=7)).replace(day=1)
             st.session_state["cal_month"] = next_m
             st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
 
     # Right-side chips (reuse your HTML so visuals stay the same)
     with c_stats:
         st.markdown(
             f"""
-            <div class="cal-agg" style="display:flex;justify-content:flex-end;align-items:center;gap:10px">
+            <div class="cal-agg" style="display:flex;justify-content:flex-end;align-items:center;gap:10px; margin-top:60px">
               <div class="chip-plain">{_fmt_money(sum_pnl)}</div>
               <div class="chip-plain">{'<span class="tri-down"></span>' if sum_pct < 0 else '<span class="tri-up"></span>'}{_fmt_pct(sum_pct)}</div>
               <div class="chip-rr" style="background:{rr_bg}; color:{rr_fg}; border:none;">{_fmt_rr(sum_r)}</div>
@@ -301,34 +356,6 @@ def _render_header(month_dt: date, sum_pnl: float, sum_pct: float, sum_r: float)
             """,
             unsafe_allow_html=True,
         )
-
-    st.markdown(
-        f"""
-    <style>
-    /* Target the very next Streamlit horizontal block after our marker */
-    #{scope_id} + div [data-testid="stButton"] > button {{
-    background: transparent !important;
-    border: none !important;              /* 2) borderless */
-    box-shadow: none !important;
-    color: {BLUE} !important;             /* 3) theme text color (matches View Trades) */
-    font-weight: 900;
-    font-size: 18px;
-    padding: 6px 10px;
-    border-radius: 10px;
-    line-height: 1;
-    }}
-    #{scope_id} + div [data-testid="stButton"] > button:hover {{
-    background: {BLUE_FILL} !important;   /* subtle hover */
-    }}
-    /* 1) nudge title up to align with buttons */
-    #{scope_id} + div h2.cal-title {{
-    position: relative; top: -4px;
-    }}
-    </style>
-    """,
-        unsafe_allow_html=True,
-    )
-
     st.markdown("</div>", unsafe_allow_html=True)
 
 
