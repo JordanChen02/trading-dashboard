@@ -8,7 +8,7 @@ import pandas as pd
 import plotly.graph_objects as go
 
 # theme colors
-from src.theme import AXIS_WEAK, BG, BLUE
+from src.theme import AXIS_WEAK, BLUE, CARD_BG
 
 # ---------- helpers ----------
 
@@ -188,8 +188,8 @@ def plot_rr(
     fig.update_layout(
         height=int(height) if height else 150,
         margin=dict(l=8, r=8, t=0, b=0),
-        paper_bgcolor=BG,
-        plot_bgcolor=BG,
+        paper_bgcolor=CARD_BG,
+        plot_bgcolor=CARD_BG,
         showlegend=False,
     )
 

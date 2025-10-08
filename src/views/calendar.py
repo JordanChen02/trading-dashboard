@@ -311,7 +311,7 @@ def _render_header(month_dt: date, sum_pnl: float, sum_pct: float, sum_r: float)
     rr_fg = GREEN if sum_r > 0 else (RED if sum_r < 0 else FG)
 
     # --- Nav controls (no HTML, no query params) ---
-    c_today, c_prev, c_title, c_next, c_stats = st.columns([0.30, 0.2, 0.70, 0.90, 4.0])
+    c_today, c_prev, c_title, c_next, c_stats = st.columns([0.30, 0.2, 0.70, 0.60, 3.0])
     today = date.today()
 
     with c_today:

@@ -16,7 +16,7 @@ def render_winstreak(
         f"""
     <style>
     .ws-wrap {{ --brand:{brand_color}; --pillGood:#1e3a8a; --pillBad:#6b1d1d; }}
-    .ws-title{{ font-weight:800; font-size:20px; letter-spacing:.2px; margin:0 0 8px 0; }}
+    .ws-title{{ font-weight:800; font-size:16px; letter-spacing:.2px; margin:0 0 8px 0; text-align:center; }}
     .ws-row{{ display:flex; gap:28px; justify-content:space-between; }}
     .ws-col{{ flex:1; display:flex; flex-direction:column; align-items:center; }}
     .ws-main{{ display:flex; align-items:center; gap:10px; }}
@@ -38,6 +38,7 @@ def render_winstreak(
     .ws-pill.ws-good{{ background:rgba(46,134,193,.25); border:1px solid rgba(46,134,193,.4); }}
     .ws-pill.ws-bad{{  background:rgba(202,82,82,.25);  border:1px solid rgba(202,82,82,.4); }}
     .ws-foot{{ margin-top:6px; font-size:13px; color:#cbd5e1; }}
+  
     </style>
     """,
         unsafe_allow_html=True,

@@ -6,7 +6,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from src.theme import AXIS_WEAK, BLUE, FG, FG_MUTED, GRID_WEAK, TEAL
+from src.theme import AXIS_WEAK, BLUE, CARD_BG, FG, FG_MUTED, GRID_WEAK, TEAL
 
 # ---------- helpers ------------------------------------------------------------
 
@@ -126,8 +126,8 @@ def _fig_long_short_cum_r(
         ),
         height=360,
         margin=dict(l=10, r=10, t=56, b=40),  # room for top-right legend
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor=CARD_BG,
+        plot_bgcolor=CARD_BG,
         legend=dict(
             orientation="h",
             y=1.18,
@@ -162,6 +162,6 @@ def render_long_short_card(df: pd.DataFrame, date_col: str = "date") -> None:
         st.info("Long vs Short: requires 'R' (or 'PnL' + 'Dollars Risked') to show cumulative R.")
         return
 
-    with st.container(border=True):
+    with st.container(border=False):
         fig = _fig_long_short_cum_r(df[date_col], df[side_col], r_series)
         st.plotly_chart(fig, use_container_width=True, key="ov_ls_cumr")

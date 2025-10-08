@@ -15,7 +15,11 @@ from src.components.last_trades import render_last_trades
 from src.components.monthly_stats import render_monthly_stats
 from src.components.winstreak import render_winstreak
 from src.styles import inject_overview_css, inject_ui_title_css
-from src.theme import BLUE, DARK
+from src.theme import BLUE, CARD_BG, DARK
+
+GREEN = "#61D0A8"
+RED = "#E06B6B"
+TEAL = "#3FA096"
 
 
 def _build_top_assets_donut_and_summary(df, max_assets: int = 5):
@@ -108,8 +112,8 @@ def _build_top_assets_donut_and_summary(df, max_assets: int = 5):
     fig.update_layout(
         height=260,
         margin=dict(l=0, r=0, t=0, b=0),
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor=CARD_BG,
+        plot_bgcolor=CARD_BG,
         annotations=[
             dict(  # small label
                 x=0.5,
@@ -205,6 +209,84 @@ def render_overview(
     inject_overview_css()
     inject_ui_title_css()
 
+    st.markdown(
+        """
+        <style>
+        /* tighten the page's top padding just for this view */
+        div[data-testid="stAppViewContainer"] .main > div.block-container {
+            padding-top: -8px !important;      /* adjust to taste */
+        }
+        /* kill any extra top margin on the first block */
+        div[data-testid="stAppViewContainer"] .main .block-container > div:first-child {
+            margin-top: 0 !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f"""
+        <style>
+        /* ============ FILLED CARDS: consistent rounding + spacing ============ */
+        /* Balance | Net Profit */
+        div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .kpi-pair) {{
+            background: {CARD_BG} !important;
+            border-radius: 12px !important;
+            padding: 0px !important;
+            transform: translateY(0px);   /* tweak verticality */
+            min-height: 130px;             /* tweak card height */
+            overflow: hidden;              /* keep inner edges clean */
+        }}
+
+        /* Long vs Short */
+        div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .ls-card) {{
+            background: {CARD_BG} !important;
+            border-radius: 16px !important;
+            padding: 14px !important;
+            transform: translateY(0px);
+            min-height: 150px;
+            overflow: hidden;
+        }}
+
+        /* Winstreak */
+        div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .ws-wrap) {{
+            background: {CARD_BG} !important;
+            border-radius: 12px !important;
+            padding: 11px !important;
+            transform: translateY(0px);
+            min-height: 140px;
+            overflow: hidden;
+        }}
+
+        /* Most Traded Assets */
+        div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .mta-root) {{
+            background: {CARD_BG} !important;
+            border-radius: 12px !important;
+            padding: 12px !important;
+            transform: translateX(8px);    /* nudge right as you wanted */
+            min-height: 360px;
+            overflow: hidden;
+        }}
+
+        /* Last 5 Trades */
+        div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .last5-root) {{
+            background: {CARD_BG} !important;
+            border-radius: 12px !important;
+            padding: 12px !important;
+            transform: translateY(-8px);
+            min-height: 460px;
+            overflow: hidden;
+        }}
+
+        /* Make Plotly canvases respect the card rounding */
+        [data-testid="stPlotlyChart"] > div:first-child {{
+            border-radius: 12px; overflow: hidden;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
     # --- Per-card bottom spacers (px) — tune these freely
     PAD_K1 = 6  # Balance / Net Profit
     PAD_K2 = 18  # Win Rate
@@ -216,7 +298,8 @@ def render_overview(
 
     # -- k1: Balance & Net Profit (side-by-side) --
     with k1:
-        with st.container(border=True):
+        with st.container(border=False):
+            st.markdown('<div class="ov-fill-marker"></div>', unsafe_allow_html=True)
             st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
             _net = (
                 float(pd.to_numeric(df_view.get("pnl", 0.0), errors="coerce").sum())
@@ -256,18 +339,26 @@ def render_overview(
                     .kpi-pair .k-sep {{ display: none; }}
                 }}
                 </style>
+                <style>
+                /* Optional per-card min-heights to align rows */
+                div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .kpi-pair)  {{ min-height: 140px; }}
+                div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .ls-card)   {{ min-height: 150px; }}
+                div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .ws-wrap)   {{ min-height: 120px; }}
+                div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .mta-root)  {{ min-height: 340px; }}
+                div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .last5-root){{ min-height: 420px; }}
+                </style>
                 """,
                 unsafe_allow_html=True,
             )
             st.markdown(f"<div style='height:{PAD_K1}px'></div>", unsafe_allow_html=True)
 
     with k2:
-        with st.container(border=True):
+        with st.container(border=False):
             # ---- Win Rate donut ----
             wr_pct = float(win_rate_v * 100.0)
             win_color = "#2E86C1"
             loss_color = "#212C47"
-            panel_bg = "#0b0f19"
+            panel_bg = CARD_BG
 
             fig_win = go.Figure(
                 go.Indicator(
@@ -286,8 +377,64 @@ def render_overview(
                     domain={"x": [0, 1], "y": [0, 0.86]},
                 )
             )
+            # ---- INSIDE-donut title + left/right stacks ----
+            # compute wins/losses from the filtered view
+            p = pd.to_numeric(df_view.get("pnl", np.nan), errors="coerce").dropna()
+            wins = int((p > 0).sum())
+            losses = int((p < 0).sum())
+            wl_tot = max(1, wins + losses)
+            win_pct_real = (wins / wl_tot) * 100.0
+            loss_pct_real = (losses / wl_tot) * 100.0
+
+            # two-line hover (uses your palette)
+            hover_html = (
+                f"<span style='font-weight:700; color:#dbe4ee'>Wins </span>"
+                f"<span style='font-weight:700; color:{GREEN}'>{win_pct_real:.1f}% ({wins})</span><br>"
+                f"<span style='font-weight:700; color:#dbe4ee'>Losses </span>"
+                f"<span style='font-weight:700; color:{RED}'>{loss_pct_real:.1f}% ({losses})</span>"
+                "<extra></extra>"
+            )
+
+            # overlay: invisible pie to capture hover anywhere on the donut
+            fig_win.add_trace(
+                go.Pie(
+                    values=[wr_pct, 100.0 - wr_pct],
+                    hole=0.76,  # similar ring thickness
+                    sort=False,
+                    textinfo="none",
+                    hovertemplate=hover_html,
+                    hoverlabel=dict(
+                        bgcolor="rgba(11,15,25,.95)",
+                        bordercolor="#223045",
+                        font_size=14,
+                        font_family="Inter, system-ui, sans-serif",
+                        font_color="#dbe4ee",
+                    ),
+                    marker=dict(colors=["rgba(0,0,0,0)", "rgba(0,0,0,0)"]),  # fully transparent
+                    showlegend=False,
+                    domain={"x": [0, 1], "y": [0, 0.86]},  # same vertical domain as your indicator
+                )
+            )
+
             fig_win.update_layout(
-                margin=dict(l=8, r=8, t=34, b=4), height=140, paper_bgcolor=panel_bg
+                hoverlabel=dict(bgcolor="rgba(11,15,25,.95)", bordercolor="#223045", font_size=14)
+            )
+
+            fig_win.update_layout(
+                hoverlabel=dict(
+                    bgcolor="rgba(11,15,25,.95)",  # dark tooltip bg
+                    bordercolor="#223045",
+                    font_size=14,  # slightly larger than default
+                    font_family="Inter, system-ui, sans-serif",
+                    font_color="#dbe4ee",  # base text color (per-line colors come from spans)
+                )
+            )
+
+            fig_win.update_layout(
+                margin=dict(l=8, r=8, t=34, b=4),
+                height=140,
+                paper_bgcolor=panel_bg,
+                plot_bgcolor=panel_bg,
             )
 
             # center big number
@@ -302,42 +449,14 @@ def render_overview(
                 align="center",
             )
 
-            # ---- INSIDE-donut title + left/right stacks ----
-            # compute wins/losses from the filtered view
-            p = pd.to_numeric(df_view.get("pnl", np.nan), errors="coerce").dropna()
-            wins = int((p > 0).sum())
-            losses = int((p < 0).sum())
-            wl_tot = max(1, wins + losses)
-            win_pct_real = (wins / wl_tot) * 100.0
-            loss_pct_real = (losses / wl_tot) * 100.0
-
             # title inside chart
             _annotate_donut_title(fig_win, "Win Rate", y=1.12)
-
-            # left/right stacks inside donut
-            left_html = (
-                '<span style="color:#E5E7EB; font-weight:600;">Win</span>'
-                f'<br><span style="color:#9AD8C3; font-weight:700;">{win_pct_real:.1f}% ({wins})</span>'
-            )
-            right_html = (
-                '<span style="color:#E5E7EB; font-weight:600;">Loss</span>'
-                f'<br><span style="color:#E06B6B; font-weight:700;">{loss_pct_real:.1f}% ({losses})</span>'
-            )
-            _annotate_donut_sides(
-                fig_win,
-                left_html,
-                right_html,
-                x_left=0.04,
-                y_left=0.63,  # move the "Win" stack
-                x_right=0.96,
-                y_right=0.61,  # move the "Loss" stack
-            )
 
             st.plotly_chart(fig_win, use_container_width=True)
             st.markdown(f"<div style='height:{PAD_K2}px'></div>", unsafe_allow_html=True)
 
     with k3:
-        with st.container(border=True):
+        with st.container(border=False):
             # ---- Profit Factor donut ----
             gross_profit_v = float(pnl_v[wins_mask_v].sum())
             gross_loss_v = float(pnl_v[losses_mask_v].sum())
@@ -346,7 +465,7 @@ def render_overview(
             pf_clamped = max(0.0, min(float(pf_v if pf_v != float("inf") else max_pf), max_pf))
             pct = (pf_clamped / max_pf) * 100.0
 
-            panel_bg = "#0b0f19"
+            panel_bg = CARD_BG
             fill_col = "#2E86C1"
             rest_col = "#212C47"
 
@@ -368,7 +487,10 @@ def render_overview(
                 )
             )
             fig_pf.update_layout(
-                margin=dict(l=8, r=8, t=34, b=4), height=140, paper_bgcolor=panel_bg
+                margin=dict(l=8, r=8, t=34, b=4),
+                height=140,
+                paper_bgcolor=panel_bg,
+                plot_bgcolor=panel_bg,
             )
 
             # center big PF value
@@ -386,27 +508,41 @@ def render_overview(
 
             # ---- INSIDE-donut title + left/right stacks ----
             p = pd.to_numeric(df_view.get("pnl", np.nan), errors="coerce").dropna()
-            avg_win = float(p[p > 0].mean()) if (p > 0).any() else 0.0
-            avg_loss_abs = float((-p[p < 0]).mean()) if (p < 0).any() else 0.0
+            # derive gross profit/loss for Profit Factor hover (uses the same df_view used for PF)
+            p = pd.to_numeric(df_view.get("pnl", np.nan), errors="coerce").dropna()
+            gross_profit = float(p[p > 0].sum())
+            gross_loss = float(-p[p < 0].sum())  # positive number
 
             _annotate_donut_title(fig_pf, "Profit Factor", y=1.12)
 
-            left_html = (
-                '<span style="color:#E5E7EB; font-weight:600;">Avg Win</span>'
-                f'<br><span style="color:#9AD8C3; font-weight:700;">${avg_win:,.2f}</span>'
+            # two-line hover (same colors as elsewhere)
+            hover_html_pf = (
+                "<span style='font-weight:700; color:#dbe4ee'>Gross Profit </span>"
+                f"<span style='font-weight:700; color:{GREEN}'>${gross_profit:,.0f}</span><br>"
+                "<span style='font-weight:700; color:#dbe4ee'>Gross Loss </span>"
+                f"<span style='font-weight:700; color:{RED}'>${gross_loss:,.0f}</span>"
+                "<extra></extra>"
             )
-            right_html = (
-                '<span style="color:#E5E7EB; font-weight:600;">Avg Loss</span>'
-                f'<br><span style="color:#E06B6B; font-weight:700;">-${avg_loss_abs:,.2f}</span>'
-            )
-            _annotate_donut_sides(
-                fig_pf,
-                left_html,
-                right_html,
-                x_left=0.04,
-                y_left=0.635,  # Avg Win (left) – nudge as you like
-                x_right=0.96,
-                y_right=0.615,  # Avg Loss (right) – independently placed
+
+            # overlay an invisible pie on the PF donut so hover shows both lines
+            fig_pf.add_trace(
+                go.Pie(
+                    values=[50, 50],  # any split; trace is only for hover
+                    hole=0.76,  # match your indicator ring thickness
+                    sort=False,
+                    textinfo="none",
+                    hovertemplate=hover_html_pf,
+                    hoverlabel=dict(
+                        bgcolor="rgba(11,15,25,.95)",
+                        bordercolor="#223045",
+                        font_size=14,
+                        font_family="Inter, system-ui, sans-serif",
+                        font_color="#dbe4ee",
+                    ),
+                    marker=dict(colors=["rgba(0,0,0,0)", "rgba(0,0,0,0)"]),  # fully transparent
+                    showlegend=False,
+                    domain={"x": [0, 1], "y": [0, 0.86]},  # match your indicator’s domain
+                )
             )
 
             st.plotly_chart(fig_pf, use_container_width=True)
@@ -414,7 +550,7 @@ def render_overview(
 
     # -- k4: Long vs Short (ratio pill) --
     with k4:
-        with st.container(border=True):
+        with st.container(border=False):
             # ---- Long vs Short (title + text + pill move together) ----
 
             # 3 simple knobs:
@@ -450,8 +586,8 @@ def render_overview(
                         </div>
 
                         <div class="ls-row ls-values">
-                            <div class="col left"><b>{p_long:.2f}%</b> <span class="muted">({n_long})</span></div>
-                            <div class="col right"><b>{p_short:.2f}%</b> <span class="muted">({n_short})</span></div>
+                            <div class="col left"><b style="color:{GREEN}">{p_long:.2f}%</b> <span class="muted"><b style="color:{GREEN}">({n_long})</span></div>
+                            <div class="col right"><b style="color:{RED}">{p_short:.2f}%</b> <span class="muted"><b style="color:{RED}">({n_short})</span></div>
                         </div>
 
                         <div class="ls-pill">
@@ -500,7 +636,7 @@ def render_overview(
 
     # -- k5: Winstreak (moved up here) --
     with k5:
-        with st.container(border=True):
+        with st.container(border=False):
             # compute streaks (copied from your right panel)
             def _streak_stats(win_bool: pd.Series) -> tuple[int, int, int]:
                 if win_bool is None or len(win_bool) == 0:
@@ -557,9 +693,9 @@ def render_overview(
         )
 
         # ===== Most Traded Assets (donut + legend/table) — ABOVE Equity Curve =====
-        with st.container(border=True):
+        with st.container(border=False):
             st.markdown(
-                "<div style='font-weight:600; margin:2px 0 12px;'>Most Traded Assets</div>",
+                "<div class='mta-root' style='font-weight:600; margin:2px 0 12px;'>Most Traded Assets</div>",
                 unsafe_allow_html=True,
             )
 
@@ -606,8 +742,9 @@ def render_overview(
                     st.empty()
 
         # === Equity Curve (bottom of s_left) — with tabs and date x-axis ===
-        with st.container(border=True):
+        with st.container(border=False):
 
+            # build equity series (same logic you had)
             _has_date = date_col is not None and date_col in df_view.columns and len(df_view) > 0
             df_ec = df_view.copy()
             pnl_num = pd.to_numeric(df_ec["pnl"], errors="coerce").fillna(0.0)
@@ -621,71 +758,48 @@ def render_overview(
                 df_ec = df_ec.reset_index(drop=True).assign(
                     _date=pd.RangeIndex(start=0, stop=len(df_ec))
                 )
+            # TUNING KNOBS
+            EQ_HEIGHT = 360  # overall chart height
+            EQ_TOP_PAD = 32  # extra padding above the title area
+            EQ_BOTTOM_PAD = 10  # extra padding under x-axis
+            EQ_VSHIFT = 0  # positive pushes plot DOWN, negative pulls UP
 
-            def _slice_window(df_in: pd.DataFrame, label: str) -> pd.DataFrame:
-                # Expect df_in has a datetime-like column "_date" already sorted ascending.
-                if not _has_date or len(df_in) == 0 or label == "All":
-                    return df_in
+            fig_eq = plot_equity(
+                df_ec,
+                start_equity=start_equity,
+                has_date=_has_date,
+                height=EQ_HEIGHT,
+            )
+            fig_eq.update_layout(
+                paper_bgcolor=CARD_BG,
+                plot_bgcolor=CARD_BG,
+                margin=dict(
+                    l=8,
+                    r=8,
+                    t=26 + EQ_TOP_PAD - EQ_VSHIFT,
+                    b=8 + EQ_BOTTOM_PAD + EQ_VSHIFT,
+                ),
+            )
 
-                x = pd.to_datetime(df_in["_date"], errors="coerce")
-                last_ts = x.iloc[-1]
-                last_day = last_ts.normalize()
+            # y-axis label
+            fig_eq.update_yaxes(title_text="Balance")
 
-                if label == "1D":
-                    # Only trades on the latest calendar day
-                    mask = x.dt.normalize() == last_day
-                elif label == "1W":
-                    # Last 7 calendar days (today + previous 6)
-                    cutoff = last_day - pd.Timedelta(days=6)
-                    mask = x.dt.normalize() >= cutoff
-                elif label == "1M":
-                    # Last 30 calendar days
-                    cutoff = last_day - pd.Timedelta(days=29)
-                    mask = x.dt.normalize() >= cutoff
-                elif label == "6M":
-                    # Last ~6 months; use 183 days to avoid month-length edge cases
-                    cutoff = last_day - pd.Timedelta(days=183)
-                    mask = x.dt.normalize() >= cutoff
-                elif label == "1Y":
-                    # Last 365 calendar days (if only 3 months exist, you'll just see those 3 months)
-                    cutoff = last_day - pd.Timedelta(days=364)
-                    mask = x.dt.normalize() >= cutoff
-                else:
-                    mask = slice(None)
+            # x-axis labels: horizontal Month Day
+            fig_eq.update_xaxes(tickangle=0, tickformat="%b %d")
 
-                out = df_in.loc[mask]
-                # Ensure the chart never ends up blank
-                return out if len(out) else df_in.tail(1)
+            # title inside chart
+            fig_eq.add_annotation(
+                x=-0.06,
+                y=1.17,
+                xref="paper",
+                yref="paper",
+                text="<b>Equity Curve</b>",
+                showarrow=False,
+                align="left",
+                font=dict(size=14, color="#E5E7EB"),
+            )
 
-            st.markdown('<div class="eq-tabs">', unsafe_allow_html=True)
-
-            hdr_l, hdr_r = st.columns([1, 3], gap="small")
-            with hdr_l:
-                st.markdown(
-                    '<div style="color:#d5deed; font-weight:600; letter-spacing:.2px; font-size:18px; margin:0;">Equity Curve</div>',
-                    unsafe_allow_html=True,
-                )
-            with hdr_r:
-                st.empty()
-
-            eq_tabs = st.tabs(["All", "1D", "1W", "1M", "6M", "1Y"])
-
-            for _label, _tab in zip(["All", "1D", "1W", "1M", "6M", "1Y"], eq_tabs):
-                with _tab:
-                    _dfw = _slice_window(df_ec, _label)
-                    if len(_dfw) == 0:
-                        st.caption("No data in this window.")
-                    else:
-                        fig_eq = plot_equity(
-                            _dfw,
-                            start_equity=start_equity,
-                            has_date=_has_date,
-                            height=240,
-                        )
-                        # Use a unique key prefix so it won't collide with other tabs
-                        st.plotly_chart(
-                            fig_eq, use_container_width=True, key=f"ov_eq_curve_{_label}"
-                        )
+            st.plotly_chart(fig_eq, use_container_width=True, key="ov_eq_curve_all")
 
     # === Right column top row (split in 2) ===
     with s_right:
@@ -694,45 +808,53 @@ def render_overview(
 
         # ----- Left side: Daily / Weekly PnL (inside bordered card) -----
         with right_top[0]:
-            with st.container(border=True):
-                # Header spacing knobs
-                TITLE_TOP_PAD = 6
-                CTRL_TOP_PAD = 4
-
-                # ROW 1: Title (left) | Segmented control (right)
-                r1l, r1r = st.columns([3, 1], gap="small")
-                with r1l:
-                    st.markdown(
-                        f"<div style='height:{TITLE_TOP_PAD}px'></div>", unsafe_allow_html=True
-                    )
-                    current_mode = st.session_state.get("_dpnl_mode", "Daily")
-                    st.markdown(
-                        "<div style='font-size:28px; font-weight:600; margin:0'>"
-                        f"{current_mode} PnL</div>",
-                        unsafe_allow_html=True,
-                    )
-                with r1r:
-                    st.markdown(
-                        f"<div style='height:{CTRL_TOP_PAD}px'></div>", unsafe_allow_html=True
-                    )
-                    mode = st.segmented_control(
-                        options=["Daily", "Weekly"], default=current_mode, label=""
-                    )
-                    st.session_state["_dpnl_mode"] = mode
-
-                # tighten gap between header and chart
-                st.markdown("<div style='margin-bottom:-12px'></div>", unsafe_allow_html=True)
-
+            with st.container(border=False):
                 # ---- Chart ----
-                mode = st.session_state.get("_dpnl_mode", "Daily")  # safety fallback
-                fig_pnl = plot_pnl(df_view, date_col, mode=mode, height=180)
-                st.plotly_chart(fig_pnl, use_container_width=True, key=f"ov_pnl_{mode}")
+                # TUNING KNOBS
+                PNL_HEIGHT = 320  # overall chart height
+                PNL_TOP_PAD = 32  # extra padding above the title area
+                PNL_BOTTOM_PAD = 10  # extra padding under x-axis
+                PNL_VSHIFT = 0  # positive pushes plot DOWN, negative pulls UP
+
+                mode = "Daily"  # fixed mode
+
+                fig_pnl = plot_pnl(df_view, date_col, mode=mode, height=PNL_HEIGHT)
+                fig_pnl.update_layout(
+                    paper_bgcolor=CARD_BG,
+                    plot_bgcolor=CARD_BG,
+                    # top/bottom margins control padding AND act like a vertical shift
+                    margin=dict(
+                        l=8,
+                        r=8,
+                        t=26 + PNL_TOP_PAD - PNL_VSHIFT,  # title + padding - shift
+                        b=8 + PNL_BOTTOM_PAD + PNL_VSHIFT,  # bottom padding + shift
+                    ),
+                )
+
+                # y-axis label
+                fig_pnl.update_yaxes(title_text="PnL")
+
+                # x-axis labels: horizontal Month Day (e.g., 'Sep 27')
+                fig_pnl.update_xaxes(tickangle=0, tickformat="%b %d")
+
+                # title inside chart
+                fig_pnl.add_annotation(
+                    x=-0.06,
+                    y=1.17,
+                    xref="paper",
+                    yref="paper",
+                    text="<b>Daily PnL</b>",
+                    showarrow=False,
+                    align="left",
+                    font=dict(size=14, color="#E5E7EB"),
+                )
+
+                st.plotly_chart(fig_pnl, use_container_width=True)
 
             render_long_short_card(df_view, date_col=(date_col or "date"))
 
-    # Right side: Win Streak box
     with right_top[1]:
-        with st.container(border=True):
+        with st.container(border=False):
             # top padding
             st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
 
@@ -900,6 +1022,7 @@ def render_overview(
                         }
                     )
 
+            st.markdown('<div class="last5-root"></div>', unsafe_allow_html=True)
             render_last_trades(last5, title="Last 5 Trades", key_prefix="ov_last5")
             # -------------------------------------------------
 

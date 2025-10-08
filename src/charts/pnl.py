@@ -5,13 +5,15 @@ from typing import Optional
 import pandas as pd
 import plotly.graph_objects as go
 
+from src.theme import CARD_BG
+
 BLUE = "#2E86C1"
 
 
 def plot_pnl(
     df_view: pd.DataFrame, date_col: Optional[str], *, mode: str = "Daily", height: int = 250
 ) -> go.Figure:
-    panel_bg = "#0b0f19"
+    panel_bg = CARD_BG
     pos_color = BLUE
     neg_color = BLUE
     bar_line = "rgba(255,255,255,0.12)"
