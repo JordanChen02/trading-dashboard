@@ -242,9 +242,9 @@ def render_overview(
         div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .ls-card) {{
             background: {CARD_BG} !important;
             border-radius: 16px !important;
-            padding: 14px !important;
+            padding: 12.5px !important;
             transform: translateY(0px);
-            min-height: 150px;
+            min-height: 145px;
             overflow: hidden;
         }}
 
@@ -252,7 +252,7 @@ def render_overview(
         div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .ws-wrap) {{
             background: {CARD_BG} !important;
             border-radius: 12px !important;
-            padding: 11px !important;
+            padding: 10.5px !important;
             transform: translateY(0px);
             min-height: 140px;
             overflow: hidden;
@@ -260,27 +260,62 @@ def render_overview(
 
         /* Most Traded Assets */
         div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .mta-root) {{
-            background: {CARD_BG} !important;
-            border-radius: 12px !important;
-            padding: 12px !important;
-            transform: translateX(8px);    /* nudge right as you wanted */
-            min-height: 360px;
-            overflow: hidden;
+          background: {CARD_BG} !important;
+          border-radius: 12px !important;
+          padding: 12px !important;
+          transform: translateY(-20px);     /* ⬆︎ negative = up, positive = down */
+          min-height: 350px;              /* card height */
+          overflow: hidden;
         }}
 
         /* Last 5 Trades */
         div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .last5-root) {{
-            background: {CARD_BG} !important;
-            border-radius: 12px !important;
-            padding: 12px !important;
-            transform: translateY(-8px);
-            min-height: 460px;
-            overflow: hidden;
+          background: {CARD_BG} !important;
+          border-radius: 12px !important;
+          padding: 12px !important;
+          transform: translateY(-35px);
+          min-height: 460px;
+          overflow: hidden;
+        }}
+        .last5-title{{
+            font-weight:700;
+            font-size:16px;
+            margin:0;
+            transform: translateY(-20px); /* tweak: negative = higher, positive = lower */
         }}
 
+        /* Daily PnL */
+        div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .pnl-root) {{
+          background: {CARD_BG} !important;
+          border-radius: 12px !important;
+          padding: 12px !important;
+          transform: translateY(-35px);
+          min-height: 280px;
+          overflow: hidden;
+        }}
         /* Make Plotly canvases respect the card rounding */
         [data-testid="stPlotlyChart"] > div:first-child {{
             border-radius: 12px; overflow: hidden;
+        }}
+        /* Equity Curve */
+        div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .eq-root) {{
+          background: {CARD_BG} !important;
+          border-radius: 12px !important;
+          padding: 12px !important;
+          transform: translateY(-20px);
+          min-height: 320px;
+          overflow: hidden;
+        }}
+
+        /* Long vs Short (cumulative R) */
+        div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .lsr-root) {{
+          background: {CARD_BG} !important;
+          border-radius: 12px !important;
+          padding: 6px !important;
+          transform: translateY(-35px);
+          min-height: 280px;
+          overflow: visible;
+          padding-bottom: 0px; 
         }}
         </style>
         """,
@@ -315,14 +350,18 @@ def render_overview(
             st.markdown(
                 f"""
                 <div class="kpi-pair">
+                <div class="kpi-inner">
                 <div class="kcol">
                     <div class="k-label">Balance</div>
                     <div class="k-value" style="color:{pos};">${balance_v:,.2f}</div>
                 </div>
+                </div>
                 <div class="k-sep"></div>
+                <div class="kpi-inner">
                 <div class="kcol">
                     <div class="k-label">Net Profit</div>
                     <div class="k-value" style="color:{net_color};">${net_profit_v:,.2f}</div>
+                </div>
                 </div>
                 </div>
                 <style>
@@ -330,10 +369,11 @@ def render_overview(
                     display: flex; align-items: center; justify-content: space-evenly;
                     gap: 16px; padding: 8px 0 12px;
                 }}
+                .kpi-pair .kpi-inner {{ transform: translateY(-12px); }} /* content up/down only */
                 .kpi-pair .kcol {{ text-align: center; min-width: 140px; }}
                 .kpi-pair .k-label {{ font-size: 18px; font-weight: 600; color: #ffffff; margin-bottom: 2px; }}
                 .kpi-pair .k-value {{ font-size: 32px; font-weight: 800; line-height: 1.1; }}
-                .kpi-pair .k-sep {{ width: 1px; height: 102px; background: rgba(96,165,250,0.22); border-radius: 1px; }}
+                .kpi-pair .k-sep {{ width: 1px; height: 102px; background: rgba(96,165,250,0.22); border-radius: 1px;  transform: translateY(-10px);}}
                 @media (max-width: 900px) {{
                     .kpi-pair {{ flex-direction: column; gap: 8px; }}
                     .kpi-pair .k-sep {{ display: none; }}
@@ -432,7 +472,7 @@ def render_overview(
 
             fig_win.update_layout(
                 margin=dict(l=8, r=8, t=34, b=4),
-                height=140,
+                height=154,
                 paper_bgcolor=panel_bg,
                 plot_bgcolor=panel_bg,
             )
@@ -488,7 +528,7 @@ def render_overview(
             )
             fig_pf.update_layout(
                 margin=dict(l=8, r=8, t=34, b=4),
-                height=140,
+                height=154,
                 paper_bgcolor=panel_bg,
                 plot_bgcolor=panel_bg,
             )
@@ -502,7 +542,7 @@ def render_overview(
                 yref="paper",
                 text=pf_display,
                 showarrow=False,
-                font=dict(size=28, color="#e5e7eb", family="Inter, system-ui, sans-serif"),
+                font=dict(size=30, color="#e5e7eb", family="Inter, system-ui, sans-serif"),
                 align="center",
             )
 
@@ -576,27 +616,29 @@ def render_overview(
                 st.markdown(
                     dedent(
                         f"""
-                        <div class="ls-card" style="margin-top:{LS_CARD_SHIFT}px">
-                        <div class="ui-title center">Long vs Short</div>
+                            <div class="ls-card" style="margin-top:{LS_CARD_SHIFT}px">
+                            <div class="ls-inner">
+                            <div class="ui-title center">Long vs Short</div>
 
-                        <div class="ls-wrap">
-                        <div class="ls-row ls-labels">
-                            <div class="col left">Longs</div>
-                            <div class="col right">Shorts</div>
-                        </div>
+                            <div class="ls-wrap">
+                            <div class="ls-row ls-labels">
+                                <div class="col left">Longs</div>
+                                <div class="col right">Shorts</div>
+                            </div>
 
-                        <div class="ls-row ls-values">
-                            <div class="col left"><b style="color:{GREEN}">{p_long:.2f}%</b> <span class="muted"><b style="color:{GREEN}">({n_long})</span></div>
-                            <div class="col right"><b style="color:{RED}">{p_short:.2f}%</b> <span class="muted"><b style="color:{RED}">({n_short})</span></div>
-                        </div>
+                            <div class="ls-row ls-values">
+                                <div class="col left"><b style="color:{GREEN}">{p_long:.2f}%</b> <span class="muted"><b style="color:{GREEN}">({n_long})</span></div>
+                                <div class="col right"><b style="color:{RED}">{p_short:.2f}%</b> <span class="muted"><b style="color:{RED}">({n_short})</span></div>
+                            </div>
 
-                        <div class="ls-pill">
-                            <div class="ls-long"  style="width:{p_long:.4f}%"></div>
-                            <div class="ls-short" style="width:{p_short:.4f}%"></div>
-                        </div>
-                        </div>
-                        </div>
-                        """
+                            <div class="ls-pill">
+                                <div class="ls-long"  style="width:{p_long:.4f}%"></div>
+                                <div class="ls-short" style="width:{p_short:.4f}%"></div>
+                            </div>
+                            </div>
+                            </div>  
+                            </div>
+                            """
                     ),
                     unsafe_allow_html=True,
                 )
@@ -606,6 +648,7 @@ def render_overview(
                         f"""
                         <style>
                         .ls-card {{ width:100%; }}
+                        .ls-card .ls-inner {{ transform: translateY(-16px); }}  /* raise/lower content only */
                         .ls-title {{ text-align:center; font-weight:600; font-size:14px; color:#E5E7EB; margin:0 0 8px 0; }}
                         .ls-wrap {{ width:100%; }}
 
@@ -629,6 +672,7 @@ def render_overview(
                         .ls-long  {{ background:{BLUE}; }}
                         .ls-short {{ background:{DARK}; }}
                         </style>
+                        
                         """
                     ),
                     unsafe_allow_html=True,
@@ -695,7 +739,7 @@ def render_overview(
         # ===== Most Traded Assets (donut + legend/table) — ABOVE Equity Curve =====
         with st.container(border=False):
             st.markdown(
-                "<div class='mta-root' style='font-weight:600; margin:2px 0 12px;'>Most Traded Assets</div>",
+                "<div class='mta-root' style='font-weight:600; margin:10px 0 4px;'>Most Traded Assets</div>",
                 unsafe_allow_html=True,
             )
 
@@ -743,6 +787,7 @@ def render_overview(
 
         # === Equity Curve (bottom of s_left) — with tabs and date x-axis ===
         with st.container(border=False):
+            st.markdown('<div class="eq-root"></div>', unsafe_allow_html=True)
 
             # build equity series (same logic you had)
             _has_date = date_col is not None and date_col in df_view.columns and len(df_view) > 0
@@ -759,8 +804,8 @@ def render_overview(
                     _date=pd.RangeIndex(start=0, stop=len(df_ec))
                 )
             # TUNING KNOBS
-            EQ_HEIGHT = 360  # overall chart height
-            EQ_TOP_PAD = 32  # extra padding above the title area
+            EQ_HEIGHT = 310  # overall chart height
+            EQ_TOP_PAD = 20  # extra padding above the title area
             EQ_BOTTOM_PAD = 10  # extra padding under x-axis
             EQ_VSHIFT = 0  # positive pushes plot DOWN, negative pulls UP
 
@@ -789,7 +834,7 @@ def render_overview(
 
             # title inside chart
             fig_eq.add_annotation(
-                x=-0.06,
+                x=-0.09,
                 y=1.17,
                 xref="paper",
                 yref="paper",
@@ -806,13 +851,14 @@ def render_overview(
         st.markdown("<div style='margin-bottom:-12px'></div>", unsafe_allow_html=True)
         right_top = st.columns([1.5, 1], gap="small")
 
-        # ----- Left side: Daily / Weekly PnL (inside bordered card) -----
+        # ----- Left side: Daily PnL(inside bordered card) -----
         with right_top[0]:
             with st.container(border=False):
+                st.markdown('<div class="pnl-root"></div>', unsafe_allow_html=True)
                 # ---- Chart ----
                 # TUNING KNOBS
-                PNL_HEIGHT = 320  # overall chart height
-                PNL_TOP_PAD = 32  # extra padding above the title area
+                PNL_HEIGHT = 310  # overall chart height
+                PNL_TOP_PAD = 11  # extra padding above the title area
                 PNL_BOTTOM_PAD = 10  # extra padding under x-axis
                 PNL_VSHIFT = 0  # positive pushes plot DOWN, negative pulls UP
 
@@ -839,7 +885,7 @@ def render_overview(
 
                 # title inside chart
                 fig_pnl.add_annotation(
-                    x=-0.06,
+                    x=-0.09,
                     y=1.17,
                     xref="paper",
                     yref="paper",
@@ -851,12 +897,22 @@ def render_overview(
 
                 st.plotly_chart(fig_pnl, use_container_width=True)
 
-            render_long_short_card(df_view, date_col=(date_col or "date"))
+            row_cumr = st.container(border=False)
+            with row_cumr:
+                render_long_short_card(
+                    df_view,
+                    date_col=(date_col or "date"),
+                    height=262,
+                    top_pad=12,
+                    bottom_pad=0,
+                    vshift=0,
+                    title_text="Long vs Short — Cumulative R",
+                )
 
     with right_top[1]:
         with st.container(border=False):
             # top padding
-            st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+            st.markdown('<div class="last5-root"></div>', unsafe_allow_html=True)
 
             # ---- build real Last 5 Trades from df_view ----
             d = df_view.copy()
@@ -1022,8 +1078,9 @@ def render_overview(
                         }
                     )
 
-            st.markdown('<div class="last5-root"></div>', unsafe_allow_html=True)
-            render_last_trades(last5, title="Last 5 Trades", key_prefix="ov_last5")
+            # put this inside the same container as Last 5 Trades
+            st.markdown('<div class="last5-title">Last 5 Trades</div>', unsafe_allow_html=True)
+            render_last_trades(last5, title="", key_prefix="ov_last5")
             # -------------------------------------------------
 
     # --- Right column bottom: Monthly Stats (replaces Calendar) ---

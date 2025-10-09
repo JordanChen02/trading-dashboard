@@ -69,6 +69,11 @@ def _fig_long_short_cum_r(
     dates: pd.Series,
     side: pd.Series,
     r_series: pd.Series,
+    *,
+    height: int = 360,
+    top_pad: int = 56,  # top margin (acts like vertical padding)
+    bottom_pad: int = 10,  # bottom margin
+    title_text: str = "Long vs Short (Cumulative R)",
 ) -> go.Figure:
     """
     Single figure with Long vs Short **Cumulative R** curves.
@@ -112,28 +117,35 @@ def _fig_long_short_cum_r(
         )
 
     # Axes & layout
-    fig.update_xaxes(title_text="Date", color=FG_MUTED, showgrid=False)
+    # Tighten x-axis spacing but keep the title
+    fig.update_xaxes(
+        title_standoff=14,  # reduce title height
+        tickangle=0,
+        automargin=False,  # don't auto-grow bottom margin
+        tickfont=dict(size=11),  # (optional) slightly smaller ticks
+    )
     fig.update_yaxes(
         title_text="Cumulative R", color=FG_MUTED, gridcolor=GRID_WEAK, zerolinecolor=AXIS_WEAK
     )
 
     fig.update_layout(
         title=dict(
-            text="Long vs Short (Cumulative R)",
+            text=title_text,
             x=0.04,
+            y=1.0,
             xanchor="left",
             font=dict(size=14, color=FG),
         ),
-        height=360,
-        margin=dict(l=10, r=10, t=56, b=40),  # room for top-right legend
+        height=290,
+        margin=dict(l=10, r=10, t=top_pad, b=48),
         paper_bgcolor=CARD_BG,
         plot_bgcolor=CARD_BG,
         legend=dict(
             orientation="h",
-            y=1.18,
+            y=1.0,
             yanchor="bottom",
             x=1.0,
-            xanchor="right",  # top-right, where the button used to be
+            xanchor="right",
             font=dict(size=10, color=FG),
             bgcolor="rgba(0,0,0,0)",
         ),
@@ -144,7 +156,16 @@ def _fig_long_short_cum_r(
 # ---------- public render ------------------------------------------------------
 
 
-def render_long_short_card(df: pd.DataFrame, date_col: str = "date") -> None:
+def render_long_short_card(
+    df: pd.DataFrame,
+    date_col: str = "date",
+    *,
+    height: int = 480,
+    top_pad: int = 56,
+    bottom_pad: int = 10,
+    vshift: int = 2,
+    title_text: str = "Long vs Short (Cumulative R)",
+) -> None:
     """
     Overview card: overlay of Long vs Short **Cumulative R** curves.
     If R cannot be computed/found, shows a short message instead.
@@ -163,5 +184,20 @@ def render_long_short_card(df: pd.DataFrame, date_col: str = "date") -> None:
         return
 
     with st.container(border=False):
-        fig = _fig_long_short_cum_r(df[date_col], df[side_col], r_series)
+        st.markdown('<div class="lsr-root"></div>', unsafe_allow_html=True)
+        fig = _fig_long_short_cum_r(
+            df[date_col],
+            df[side_col],
+            r_series,
+            height=height,
+            top_pad=top_pad,
+            bottom_pad=bottom_pad,
+            title_text=title_text,
+        )
+        # apply vshift as a CSS transform on the content wrapper (negative = up)
+        st.markdown(
+            f"<div class='lsr-content-shift' style='transform: translateY({vshift}px)'>",
+            unsafe_allow_html=True,
+        )
         st.plotly_chart(fig, use_container_width=True, key="ov_ls_cumr")
+        st.markdown("</div>", unsafe_allow_html=True)

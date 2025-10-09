@@ -38,7 +38,24 @@ def render_winstreak(
     .ws-pill.ws-good{{ background:rgba(46,134,193,.25); border:1px solid rgba(46,134,193,.4); }}
     .ws-pill.ws-bad{{  background:rgba(202,82,82,.25);  border:1px solid rgba(202,82,82,.4); }}
     .ws-foot{{ margin-top:6px; font-size:13px; color:#cbd5e1; }}
-  
+      /* Column-wide hover tooltips */
+    .ws-col[data-tip]{{ position: relative; }}
+    .ws-col[data-tip]:hover::after{{
+      content: attr(data-tip);
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      bottom: calc(100% + 8px);
+      background: rgba(14, 22, 36, 0.80); 
+      color: #fff;
+      font-size: 12px;
+      padding: 6px 8px;
+      border-radius: 8px;
+      white-space: nowrap;
+      pointer-events: none;
+      z-index: 2;
+    }}
+
     </style>
     """,
         unsafe_allow_html=True,
@@ -49,7 +66,7 @@ def render_winstreak(
     <div class="ws-wrap">
       <div class="ws-title">{title}</div>
       <div class="ws-row">
-        <div class="ws-col">
+        <div class="ws-col" data-tip="Best days streak / losing-day resets">
           <div class="ws-main">
             <span class="ws-big">{days_streak}</span>
             <span class="ws-icon"></span>
@@ -60,7 +77,7 @@ def render_winstreak(
           </div>
           <div class="ws-foot">Days</div>
         </div>
-        <div class="ws-col">
+        <div class="ws-col" data-tip="Best trades streak / losing-trade resets">
           <div class="ws-main">
             <span class="ws-big">{trades_streak}</span>
             <span class="ws-icon"></span>
