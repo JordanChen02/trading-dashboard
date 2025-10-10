@@ -16,7 +16,7 @@ def render_winstreak(
         f"""
     <style>
     .ws-wrap {{ --brand:{brand_color}; --pillGood:#1e3a8a; --pillBad:#6b1d1d; }}
-    .ws-title{{ font-weight:800; font-size:16px; letter-spacing:.2px; margin:0 0 8px 0; text-align:center; }}
+    .ws-title{{ font-weight:700; font-size:14px; letter-spacing:.2px; margin:0 0 8px 0; text-align:center; }}
     .ws-row{{ display:flex; gap:28px; justify-content:space-between; }}
     .ws-col{{ flex:1; display:flex; flex-direction:column; align-items:center; }}
     .ws-main{{ display:flex; align-items:center; gap:10px; }}

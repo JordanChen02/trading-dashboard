@@ -147,12 +147,6 @@ def _build_top_assets_donut_and_summary(df, max_assets: int = 5):
     return fig, summary_df, colors
 
 
-# --- Helpers to place side micro-stats *inside* the donut --------------------
-_KPI_LABEL = dict(size=12, color="#E5E7EB", family=None)  # white-ish label
-_KPI_GREEN = "#9AD8C3"  # win/avg-win
-_KPI_RED = "#E06B6B"  # loss/avg-loss
-
-
 def _annotate_donut_title(fig, text, y=1.10):
     # y>1.0 draws the title above the half-donut; raise/lower with y
     fig.add_annotation(
@@ -231,16 +225,36 @@ def render_overview(
         /* Balance | Net Profit */
         div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .kpi-pair) {{
             background: {CARD_BG} !important;
+            border: 1px solid rgba(255,255,255,0.06);
             border-radius: 12px !important;
             padding: 0px !important;
             transform: translateY(0px);   /* tweak verticality */
             min-height: 130px;             /* tweak card height */
             overflow: hidden;              /* keep inner edges clean */
         }}
+        
+        /* Win Rate */
+        div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .wr-root) {{
+        background: {CARD_BG} !important;
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 12px !important;
+        padding: 1px !important;
+        overflow: hidden;
+        }}
+
+        /* Profit Factor */
+        div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .pf-root) {{
+        background: {CARD_BG} !important;
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 12px !important;
+        padding: 1px !important;
+        overflow: hidden;
+        }}
 
         /* Long vs Short */
         div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .ls-card) {{
             background: {CARD_BG} !important;
+            border: 1px solid rgba(255,255,255,0.06);
             border-radius: 16px !important;
             padding: 12.5px !important;
             transform: translateY(0px);
@@ -251,8 +265,9 @@ def render_overview(
         /* Winstreak */
         div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .ws-wrap) {{
             background: {CARD_BG} !important;
+            border: 1px solid rgba(255,255,255,0.06);
             border-radius: 12px !important;
-            padding: 10.5px !important;
+            padding: 12px !important;
             transform: translateY(0px);
             min-height: 140px;
             overflow: hidden;
@@ -261,9 +276,10 @@ def render_overview(
         /* Most Traded Assets */
         div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .mta-root) {{
           background: {CARD_BG} !important;
+          border: 1px solid rgba(255,255,255,0.06);
           border-radius: 12px !important;
           padding: 12px !important;
-          transform: translateY(-20px);     /* ⬆︎ negative = up, positive = down */
+          transform: translateY(-19px);     /* ⬆︎ negative = up, positive = down */
           min-height: 350px;              /* card height */
           overflow: hidden;
         }}
@@ -271,22 +287,25 @@ def render_overview(
         /* Last 5 Trades */
         div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .last5-root) {{
           background: {CARD_BG} !important;
+          border: 1px solid rgba(255,255,255,0.06);
           border-radius: 12px !important;
-          padding: 12px !important;
+          padding: 24px !important;
           transform: translateY(-35px);
-          min-height: 460px;
+          min-height: 340px;
           overflow: hidden;
         }}
+ 
         .last5-title{{
             font-weight:700;
-            font-size:16px;
+            font-size:14px;
             margin:0;
-            transform: translateY(-20px); /* tweak: negative = higher, positive = lower */
+            transform: translateY(-10px); /* tweak: negative = higher, positive = lower */
         }}
 
         /* Daily PnL */
         div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .pnl-root) {{
           background: {CARD_BG} !important;
+          border: 1px solid rgba(255,255,255,0.06);
           border-radius: 12px !important;
           padding: 12px !important;
           transform: translateY(-35px);
@@ -300,23 +319,30 @@ def render_overview(
         /* Equity Curve */
         div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .eq-root) {{
           background: {CARD_BG} !important;
+          border: 1px solid rgba(255,255,255,0.06);
           border-radius: 12px !important;
           padding: 12px !important;
           transform: translateY(-20px);
-          min-height: 320px;
+          min-height: 392px;
           overflow: hidden;
         }}
 
         /* Long vs Short (cumulative R) */
         div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .lsr-root) {{
           background: {CARD_BG} !important;
+          border: 1px solid rgba(255,255,255,0.06);
           border-radius: 12px !important;
           padding: 6px !important;
           transform: translateY(-35px);
-          min-height: 280px;
+          min-height: 392px;
           overflow: visible;
           padding-bottom: 0px; 
         }}
+        div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .wr-root) [data-testid="stPlotlyChart"],
+        div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .pf-root) [data-testid="stPlotlyChart"]{{
+        margin: 0 !important;
+        }}
+
         </style>
         """,
         unsafe_allow_html=True,
@@ -324,8 +350,6 @@ def render_overview(
 
     # --- Per-card bottom spacers (px) — tune these freely
     PAD_K1 = 6  # Balance / Net Profit
-    PAD_K2 = 18  # Win Rate
-    PAD_K3 = 18  # Profit Factor
     PAD_K5 = 10  # Winstreak
 
     # ===== TOP KPI ROW (full width) =====
@@ -385,7 +409,6 @@ def render_overview(
                 div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .ls-card)   {{ min-height: 150px; }}
                 div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .ws-wrap)   {{ min-height: 120px; }}
                 div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .mta-root)  {{ min-height: 340px; }}
-                div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .last5-root){{ min-height: 420px; }}
                 </style>
                 """,
                 unsafe_allow_html=True,
@@ -472,7 +495,7 @@ def render_overview(
 
             fig_win.update_layout(
                 margin=dict(l=8, r=8, t=34, b=4),
-                height=154,
+                height=136,
                 paper_bgcolor=panel_bg,
                 plot_bgcolor=panel_bg,
             )
@@ -490,10 +513,10 @@ def render_overview(
             )
 
             # title inside chart
-            _annotate_donut_title(fig_win, "Win Rate", y=1.12)
+            _annotate_donut_title(fig_win, "Win Rate", y=1.24)
 
+            st.markdown('<div class="wr-root"></div>', unsafe_allow_html=True)
             st.plotly_chart(fig_win, use_container_width=True)
-            st.markdown(f"<div style='height:{PAD_K2}px'></div>", unsafe_allow_html=True)
 
     with k3:
         with st.container(border=False):
@@ -528,7 +551,7 @@ def render_overview(
             )
             fig_pf.update_layout(
                 margin=dict(l=8, r=8, t=34, b=4),
-                height=154,
+                height=136,
                 paper_bgcolor=panel_bg,
                 plot_bgcolor=panel_bg,
             )
@@ -553,7 +576,7 @@ def render_overview(
             gross_profit = float(p[p > 0].sum())
             gross_loss = float(-p[p < 0].sum())  # positive number
 
-            _annotate_donut_title(fig_pf, "Profit Factor", y=1.12)
+            _annotate_donut_title(fig_pf, "Profit Factor", y=1.24)
 
             # two-line hover (same colors as elsewhere)
             hover_html_pf = (
@@ -585,8 +608,8 @@ def render_overview(
                 )
             )
 
+            st.markdown('<div class="pf-root"></div>', unsafe_allow_html=True)
             st.plotly_chart(fig_pf, use_container_width=True)
-            st.markdown(f"<div style='height:{PAD_K3}px'></div>", unsafe_allow_html=True)
 
     # -- k4: Long vs Short (ratio pill) --
     with k4:
@@ -716,6 +739,7 @@ def render_overview(
             st.markdown(f"<div style='height:{PAD_K5}px'></div>", unsafe_allow_html=True)
 
     """Renders the full Overview tab (left/right split, KPIs, equity curve tabs, daily/weekly PnL, win streak, calendar, filter button)."""
+    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
 
     # ======= LAYOUT FRAME: 40/60 main split (left=40%, right=60%) =======
     s_left, s_right = st.columns([1.8, 3], gap="small")  # 2:3 ≈ 40%:60%

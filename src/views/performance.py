@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from src.styles import inject_plot_rounding_css
-from src.theme import AXIS_WEAK, BLUE, BLUE_FILL, BLUE_LIGHT, FG, FG_MUTED, GRID_WEAK, RED
+from src.theme import AXIS_WEAK, BLUE, BLUE_FILL, BLUE_LIGHT, CARD_BG, FG, FG_MUTED, GRID_WEAK, RED
 
 # ========= Adjustable UI tokens =========
 PAGE_TOP_PADDING_PX = 20  # pushes the whole Performance page down a bit
@@ -21,7 +21,7 @@ CHART_HEIGHT_PX = 350  # overall height for each chart
 TITLE_TOP_MARGIN = 100  # inside-figure space reserved for the title
 TITLE_X = 0.04  # try 0.03–0.06; 0 = hard left, 0.5 = center
 
-CARD_BG = "#0E1624"  # figure background to blend on dark theme
+
 TEAL = "#4FD1C5"  # accent line color
 
 

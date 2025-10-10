@@ -136,7 +136,7 @@ def _fig_long_short_cum_r(
             xanchor="left",
             font=dict(size=14, color=FG),
         ),
-        height=290,
+        height=311,
         margin=dict(l=10, r=10, t=top_pad, b=48),
         paper_bgcolor=CARD_BG,
         plot_bgcolor=CARD_BG,

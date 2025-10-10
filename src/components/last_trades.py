@@ -113,6 +113,7 @@ def render_last_trades(
             f"<div style='font-weight:600;margin:0 0 8px 4px;'>{title}</div>",
             unsafe_allow_html=True,
         )
+        st.markdown("<hr style='opacity:.12;margin:6px 0 10px'>", unsafe_allow_html=True)
 
         if not trades:
             st.info("No trades yet. Your last five closed trades will appear here.")
@@ -145,6 +146,7 @@ def render_last_trades(
                 )
                 st.caption(f"{etype}")
                 st.caption(f"{_fmt_range(a, b)}")
+                st.markdown("<div style='height:2px'></div>", unsafe_allow_html=True)
 
             with r_rr:
                 st.markdown(
@@ -163,4 +165,4 @@ def render_last_trades(
                 )
 
             if i < len(trades) - 1:
-                st.markdown("<hr style='opacity:.08;margin:8px 0'>", unsafe_allow_html=True)
+                st.markdown("<hr style='opacity:.12;margin:12px 0'>", unsafe_allow_html=True)
