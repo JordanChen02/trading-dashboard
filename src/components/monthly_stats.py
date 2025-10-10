@@ -112,8 +112,10 @@ def render_monthly_stats(
     years_back: int = 2,
     title: str = "Monthly Stats",
     key: str = "monthly_stats",
-    cell_height: int = 64,  # control cell height
-    total_col_width_px: int = 110,  # width of the "Total" column
+    cell_height: int = 64,
+    total_col_width_px: int = 110,
+    card_bg: str = None,  # <- add
+    card_bg_dark: str = None,  # <- add
 ) -> None:
     """
     Render a compact HTML grid:
@@ -122,6 +124,28 @@ def render_monthly_stats(
     - Months with NO data render as a blank cell.
     - Months with data but exact 0 display 0 in neutral color.
     """
+
+    card_bg = card_bg or "var(--card-bg, #0b0f19)"
+
+    # derive a darker variant if not passed in (10% darker)
+    if not card_bg_dark:
+        # expect #RRGGBB or #RGB; keep it simple and safe
+        def _darken(hex_color: str, factor: float = 0.9) -> str:
+            h = hex_color.lstrip("#")
+            if len(h) == 3:
+                h = "".join(ch * 2 for ch in h)
+            try:
+                r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+                r = max(0, min(255, int(r * factor)))
+                g = max(0, min(255, int(g * factor)))
+                b = max(0, min(255, int(b * factor)))
+                return f"#{r:02x}{g:02x}{b:02x}"
+            except Exception:
+                # if it's not a hex (e.g., var(--card-bg)), fall back to a darker overlay
+                return "rgba(0,0,0,0.25)"
+
+        card_bg_dark = _darken(card_bg)
+
     stats = _compute_monthly(df, date_col)
     if stats.empty:
         with st.container(border=True):
@@ -154,8 +178,9 @@ def render_monthly_stats(
         for _, r in ytot.iterrows()
     }
 
-    with st.container(border=True):
-        st.markdown(f"**{title}**", unsafe_allow_html=True)
+    with st.container(border=False):
+        # st.markdown(f"**{title}**", unsafe_allow_html=True)
+        st.markdown("<div class='ms-root'></div>", unsafe_allow_html=True)
 
         st.markdown(
             f"""
@@ -167,7 +192,7 @@ def render_monthly_stats(
   font-family: 'Inter', system-ui, sans-serif;
 }}
 .ms-head, .ms-cell, .ms-year {{
-  background: rgba(255,255,255,0.04);
+  background: {card_bg};
   border: 1px solid rgba(255,255,255,0.06);
   border-radius: 6px;
   padding: 8px 10px;
@@ -191,7 +216,11 @@ def render_monthly_stats(
 .ms-pos  {{ color:{POS};  font-weight:500; }}
 .ms-neg  {{ color:{NEG};  font-weight:500; }}
 .ms-zero {{ color:{MUTED}; font-weight:500; }}   /* neutral for zeros */
-.ms-empty {{ background: rgba(255,255,255,0.02); }} /* truly empty months */
+.ms-empty {{
+  background: {card_bg_dark};
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 6px;
+}}
 </style>
 """,
             unsafe_allow_html=True,

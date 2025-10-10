@@ -342,6 +342,10 @@ def render_overview(
         div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .pf-root) [data-testid="stPlotlyChart"]{{
         margin: 0 !important;
         }}
+        /* Shift Monthly Stats card up slightly */
+        div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .ms-root) {{
+        transform: translateY(-66px);  /* tweak this value as you like */
+        }}
 
         </style>
         """,
@@ -739,7 +743,7 @@ def render_overview(
             st.markdown(f"<div style='height:{PAD_K5}px'></div>", unsafe_allow_html=True)
 
     """Renders the full Overview tab (left/right split, KPIs, equity curve tabs, daily/weekly PnL, win streak, calendar, filter button)."""
-    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height:18px'></div>", unsafe_allow_html=True)
 
     # ======= LAYOUT FRAME: 40/60 main split (left=40%, right=60%) =======
     s_left, s_right = st.columns([1.8, 3], gap="small")  # 2:3 ≈ 40%:60%
@@ -1107,6 +1111,7 @@ def render_overview(
             render_last_trades(last5, title="", key_prefix="ov_last5")
             # -------------------------------------------------
 
+    CARD_BG_DARK = "#0f1422"
     # --- Right column bottom: Monthly Stats (replaces Calendar) ---
     render_monthly_stats(
         df_view,
@@ -1116,4 +1121,6 @@ def render_overview(
         key="ov_mstats",
         cell_height=95,
         total_col_width_px=120,
+        card_bg=CARD_BG,
+        card_bg_dark=CARD_BG_DARK,
     )
