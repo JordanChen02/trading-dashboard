@@ -855,7 +855,7 @@ def render(df: pd.DataFrame) -> None:
         if "chart_examples" not in st.session_state:
             st.session_state["chart_examples"] = [
                 {"img_bytes": None, "img_url": "https://www.tradingview.com/x/RMJesEwo/"},
-                {"img_bytes": None, "img_url": ""},
+                {"img_bytes": None, "img_url": "https://www.tradingview.com/x/fvMNs5k2/"},
             ]
 
         def _render_chart_card(i: int, title: str):

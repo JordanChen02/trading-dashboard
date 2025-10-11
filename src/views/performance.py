@@ -14,10 +14,10 @@ from src.theme import AXIS_WEAK, BLUE, BLUE_FILL, BLUE_LIGHT, CARD_BG, FG, FG_MU
 
 # ========= Adjustable UI tokens =========
 PAGE_TOP_PADDING_PX = 20  # pushes the whole Performance page down a bit
-KPI_TOP_PADDING_PX = 40  # space above the KPI block (below page padding)
-KPI_VRULE_HEIGHT_PX = 230  # height of vertical dividers between KPI columns
+KPI_TOP_PADDING_PX = 16  # space above the KPI block (below page padding)
+KPI_VRULE_HEIGHT_PX = 190  # height of vertical dividers between KPI columns
 DIVIDER_MARGIN_PX = 12  # extra space above & below the horizontal divider
-CHART_HEIGHT_PX = 350  # overall height for each chart
+CHART_HEIGHT_PX = 370  # overall height for each chart
 TITLE_TOP_MARGIN = 100  # inside-figure space reserved for the title
 TITLE_X = 0.04  # try 0.03–0.06; 0 = hard left, 0.5 = center
 
@@ -175,7 +175,7 @@ def _base_layout(fig: go.Figure, title_text: str, height: int = CHART_HEIGHT_PX)
 # ================ Figures ================
 def _fig_underwater_daily(start_equity: float, daily_pnl_df: pd.DataFrame) -> go.Figure:
     if daily_pnl_df.empty:
-        return _base_layout(go.Figure(), "Underwater (Drawdown %) — by Date")
+        return _base_layout(go.Figure(), "Underwater (Drawdown %)")
     eq = start_equity + daily_pnl_df["pnl"].cumsum()
     peak = eq.cummax()
     dd_pct = np.where(peak > 0, (eq / peak) - 1.0, 0.0) * 100.0
@@ -195,12 +195,12 @@ def _fig_underwater_daily(start_equity: float, daily_pnl_df: pd.DataFrame) -> go
     # Axis titles
     fig.update_yaxes(title_text="Drawdown (%)")
     fig.update_xaxes(title_text="Date")
-    return _base_layout(fig, "Underwater (Drawdown %) — by Date")
+    return _base_layout(fig, "Underwater (Drawdown %)")
 
 
 def _fig_cum_r_by_date(daily_r_df: pd.DataFrame) -> go.Figure:
     if daily_r_df.empty:
-        return _base_layout(go.Figure(), "Cumulative R — by Date")
+        return _base_layout(go.Figure(), "Cumulative R")
     cum_r = daily_r_df["R"].cumsum()
     fig = go.Figure()
     fig.add_trace(
@@ -209,7 +209,7 @@ def _fig_cum_r_by_date(daily_r_df: pd.DataFrame) -> go.Figure:
     # Axis titles
     fig.update_yaxes(title_text="Cumulative R")
     fig.update_xaxes(title_text="Date")
-    return _base_layout(fig, "Cumulative R — by Date")
+    return _base_layout(fig, "Cumulative R")
 
 
 def _fig_rolling_20d(daily_stats: pd.DataFrame) -> go.Figure:
@@ -302,7 +302,7 @@ def _fig_pnl_histogram(pnl_per_trade: pd.Series, nbins: int = 40) -> go.Figure:
     Shows mean/median markers and a subtle 1σ band.
     """
     s = pd.to_numeric(pnl_per_trade, errors="coerce").dropna()
-    title = "PnL per Trade (Histogram)"
+    title = "PnL per Trade"
     fig = go.Figure()
 
     if len(s) == 0:
@@ -399,6 +399,32 @@ def render(
 
     # Make sure rounded corners CSS is present on every render
     inject_plot_rounding_css(radius_px=12, add_shadow=False)
+
+    st.markdown(
+        f"""
+    <style>
+    /* Bordered card look for all Performance charts */
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .perf-underwater),
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .perf-cumr),
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .perf-rolling),
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .perf-scatter),
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .perf-sym),
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .perf-hist) {{
+    background: {CARD_BG} !important;
+    border-radius: 12px !important;
+    padding: 12px !important;
+    border: 1px solid rgba(255,255,255,0.06);
+    overflow: hidden;
+    }}
+
+    /* keep Plotly canvas corners rounded (you already use this app-wide, but safe here too) */
+    [data-testid="stPlotlyChart"] > div:first-child {{
+    border-radius: 12px; overflow: hidden;
+    }}
+    </style>
+    """,
+        unsafe_allow_html=True,
+    )
 
     # Core series
     pnl = pd.to_numeric(df_view.get("pnl", 0.0), errors="coerce").fillna(0.0)
@@ -545,18 +571,23 @@ def render(
     r1c1, r1c2, r1c3 = st.columns(3, gap="small")
     with r1c1:
         with st.container(border=False):
+            st.markdown('<div class="perf-underwater"></div>', unsafe_allow_html=True)
             st.plotly_chart(
                 _fig_underwater_daily(start_equity, daily),
                 use_container_width=True,
                 key="perf_underwater_date",
             )
+
     with r1c2:
         with st.container(border=False):
+            st.markdown('<div class="perf-cumr"></div>', unsafe_allow_html=True)
             st.plotly_chart(
                 _fig_cum_r_by_date(daily_r_df), use_container_width=True, key="perf_cumr_date"
             )
+
     with r1c3:
         with st.container(border=False):
+            st.markdown('<div class="perf-rolling"></div>', unsafe_allow_html=True)
             st.plotly_chart(
                 _fig_rolling_20d(daily_stats), use_container_width=True, key="perf_roll20d"
             )
@@ -565,11 +596,14 @@ def render(
     with r2c1:
         with st.container(border=False):
             if (dates is not None) and (r_series is not None):
+                st.markdown('<div class="perf-scatter"></div>', unsafe_allow_html=True)
                 st.plotly_chart(
                     _fig_trade_scatter_r(dates, r_series, risk_series),
                     use_container_width=True,
                     key="perf_trade_scatter",
                 )
+                # ...and in the else branch, right before the fallback chart too
+
             else:
                 st.plotly_chart(
                     _base_layout(go.Figure(), "Trades (R) over Time"), use_container_width=True
@@ -581,11 +615,14 @@ def render(
                 df_view, ["Symbol", "symbol", "Asset", "asset", "Ticker", "ticker", "Pair", "pair"]
             )
             if sym_col:
+                st.markdown('<div class="perf-sym"></div>', unsafe_allow_html=True)
                 st.plotly_chart(
                     _fig_profit_by_symbol(df_view, sym_col),
                     use_container_width=True,
                     key="perf_sym",
                 )
+                # ...and in the else branch before the fallback chart too
+
             else:
                 st.plotly_chart(
                     _base_layout(go.Figure(), "Profit by Symbol (Top 5 + Others)"),
@@ -594,6 +631,7 @@ def render(
                 st.caption("No symbol/ticker column found.")
     with r2c3:
         with st.container(border=False):
+            st.markdown('<div class="perf-hist"></div>', unsafe_allow_html=True)
             st.plotly_chart(
                 _fig_pnl_histogram(pnl, nbins=40), use_container_width=True, key="perf_pnl_hist"
             )

@@ -354,32 +354,19 @@ st.markdown(
   }
 
   /* Micro-lift just the first row without affecting page height (no bottom clipping) */
-  :root { --lift: 285px; }  /* tweak 8–16px to taste */
-  [data-testid="stAppViewContainer"] .block-container > *:first-child {
-    transform: translateY(calc(-1 * var(--lift)));
+  :root { --lift: 8px; }  /* tweak 8–16px to taste */
+  [data-testid="stAppViewContainer"] .block-container > *:first-child{
+    margin-top: calc(-32 * var(--lift)) !important;  /* ← use negative margin instead of transform */
+    transform: none !important;                     /* ← kill the old transform */
+    position: relative; 
+    z-index: 1;                                     /* keep it clickable above neighbors */
   }
-
   /* Match the sidebar to that lift so its top aligns */
   [data-testid="stSidebar"] > div:first-child {
     padding-top: var(--lift) !important;
   }
-</style>
-""",
-    unsafe_allow_html=True,
-)
 
-st.markdown(
-    """
-<style>
-  /* Add extra scroll space so bottom isn’t clipped */
-  [data-testid="stAppViewContainer"] .block-container {
-    padding-bottom: 200px !important;   /* adjust this value */
-  }
 
-  /* Sidebar needs matching bottom room so it doesn’t crop */
-  [data-testid="stSidebar"] > div:first-child {
-    padding-bottom: 200px !important;   /* same value as above */
-  }
 </style>
 """,
     unsafe_allow_html=True,
@@ -470,13 +457,6 @@ st.markdown(
 }
 .topbar [data-testid="stDateInput"] > div > div:hover{ background:#152138; }
 
-/* Hide native text because you draw your overlay label */
-.topbar [data-testid="stDateInput"] input{
-  color: transparent !important;
-  caret-color: transparent !important;
-  text-shadow: none !important;
-  font-size: 0 !important;
-}
 
 </style>
 """,
@@ -525,61 +505,40 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.markdown(
-    """
-<style>
-/* Hide the native date text completely so it can't ghost-underlap the overlay */
-[data-testid="stDateInput"] input{
-  color: transparent !important;
-  caret-color: transparent !important;
-  text-shadow: none !important;
-  font-size: 0 !important;         /* kills any remaining glyph width */
-}
-/* (optional) hide the built-in calendar icon since you draw your own */
-[data-testid="stDateInput"] svg{ display:none !important; }
-</style>
-""",
-    unsafe_allow_html=True,
-)
+# st.markdown(
+#     """
+# <style>
+# /* Hide the native date text completely so it can't ghost-underlap the overlay */
+# .topbar [data-testid="stDateInput"]:has(+ .topbar-range .tb-overlay) input{ color:transparent !important; caret-color:transparent !important; text-shadow:none !important; font-size:0 !important; }
+# .topbar .topbar-range [data-testid="stDateInput"] svg{ display:none !important; }
+# </style>
+
+# """,
+#     unsafe_allow_html=True,
+# )
 
 st.markdown(
     """
 <style>
-/* Set your single source of truth height here */
-:root{ --tb-range-height: 40px; }  /* change to 36/40/44/48 to taste */
+:root{ --tb-range-height: 40px; }  /* keep this global var if you like */
 
-/* 1) Make the pill box (the real BaseWeb input) use that height */
-[data-testid="stDateInput"] div[data-baseweb="input"]{
+.topbar .topbar-range [data-testid="stDateInput"] div[data-baseweb="input"]{
   min-height: var(--tb-range-height) !important;
   height:      var(--tb-range-height) !important;
-  display: flex !important;
-  align-items: center !important;
-  box-sizing: border-box !important;
-
-  /* match your dropdown look */
-  background: #0f1728 !important;
-  border: 1px solid #1f2a3a !important;
-  border-radius: 10px !important;
-  padding: 0 10px 0 34px !important;
+  display:flex !important; align-items:center !important; box-sizing:border-box !important;
+  background:#0f1728 !important; border:1px solid #1f2a3a !important; border-radius:10px !important;
+  padding:0 10px 0 34px !important;
 }
+.topbar .topbar-range [data-testid="stDateInput"] > div{ border-radius:10px !important; overflow:hidden !important; }
 
-/* Round the outer wrapper, too, so corners are perfect */
-[data-testid="stDateInput"] > div {
-  border-radius: 10px !important;
-  overflow: hidden !important;
+.topbar .topbar-range .tb-overlay{
+  position:relative; height:0; margin-top: calc(-1 * var(--tb-range-height)) !important; pointer-events:none;
 }
-
-/* 2) Keep your overlay perfectly aligned with the same height */
-.tb-overlay{
-  position:relative; height:0;
-  margin-top: calc(-1 * var(--tb-range-height)) !important;
-  pointer-events:none;
-}
-
-/* 3) Nudge the calendar icon vertically to line up with your text */
-.tb-ico{ display:inline-flex; align-items:center; height: var(--tb-range-height); }
-.tb-ico svg{ position: relative; top: 4px; }  /* tweak 0–3px if needed */
+.topbar .topbar-range .tb-ico, 
+.topbar .topbar-range .tb-ico svg{ color:#3AA4EB !important; fill:#3AA4EB !important; }
+.topbar .topbar-range .tb-text{ color:#e5e7eb; font-weight:500; font-size:16px; letter-spacing:.1px; }
 </style>
+
 """,
     unsafe_allow_html=True,
 )
@@ -875,10 +834,6 @@ with st.sidebar:
     }
     .topbar [data-testid="stDateInput"] > div > div:hover{ background:#152138; }
 
-    /* Hide the native text; we draw the label ourselves */
-    .topbar [data-testid="stDateInput"] input{
-    color:transparent !important; caret-color:transparent !important;
-    }
 
     /* Pull the overlay up by exactly the same height */
     .tb-overlay{
@@ -1278,7 +1233,7 @@ with t_tf:
 # --- TOPBAR: Custom Date Range ---------------------------------------------
 with t_range:
     # vertical alignment with other dropdowns
-    TOPBAR_RANGE_SHIFT = 10
+    TOPBAR_RANGE_SHIFT = 0
     st.markdown(f"<div style='height:{TOPBAR_RANGE_SHIFT}px'></div>", unsafe_allow_html=True)
 
     # === NEW: define all variables the widget needs ===
@@ -1341,26 +1296,27 @@ with t_range:
         on_change=_on_range_change,
     )
 
-    # === Overlay label that visually replaces the input text (keeps clicks working) ===
-    d1 = st.session_state.get("date_from") or cur_from
-    d2 = st.session_state.get("date_to") or cur_to
-    label_txt = f"{d1:%Y-%m-%d}  \u2192  {d2:%Y-%m-%d}"  # note the spaces around the arrow
+    # # === Overlay label that visually replaces the input text (keeps clicks working) ===
+    # d1 = st.session_state.get("date_from") or cur_from
+    # d2 = st.session_state.get("date_to") or cur_to
+    # label_txt = f"{d1:%Y-%m-%d}  \u2192  {d2:%Y-%m-%d}"  # note the spaces around the arrow
 
-    st.markdown(
-        f"""
-        <div class="tb-overlay" style="width:{RANGE_WIDTH_PX}px">
-          <div class="inner">
-            <span class="tb-ico">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-                <path d="M7 2a1 1 0 0 1 1 1v1h8V3a1 1 0 1 1 2 0v1h1.5A2.5 2.5 0 0 1 22 6.5v13A2.5 2.5 0 0 1 19.5 22h-15A2.5 2.5 0 0 1 2 19.5v-13A2.5 2.5 0 0 1 4.5 4H6V3a1 1 0 1 1 2 0v1Zm12.5 6H4.5a.5.5 0 0 0-.5.5v10a.5.5 0 0 0 .5.5h15a.5.5 0 0 0 .5-.5v-10a.5.5 0 0 0-.5-.5ZM8 7H6v1a1 1 0 0 0 2 0V7Zm10 0h-2v1a1 1 0 1 0 2 0V7Z"/>
-              </svg>
-            </span>
-            <span class="tb-text">{label_txt}</span>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    # st.markdown(
+    #     f"""
+    #     <div class="tb-overlay" style="width:{RANGE_WIDTH_PX}px">
+    #       <div class="inner">
+    #         <span class="tb-ico">
+    #           <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+    #             <path d="M7 2a1 1 0 0 1 1 1v1h8V3a1 1 0 1 1 2 0v1h1.5A2.5 2.5 0 0 1 22 6.5v13A2.5 2.5 0 0 1 19.5 22h-15A2.5 2.5 0 0 1 2 19.5v-13A2.5 2.5 0 0 1 4.5 4H6V3a1 1 0 1 1 2 0v1Zm12.5 6H4.5a.5.5 0 0 0-.5.5v10a.5.5 0 0 0 .5.5h15a.5.5 0 0 0 .5-.5v-10a.5.5 0 0 0-.5-.5ZM8 7H6v1a1 1 0 0 0 2 0V7Zm10 0h-2v1a1 1 0 1 0 2 0V7Z"/>
+    #           </svg>
+    #         </span>
+    #         <span class="tb-text">{label_txt}</span>
+    #       </div>
+    #     </div>
+    #     """,
+    #     unsafe_allow_html=True,
+    # )
+    # st.markdown("</div>", unsafe_allow_html=True)  # ← add (closes .topbar-range)
 # --- END TOPBAR: Custom Date Range -----------------------------------------
 
 
@@ -1860,6 +1816,3 @@ if len(_tags_map) > 0:
         if _idx in df.index:
             df.at[_idx, "tag"] = _tg
     df_view = df.loc[df_view.index]
-
-
-st.markdown('<div id="tail-spacer" style="height: 200px"></div>', unsafe_allow_html=True)
