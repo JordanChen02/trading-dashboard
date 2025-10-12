@@ -27,4 +27,4 @@ HLINE = "#3a4557"  # neutral guideline
 # ---- Accent hues ----
 TEAL = "#4FD1C5"  # accent for Shorts (pairs well with BLUE)
 TEAL_ALPHA = "rgba(79,209,197,0.15)"  # light fill / bands (optional)
-CARD_BG = "#0F1827"
+CARD_BG = "#0F1829"

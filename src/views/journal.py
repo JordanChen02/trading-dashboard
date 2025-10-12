@@ -49,6 +49,9 @@ except Exception:
     FG_MUTED = "#9aa6b2"
 
 
+BG_CARD = "#10192B9E"
+
+
 # --- Styler helpers for value-based coloring (read-only view) ---
 def _style_pnl(val):
     try:
@@ -157,6 +160,9 @@ def _styled_view(df: pd.DataFrame) -> "pd.io.formats.style.Styler":
             "Dollars Risked": lambda v: "" if pd.isna(v) else f"${float(v):,.2f}",
         }
     )
+
+    # Fill headers and cells with BG_CARD in styled (read-only) view
+    styler = styler.set_properties(**{"background-color": BG_CARD})
 
     return styler
 
@@ -304,7 +310,6 @@ def _generate_fake_journal(n: int = 50) -> pd.DataFrame:
         tf = rng.choice(TIMEFRAMES, p=[0.15, 0.08, 0.3, 0.25, 0.12, 0.07, 0.03])
         typ = rng.choice(TYPES, p=[0.45, 0.55])
         setup_tier = rng.choice(TIER, p=[0.03, 0.12, 0.25, 0.12, 0.15, 0.2, 0.08, 0.05])
-        exec_tier = rng.choice(EXEC_TIER, p=[0.03, 0.15, 0.35, 0.12, 0.12, 0.15, 0.06, 0.02])
 
         d = start + timedelta(days=int(rng.integers(0, 120)))
         start_hour = int(rng.integers(0, 24))
@@ -339,7 +344,6 @@ def _generate_fake_journal(n: int = 50) -> pd.DataFrame:
                 "Timeframe": tf,
                 "Type": typ,
                 "Setup Tier": setup_tier,
-                "Execution Tier": exec_tier,
                 "Confirmations": confirmations,
                 "Entry Time": e_time,
                 "Exit Time": x_time,
@@ -381,18 +385,24 @@ def _init_session_state():
     pal = st.session_state.setdefault(
         "confirm_color_palette",
         [
-            "#6ee7b7",
-            "#93c5fd",
-            "#fca5a5",
-            "#fcd34d",
-            "#c4b5fd",
-            "#f9a8d4",
-            "#fda4af",
-            "#a7f3d0",
-            "#fde68a",
-            "#bfdbfe",
+            "#1E3B8ACE",  # indigo-900
+            "#0E7490CE",  # cyan-700
+            "#065F46CE",  # emerald-800
+            "#7C2D12CE",  # amber-900
+            "#6B21A8CE",  # purple-800
+            "#0F766ECE",  # teal-700
+            "#1F2937CE",  # slate-800
+            "#1B4079CE",  # deep steel
+            "#14532DCE",  # green-900
+            "#3F1D38CE",  # plum-900
+            "#2B2D42CE",  # charcoal indigo
+            "#23395BCE",  # dark denim
+            "#2F3E46CE",  # blue-gray
+            "#264653CE",  # slate teal
+            "#3A0CA3CE",  # deep violet
         ],
     )
+
     cmap = st.session_state.setdefault("confirm_color_map", {})
     idx = st.session_state.setdefault("confirm_color_idx", 0)
 
@@ -410,6 +420,8 @@ def _init_session_state():
         if tag not in cmap:
             cmap[tag] = pal[idx % len(pal)]
             idx += 1
+
+    st.session_state["confirmations_options"] = sorted(st.session_state["confirm_color_map"].keys())
 
     st.session_state["confirm_color_idx"] = idx
 
@@ -475,6 +487,19 @@ def _render_new_entry_form():
             help="Loaded from Checklist (excludes Bias Confidence).",
         )
 
+        # Any newly typed confirmations become part of the global options + color map
+        if conf:
+            cmap = st.session_state["confirm_color_map"]
+            pal = st.session_state["confirm_color_palette"]
+            idx = st.session_state["confirm_color_idx"]
+            for t in conf:
+                if t not in st.session_state.confirmations_options:
+                    st.session_state.confirmations_options.append(t)
+                if t not in cmap:
+                    cmap[t] = pal[idx % len(pal)]
+                    idx += 1
+            st.session_state["confirm_color_idx"] = idx
+
         # colored chips preview
         if conf:
             cmap = st.session_state.get("confirm_color_map", {})
@@ -492,7 +517,7 @@ def _render_new_entry_form():
         st.markdown("")
         tp1p, tp1r, tp2p, tp2r, tp3p, tp3r = st.columns([1, 1, 1, 1, 1, 1], gap="small")
         with tp1p:
-            tp1 = st.number_input("TP1 % Sold", 0, 100, 0, step=5)
+            tp1 = st.number_input("TP1 % Sold", 0, 100, 100, step=5)
         with tp1r:
             tp1_r = st.number_input("TP1 (R)", step=0.25, format="%.2f", value=0.00)
         with tp2p:
@@ -509,7 +534,7 @@ def _render_new_entry_form():
         )
 
         # Footer buttons (blue outline)
-        b1, b2, _ = st.columns([1, 1, 6])
+        b1, b2, _, _ = st.columns([1, 2, 1, 7])
         with b1:
             submitted = st.form_submit_button("Add Entry")
         with b2:
@@ -540,7 +565,6 @@ def _render_new_entry_form():
             st.session_state["journal_conf_default"] = []
             st.session_state["new_entry_prelude"] = {}
             setup_tier = "A"
-            exec_tier = "A"
 
             new_row = {
                 "Trade #": None,
@@ -554,7 +578,6 @@ def _render_new_entry_form():
                 "Timeframe": timeframe,
                 "Type": typ,
                 "Setup Tier": setup_tier,
-                "Execution Tier": exec_tier,
                 "Confirmations": conf,
                 "Entry Time": entry_dt,
                 "Exit Time": exit_dt,
@@ -615,25 +638,38 @@ def render(*_args, **_kwargs) -> None:
 /* Scope everything to Journal so we don't touch other pages */
 .journal-scope * {{ box-sizing: border-box; }}
 
-/* Make date text visible on this page (app.py hides it globally) */
-.journal-scope [data-testid="stDateInput"] input {{
-  color: {FG} !important;
-  font-size: 14px !important;
-  caret-color: auto !important;
-  text-shadow: none !important;
+
+/* KPI tiles — leave as-is */
+[data-testid="stMetric"],
+[data-testid="stMetric"] > div {{
+  background-color: {CARD_BG} !important;
+  border-radius: 14px;
+  padding: 18px 16px;
 }}
 
-/* Inputs & dropdowns background */
+/* Multiselect chips (uniform color) — match BaseWeb tag regardless of container */
+[data-baseweb="tag"] {{
+  background-color: {BLUE} !important;
+  color: #0b1220 !important;
+  border: 1px solid {BLUE} !important;
+}}
+
+
+/* dropdown menu items hover/focus (optional, to match blue theme) */
+.journal-scope div[data-baseweb="select"] li[role="option"]:hover {{
+  background-color: rgba(58,164,235,0.15) !important;  /* {BLUE} at ~15% */
+}}
+
+/* Inputs & dropdowns — NOT CARD_BG (slightly darker so they stand out) */
 .journal-scope [data-testid="stSelectbox"],
 .journal-scope [data-testid="stMultiSelect"],
 .journal-scope [data-testid="stTextInput"],
 .journal-scope [data-testid="stNumberInput"],
-/* KPI tiles */
-[data-testid="stMetric"],
-[data-testid="stMetric"] > div {{
-  background-color: {CARD_BG} !important;   /* test color so you can see it immediately */
-  border-radius: 14px;
-  padding: 18px 16px;
+.journal-scope [data-testid="stDateInput"],
+.journal-scope textarea {{
+  background-color: rgba(255,255,255,0.02) !important;  /* darker than CARD_BG (0.04) */
+  border: 1px solid rgba(255,255,255,0.06) !important;
+  border-radius: 10px !important;
 }}
 
 
@@ -641,13 +677,6 @@ def render(*_args, **_kwargs) -> None:
 .journal-scope [data-testid="stDataFrame"] td {{
   white-space: normal !important;
   word-break: break-word !important;
-}}
-
-.journal-scope [data-testid="stMetric"],
-.journal-scope [data-testid="stMetric"] > div {{
-  background: {CARD_BG};
-  border-radius: 14px;
-  padding: 18px 16px;
 }}
 
 /* Blue-outline buttons on this page (secondary buttons only) */
@@ -672,6 +701,24 @@ def render(*_args, **_kwargs) -> None:
   border: none !important;
   box-shadow: none !important;
 }}
+/* Give the New Journal Entry block a filled card using the same pattern as Overview/Performance */
+div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .je-root) {{
+  background: #0d121f !important;
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 12px !important;
+  padding: 16px !important;
+  overflow: hidden;
+}}
+
+/* st.dataframe text color (explicit header + cell selectors) */
+.journal-scope [data-testid="stDataFrame"] thead th {{
+  color: {FG} !important;
+}}
+.journal-scope [data-testid="stDataFrame"] tbody td {{
+  color: {FG} !important;
+}}
+
+
 </style>
 """,
         unsafe_allow_html=True,
@@ -811,6 +858,42 @@ def render(*_args, **_kwargs) -> None:
 
     edited = None
 
+    # --- Confirmations: build live options + colors for BOTH views ---
+    # 1) start from whatever we’ve been tracking in session
+    opts = list(st.session_state.get("confirmations_options", []))
+
+    # 2) union with whatever is already in the dataframe column (lists or comma strings)
+    if "Confirmations" in df_view.columns:
+        series = df_view["Confirmations"].dropna()
+        for v in series:
+            if isinstance(v, list):
+                for item in v:
+                    if item and item not in opts:
+                        opts.append(item)
+            else:
+                s = str(v).strip()
+                if s and s not in ("[]", "None", "nan"):
+                    for item in [x.strip() for x in s.split(",") if x.strip()]:
+                        if item not in opts:
+                            opts.append(item)
+
+    # 3) ensure a stable color map (new labels get assigned a color once)
+    cmap = st.session_state.get("confirm_color_map", {})
+    pal = st.session_state.get("confirm_color_palette", [])
+    idx = st.session_state.get("confirm_color_idx", 0)
+    for t in opts:
+        if t not in cmap and pal:
+            cmap[t] = pal[idx % len(pal)]
+            idx += 1
+    st.session_state["confirm_color_map"] = cmap
+    st.session_state["confirm_color_idx"] = idx
+
+    # 4) finalize options/colors in order
+    confirm_opts = sorted(opts)
+    confirm_colors = [cmap.get(o, BLUE) for o in confirm_opts]
+    st.session_state["confirmations_options"] = confirm_opts
+    # ---------------------------------------------------------------
+
     if show_styled:
         df_disp = df_view.copy()
 
@@ -836,7 +919,23 @@ def render(*_args, **_kwargs) -> None:
             cols.insert(cols.index("Trade #") + 1, acc)
             df_disp = df_disp[cols]
 
-        st.dataframe(_styled_view(df_disp), use_container_width=True, height=680, hide_index=True)
+        confirm_opts = sorted(st.session_state.confirmations_options)
+        confirm_colors = [st.session_state.confirm_color_map.get(o, BLUE) for o in confirm_opts]
+
+        st.dataframe(
+            df_view,  # ← dataframe, not styler
+            use_container_width=True,
+            height=680,
+            hide_index=True,
+            column_config={  # include your existing configs PLUS this one:
+                "Confirmations": st.column_config.MultiselectColumn(
+                    "Confirmations",
+                    options=confirm_opts,
+                    color=confirm_colors,
+                    width="large",
+                ),
+            },
+        )
 
         st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
         t1, _ = st.columns([1, 5])
@@ -865,6 +964,8 @@ def render(*_args, **_kwargs) -> None:
                 cols.remove("__sel__")
                 cols = ["__sel__"] + cols
             df_view = df_view[cols]
+
+        st.markdown('<div class="je-grid-root"></div>', unsafe_allow_html=True)
 
         edited = st.data_editor(
             df_view,
@@ -897,13 +998,11 @@ def render(*_args, **_kwargs) -> None:
                 "Setup Tier": st.column_config.SelectboxColumn(
                     "Setup Tier", options=TIER, width="small"
                 ),
-                "Execution Tier": st.column_config.SelectboxColumn(
-                    "Execution Tier", options=EXEC_TIER, width="small"
-                ),
-                "Confirmations": st.column_config.ListColumn(
+                "Confirmations": st.column_config.MultiselectColumn(
                     "Confirmations",
-                    help="Checklist items that confirmed the setup.",
-                    width="medium",
+                    options=confirm_opts,
+                    color=confirm_colors,
+                    width="large",
                 ),
                 "Entry Time": st.column_config.DatetimeColumn(
                     "Entry Time", step=60, width="medium"
@@ -1057,6 +1156,7 @@ def render(*_args, **_kwargs) -> None:
         with cC:
             st.markdown('<div class="journal-entry-wrapper">', unsafe_allow_html=True)
             with st.container(border=False):
+                st.markdown('<div class="je-root"></div>', unsafe_allow_html=True)
                 _render_new_entry_form()
             st.markdown("</div>", unsafe_allow_html=True)
 
