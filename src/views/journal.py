@@ -96,7 +96,7 @@ def _style_setup_tier(val: str):
         "A": "#c28dff",
         "A-": "#c28dff",
         "B+": "#1e97e7",
-        "B": "#1e97e7",
+        "B": "#1b81c5",
         "B-": "#1e97e7",
         "C": "#41ce2f",
     }
@@ -238,14 +238,7 @@ def _compute_derived(df: pd.DataFrame) -> pd.DataFrame:
     df["Dollars Risked"] = pd.to_numeric(df["Dollars Risked"], errors="coerce").round(2)
 
     risk = pd.to_numeric(df["Dollars Risked"], errors="coerce").replace(0, np.nan)
-    df["R Ratio"] = (
-        (df["PnL"] / risk).replace([np.inf, -np.inf], np.nan).round(0).fillna(0).astype("Int64")
-    )
-
-    for c in ["TP1 % Sold", "TP2 % Sold", "TP3 % Sold"]:
-        df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).clip(0, 100).astype(int)
-    for c in ["TP1 (R)", "TP2 (R)", "TP3 (R)"]:
-        df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).round(0).astype("Int64")
+    df["R Ratio"] = (df["PnL"] / risk).replace([np.inf, -np.inf], np.nan).round(2).fillna(0.0)
 
     df = df.sort_values(
         ["Date", "Entry Time"], ascending=[True, True], kind="mergesort"
@@ -353,13 +346,8 @@ def _generate_fake_journal(n: int = 50) -> pd.DataFrame:
                 "Dollars Risked": dollars_risked,
                 "R Ratio": round(pnl / dollars_risked, 2),
                 "Chart URL": "",
+                "Micromanaged?": False,
                 "Comments": _fake_comment(pnl > 0),
-                "TP1 % Sold": tp1,
-                "TP1 (R)": 0.0,
-                "TP2 % Sold": tp2,
-                "TP2 (R)": 0.0,
-                "TP3 % Sold": tp3,
-                "TP3 (R)": 0.0,
             }
         )
 
@@ -428,13 +416,16 @@ def _init_session_state():
 
 def _render_new_entry_form():
     # Absolute-positioned close X (blue, borderless)
-    st.markdown('<div class="journal-newentry-x">', unsafe_allow_html=True)
-    if st.button("✕", key="close_new_entry", help="Close"):
-        st.session_state.show_new_entry = False
-        st.rerun()
-    st.markdown("</div>", unsafe_allow_html=True)
 
-    st.markdown("**Add a custom confirmation (type and press Enter):**")
+    left_cap, right_x = st.columns([1, 0.06], gap="small")
+    with left_cap:
+        st.markdown("**Add a custom confirmation (type and press Enter):**")
+    with right_x:
+        st.markdown('<div class="x-wrap">', unsafe_allow_html=True)
+        if st.button("✕", key="close_new_entry", help="Close"):
+            st.session_state.show_new_entry = False
+            st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
 
     with st.form("new_entry"):
         st.markdown("### New Journal Entry")
@@ -513,25 +504,7 @@ def _render_new_entry_form():
         # ===== Comments (full width) =====
         comments = st.text_area("Comments", value="")
 
-        # ===== Row 4: TP blocks: % Sold + (R) =====
-        st.markdown("")
-        tp1p, tp1r, tp2p, tp2r, tp3p, tp3r = st.columns([1, 1, 1, 1, 1, 1], gap="small")
-        with tp1p:
-            tp1 = st.number_input("TP1 % Sold", 0, 100, 100, step=5)
-        with tp1r:
-            tp1_r = st.number_input("TP1 (R)", step=0.25, format="%.2f", value=0.00)
-        with tp2p:
-            tp2 = st.number_input("TP2 % Sold", 0, 100, 0, step=5)
-        with tp2r:
-            tp2_r = st.number_input("TP2 (R)", step=0.25, format="%.2f", value=0.00)
-        with tp3p:
-            tp3 = st.number_input("TP3 % Sold", 0, 100, 0, step=5)
-        with tp3r:
-            tp3_r = st.number_input("TP3 (R)", step=0.25, format="%.2f", value=0.00)
-
-        st.caption(
-            "Tip: Values mean how much of the position you sold at each TP (e.g., 50/25/25). Total ≤ 100."
-        )
+        micro_flag = st.checkbox("Micromanaged?", value=False)
 
         # Footer buttons (blue outline)
         b1, b2, _, _ = st.columns([1, 2, 1, 7])
@@ -587,13 +560,8 @@ def _render_new_entry_form():
                 "Dollars Risked": float(risk),
                 "R Ratio": None,
                 "Chart URL": chart_url,
+                "Micromanaged?": bool(micro_flag),
                 "Comments": comments,
-                "TP1 % Sold": int(tp1),
-                "TP1 (R)": float(tp1_r),
-                "TP2 % Sold": int(tp2),
-                "TP2 (R)": float(tp2_r),
-                "TP3 % Sold": int(tp3),
-                "TP3 (R)": float(tp3_r),
             }
 
             df = st.session_state.journal_df.copy()
@@ -679,13 +647,6 @@ def render(*_args, **_kwargs) -> None:
   word-break: break-word !important;
 }}
 
-/* Blue-outline buttons on this page (secondary buttons only) */
-.journal-scope [data-testid="baseButton-secondary"] > button {{
-  border: 1px solid {BLUE} !important;
-  color: {BLUE} !important;
-  background: transparent !important;
-  box-shadow: none !important;
-}}
 
 /* Close X (inside wrapper), movable via CSS vars */
 .journal-entry-wrapper {{ position: relative; }}
@@ -717,6 +678,50 @@ div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .
 .journal-scope [data-testid="stDataFrame"] tbody td {{
   color: {FG} !important;
 }}
+/* Allow wrapping in the editor grid (best-effort; row height is still fixed) */
+.journal-scope [data-testid="stDataEditor"] div[role="gridcell"] {{
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+  line-height: 2.3;
+}}
+
+
+/* Regular buttons: + New Entry, Add Column, Delete Column, ✕ (if you want it blue) */
+[data-testid="stButton"] > button {{
+  border: 1px solid var(--blue,#3AA4EB) !important;
+  color: var(--blue,#3AA4EB) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}}
+/* Form submit buttons: Add Entry, Load from Checklist */
+[data-testid="stFormSubmitButton"] > button {{
+  border: 1px solid var(--blue,#3AA4EB) !important;
+  color: var(--blue,#3AA4EB) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}}
+
+/* RED for deletes — help="danger" lives on the container, not the <button> */
+[data-testid="stButton"][title="danger"] > button,
+[data-testid="stFormSubmitButton"][title="danger"] > button {{
+  border: 1px solid #ef4444 !important;
+  color: #ef4444 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}}
+
+/* ✕ borderless & small — help="Close" lives on the container */
+[data-testid="stButton"][title="Close"] > button,
+[data-testid="stFormSubmitButton"][title="Close"] > button {{
+  font-size: 13px !important;
+  padding: 0 6px !important;
+  border: none !important;
+  background: transparent !important;
+  color: var(--blue, #3AA4EB) !important;
+  box-shadow: none !important;
+}}
+
+
 
 
 </style>
@@ -919,21 +924,143 @@ div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .
             cols.insert(cols.index("Trade #") + 1, acc)
             df_disp = df_disp[cols]
 
+        base_cols = list(
+            df_disp.columns
+        )  # capture original order before adding any tag/display columns
+
+        # ----- Tag columns (single-item lists) for styled view -----
+        def _as_tag_list(x):
+            s = "" if pd.isna(x) else str(x).strip()
+            return [] if s == "" else [s]
+
+        df_disp["Direction Tag"] = (
+            df_disp["Direction"].map(_as_tag_list) if "Direction" in df_disp.columns else []
+        )
+        df_disp["Type Tag"] = df_disp["Type"].map(_as_tag_list) if "Type" in df_disp.columns else []
+        df_disp["Session Tag"] = (
+            df_disp["Session"].map(_as_tag_list) if "Session" in df_disp.columns else []
+        )
+        df_disp["Tier Tag"] = (
+            df_disp["Setup Tier"].map(_as_tag_list) if "Setup Tier" in df_disp.columns else []
+        )
+        df_disp["DOW Tag"] = (
+            df_disp["Day of Week"].map(_as_tag_list) if "Day of Week" in df_disp.columns else []
+        )
+        df_disp["Timeframe Tag"] = (
+            df_disp["Timeframe"].map(_as_tag_list) if "Timeframe" in df_disp.columns else []
+        )
+
+        # Options + dark colors for each tag set (order matters: options[i] uses color[i])
+        DIR_OPTS = ["Long", "Short"]
+        DIR_COLORS = ["#065F46", "#7C2D12"]  # emerald-800, amber-900
+
+        TYPE_OPTS = ["Continuation", "Reversal"]
+        TYPE_COLORS = ["#0E7490", "#7C2D12"]  # cyan-700, amber-900
+
+        SESS_OPTS = ["Asia", "London", "NY AM", "NY Lunch", "NY PM"]
+        SESS_COLORS = ["#1E3A8A", "#0E7490", "#6B21A8", "#7C2D12", "#1B4079"]
+
+        TIER_OPTS = ["S", "A+", "A", "A-", "B+", "B", "B-", "C"]
+        TIER_COLORS = [
+            "#e8f160",
+            "#a78bfa",
+            "#a78bfa",
+            "#a78bfa",
+            "#1e97e7",
+            "#1e97e7",
+            "#1e97e7",
+            "#41ce2f",
+        ]
+
+        DOW_OPTS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        DOW_COLORS = ["#23395B", "#0F766E", "#6B21A8", "#7C2D12", "#1E3A8A", "#2F3E46", "#3F1D38"]
+
+        TF_OPTS = ["m1", "m3", "m5", "m15", "m30", "H1", "H4"]
+        TF_COLORS = ["#23395B", "#2F3E46", "#0E7490", "#1E3A8A", "#6B21A8", "#7C2D12", "#1B4079"]
+
         confirm_opts = sorted(st.session_state.confirmations_options)
         confirm_colors = [st.session_state.confirm_color_map.get(o, BLUE) for o in confirm_opts]
 
+        # PnL display with negative sign before the currency symbol
+        def _fmt_money_sign_after(x):
+            if pd.isna(x):
+                return ""
+            v = float(x)
+            if v < 0:
+                return f"-${abs(v):,.2f}"
+            return f"${v:,.2f}"
+
+        df_disp["PnL ($)"] = df_disp["PnL"].apply(_fmt_money_sign_after)
+
+        # Start from the original order only (no auto-added columns)
+        col_order = base_cols[:]  # copy
+
+        def _put_after_in(col_list, orig: str, tag: str):
+            """Insert `tag` immediately after `orig` if both exist and tag not yet in order."""
+            if orig in col_list and tag in df_disp.columns and tag not in col_list:
+                col_list.insert(col_list.index(orig) + 1, tag)
+
+        # Insert all tag columns right AFTER their originals (while originals are still present)
+        _put_after_in(col_order, "Direction", "Direction Tag")
+        _put_after_in(col_order, "Type", "Type Tag")
+        _put_after_in(col_order, "Session", "Session Tag")
+        _put_after_in(col_order, "Setup Tier", "Tier Tag")
+        _put_after_in(col_order, "Day of Week", "DOW Tag")
+        _put_after_in(col_order, "Win/Loss", "Result Tag")
+        _put_after_in(col_order, "Timeframe", "Timeframe Tag")
+
+        # Swap 'PnL' for the formatted display column (no duplicates)
+        if "PnL" in col_order and "PnL ($)" in df_disp.columns:
+            col_order[col_order.index("PnL")] = "PnL ($)"
+
+        # Finally remove original text columns you no longer want to show
+        for orig in ["Day of Week", "Direction", "Timeframe", "Type", "Setup Tier", "Session"]:
+            if orig in col_order:
+                col_order.remove(orig)
+
         st.dataframe(
-            df_view,  # ← dataframe, not styler
+            df_disp,  # styled view now uses the display DF with tag columns
             use_container_width=True,
             height=680,
             hide_index=True,
-            column_config={  # include your existing configs PLUS this one:
+            column_order=col_order,
+            column_config={
+                # Native colored tags
                 "Confirmations": st.column_config.MultiselectColumn(
                     "Confirmations",
                     options=confirm_opts,
                     color=confirm_colors,
                     width="large",
                 ),
+                "Direction Tag": st.column_config.MultiselectColumn(
+                    "Direction", options=DIR_OPTS, color=DIR_COLORS, width="small"
+                ),
+                "Type Tag": st.column_config.MultiselectColumn(
+                    "Type", options=TYPE_OPTS, color=TYPE_COLORS, width="small"
+                ),
+                "Session Tag": st.column_config.MultiselectColumn(
+                    "Session", options=SESS_OPTS, color=SESS_COLORS, width="small"
+                ),
+                "Tier Tag": st.column_config.MultiselectColumn(
+                    "Setup Tier", options=TIER_OPTS, color=TIER_COLORS, width="small"
+                ),
+                "DOW Tag": st.column_config.MultiselectColumn(
+                    "Day of Week", options=DOW_OPTS, color=DOW_COLORS, width="small"
+                ),
+                "Timeframe Tag": st.column_config.MultiselectColumn(
+                    "Timeframe", options=TF_OPTS, color=TF_COLORS, width="small"
+                ),
+                "Micromanaged?": st.column_config.CheckboxColumn("Micromanaged?", width="small"),
+                # Keep your existing configs for numbers/links etc. as needed (PnL, Dollars Risked…)
+                # Example numeric configs if you want them here as well:
+                "PnL ($)": st.column_config.TextColumn("PnL ($)", width="small"),
+                "Dollars Risked": st.column_config.NumberColumn(
+                    "Dollars Risked ($)", format="$%.2f", width="small"
+                ),
+                "R Ratio": st.column_config.NumberColumn(
+                    "R:R", format="%.2f", width="small", disabled=True
+                ),
+                "Chart URL": st.column_config.LinkColumn("Chart URL", width="medium"),
             },
         )
 
@@ -964,6 +1091,8 @@ div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .
                 cols.remove("__sel__")
                 cols = ["__sel__"] + cols
             df_view = df_view[cols]
+        if "Micromanaged?" not in df_view.columns:
+            df_view["Micromanaged?"] = False
 
         st.markdown('<div class="je-grid-root"></div>', unsafe_allow_html=True)
 
@@ -1017,22 +1146,11 @@ div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .
                     "Dollars Risked ($)", format="$%.2f", width="small"
                 ),
                 "R Ratio": st.column_config.NumberColumn(
-                    "R Ratio", format="%d", width="small", disabled=True
+                    "R:R", format="%.2f", width="small", disabled=True
                 ),
                 "Chart URL": st.column_config.LinkColumn("Chart URL", width="medium"),
+                "Micromanaged?": st.column_config.CheckboxColumn("Micromanaged?", width="small"),
                 "Comments": st.column_config.TextColumn("Comments", width="large"),
-                "TP1 % Sold": st.column_config.NumberColumn(
-                    "TP1 % Sold", min_value=0, max_value=100, step=5
-                ),
-                "TP2 % Sold": st.column_config.NumberColumn(
-                    "TP2 % Sold", min_value=0, max_value=100, step=5
-                ),
-                "TP3 % Sold": st.column_config.NumberColumn(
-                    "TP3 % Sold", min_value=0, max_value=100, step=5
-                ),
-                "TP1 (R)": st.column_config.NumberColumn("TP1 (R)", format="%d", width="small"),
-                "TP2 (R)": st.column_config.NumberColumn("TP2 (R)", format="%d", width="small"),
-                "TP3 (R)": st.column_config.NumberColumn("TP3 (R)", format="%d", width="small"),
             },
         )
 
@@ -1041,13 +1159,15 @@ div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .
         orig_index_map = st.session_state.get("_view_orig_index", []) or []
         rows_to_delete_idx = [orig_index_map[i] for i in sel_rows if 0 <= i < len(orig_index_map)]
 
-        t1, t2, _ = st.columns([1, 1, 4])
+        t1, t2, _ = st.columns([1, 1, 13])
         if t1.button("+ New Entry", key="btn_new_entry_styled"):
             st.session_state.show_new_entry = True
             st.rerun()
 
         delete_disabled = len(rows_to_delete_idx) == 0
-        if t2.button("Delete selected", disabled=delete_disabled, key="btn_delete_selected"):
+        if t2.button(
+            "Delete selected", disabled=delete_disabled, key="btn_delete_selected", help="danger"
+        ):
             st.session_state["_pending_delete_idx"] = rows_to_delete_idx
             st.session_state["_show_delete_modal"] = True
             st.rerun()
@@ -1100,7 +1220,7 @@ div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .
                 "Delete column", options=["(Select)"] + existing_cols, index=0
             )
             if (
-                st.button("Delete Column", key="btn_del_col")
+                st.button("Delete Column", key="btn_del_col", help="danger")
                 and del_choice
                 and del_choice != "(Select)"
             ):
