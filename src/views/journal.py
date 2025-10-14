@@ -662,6 +662,8 @@ def render(*_args, **_kwargs) -> None:
   border: none !important;
   box-shadow: none !important;
 }}
+
+
 /* Give the New Journal Entry block a filled card using the same pattern as Overview/Performance */
 div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .je-root) {{
   background: #0d121f !important;
@@ -693,6 +695,9 @@ div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .
   background: transparent !important;
   box-shadow: none !important;
 }}
+
+
+
 /* Form submit buttons: Add Entry, Load from Checklist */
 [data-testid="stFormSubmitButton"] > button {{
   border: 1px solid var(--blue,#3AA4EB) !important;
@@ -701,14 +706,6 @@ div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .
   box-shadow: none !important;
 }}
 
-/* RED for deletes — help="danger" lives on the container, not the <button> */
-[data-testid="stButton"][title="danger"] > button,
-[data-testid="stFormSubmitButton"][title="danger"] > button {{
-  border: 1px solid #ef4444 !important;
-  color: #ef4444 !important;
-  background: transparent !important;
-  box-shadow: none !important;
-}}
 
 /* ✕ borderless & small — help="Close" lives on the container */
 [data-testid="stButton"][title="Close"] > button,
@@ -721,8 +718,13 @@ div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .
   box-shadow: none !important;
 }}
 
-
-
+/* Only buttons rendered like the two Deletes (Styled view path with tooltip wrapper) */
+[data-testid="stButton"] .stTooltipHoverTarget > button {{
+  border: 1px solid #E06B6B !important;
+  color: #E06B6B !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}}
 
 </style>
 """,
