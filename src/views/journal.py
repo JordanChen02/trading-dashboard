@@ -52,6 +52,38 @@ except Exception:
 BG_CARD = "#10192B9E"
 
 
+# --- modal helper (same pattern you use in checklist) ---
+def modal_or_inline(title: str, render_body):
+    dlg = getattr(st, "modal", None) or getattr(st, "dialog", None)
+    if callable(dlg):
+        decorator = dlg(title)
+
+        @decorator
+        def _show():
+            render_body()
+
+        _show()
+    else:
+        # Fallback overlay
+        st.markdown(
+            f"""
+            <div style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;">
+              <div style="background:#111827;border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:16px;min-width:1100px; max-width:96vw;">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+                  <div style="font-weight:700;">{title}</div>
+                  <div>
+                    <span title="Close">
+                      {''}
+                    </span>
+                  </div>
+                </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        render_body()
+        st.markdown("</div></div>", unsafe_allow_html=True)
+
+
 # --- Styler helpers for value-based coloring (read-only view) ---
 def _style_pnl(val):
     try:
@@ -161,9 +193,6 @@ def _styled_view(df: pd.DataFrame) -> "pd.io.formats.style.Styler":
         }
     )
 
-    # Fill headers and cells with BG_CARD in styled (read-only) view
-    styler = styler.set_properties(**{"background-color": BG_CARD})
-
     return styler
 
 
@@ -241,7 +270,7 @@ def _compute_derived(df: pd.DataFrame) -> pd.DataFrame:
     df["R Ratio"] = (df["PnL"] / risk).replace([np.inf, -np.inf], np.nan).round(2).fillna(0.0)
 
     df = df.sort_values(
-        ["Date", "Entry Time"], ascending=[True, True], kind="mergesort"
+        ["Date", "Entry Time"], ascending=[False, False], kind="mergesort"
     ).reset_index(drop=True)
     df["Trade #"] = df.index + 1
     return df
@@ -358,6 +387,7 @@ def _generate_fake_journal(n: int = 50) -> pd.DataFrame:
 def _init_session_state():
     if "journal_df" not in st.session_state:
         st.session_state.journal_df = _generate_fake_journal(50)
+        st.session_state.setdefault("new_entry_force_once", False)
 
     if "show_new_entry" not in st.session_state:
         st.session_state.show_new_entry = False
@@ -416,31 +446,8 @@ def _init_session_state():
 
 def _render_new_entry_form():
     # Absolute-positioned close X (blue, borderless)
-
-    left_cap, right_x = st.columns([1, 0.06], gap="small")
-    with left_cap:
-        st.markdown("**Add a custom confirmation (type and press Enter):**")
-    with right_x:
-        st.markdown('<div class="x-wrap">', unsafe_allow_html=True)
-        if st.button("✕", key="close_new_entry", help="Close"):
-            st.session_state.show_new_entry = False
-            st.rerun()
-        st.markdown("</div>", unsafe_allow_html=True)
-
     with st.form("new_entry"):
-        st.markdown("### New Journal Entry")
-
-        # ===== Row 1: Entry/Exit date & time =====
-        r1c1, r1c2, r1c3, r1c4 = st.columns([1, 1, 1, 1], gap="small")
-        with r1c1:
-            date_val = st.date_input("Entry Date", value=date.today(), key="entry_date_input")
-        with r1c2:
-            entry_txt = st.text_input("Entry Time (HH:MM or HH:MM:SS)", value="09:30")
-        with r1c3:
-            exit_date_val = st.date_input("Exit Date", value=date_val, key="exit_date_input")
-        with r1c4:
-            exit_txt = st.text_input("Exit Time (HH:MM or HH:MM:SS)", value="10:05")
-
+        st.markdown('<div class="new-entry-inner">', unsafe_allow_html=True)
         # ===== Row 2: Account | Symbol | Type | Direction | Timeframe =====
         r2c0, r2c1, r2c2, r2c3, r2c4 = st.columns([1.2, 1.2, 1, 1, 1.2], gap="small")
         with r2c0:
@@ -459,6 +466,17 @@ def _render_new_entry_form():
             timeframe = st.text_input(
                 "Timeframe", value="", placeholder="e.g., m3 / m15 / h1 / h4"
             ).strip()
+
+        # ===== Row 1: Entry/Exit date & time =====
+        r1c1, r1c2, r1c3, r1c4 = st.columns([1, 1, 1, 1], gap="small")
+        with r1c1:
+            date_val = st.date_input("Entry Date", value=date.today(), key="entry_date_input")
+        with r1c2:
+            entry_txt = st.text_input("Entry Time (HH:MM or HH:MM:SS)", value="09:30")
+        with r1c3:
+            exit_date_val = st.date_input("Exit Date", value=date_val, key="exit_date_input")
+        with r1c4:
+            exit_txt = st.text_input("Exit Time (HH:MM or HH:MM:SS)", value="10:05")
 
         # ===== Row 3: Dollars Risked | PnL | Chart URL =====
         r3c1, r3c2, r3c3 = st.columns([1, 1, 2], gap="small")
@@ -491,23 +509,13 @@ def _render_new_entry_form():
                     idx += 1
             st.session_state["confirm_color_idx"] = idx
 
-        # colored chips preview
-        if conf:
-            cmap = st.session_state.get("confirm_color_map", {})
-            chips = "".join(
-                f"<span style='display:inline-block;padding:4px 8px;margin:4px;border-radius:999px;"
-                f"background:{cmap.get(x,'#334155')};color:#0b1220;font-size:12px;font-weight:600;'>{x}</span>"
-                for x in conf
-            )
-            st.markdown(f"<div>{chips}</div>", unsafe_allow_html=True)
-
         # ===== Comments (full width) =====
         comments = st.text_area("Comments", value="")
 
         micro_flag = st.checkbox("Micromanaged?", value=False)
 
         # Footer buttons (blue outline)
-        b1, b2, _, _ = st.columns([1, 2, 1, 7])
+        b1, b2, _, _ = st.columns([1.3, 2, 1, 7])
         with b1:
             submitted = st.form_submit_button("Add Entry")
         with b2:
@@ -525,7 +533,12 @@ def _render_new_entry_form():
                     i = st.session_state["confirm_color_idx"] % len(pal)
                     cmap[t] = pal[i]
                     st.session_state["confirm_color_idx"] += 1
+
+            # keep the dialog OPEN on rerun
             st.session_state["journal_conf_default"] = confs
+            st.session_state["show_new_entry"] = True
+            st.session_state["new_entry_force_once"] = True
+
             st.toast("Confirmations loaded from Checklist ✅")
             st.rerun()
 
@@ -568,8 +581,24 @@ def _render_new_entry_form():
             df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
             st.session_state.journal_df = _compute_derived(df)
 
+            # --- make sure the new row is visible after rerun by expanding the date filter
+            rng = st.session_state.get("jr_date_range")
+            new_start = date_val
+            new_end = exit_date_val
+
+            if isinstance(rng, tuple) and len(rng) == 2 and all(rng):
+                cur_start, cur_end = rng
+                # expand only if needed
+                cur_start = min(cur_start, new_start)
+                cur_end = max(cur_end, new_end)
+                st.session_state["jr_date_range"] = (cur_start, cur_end)
+            else:
+                # if no range yet, set it to the new trade span
+                st.session_state["jr_date_range"] = (new_start, new_end)
+
             st.session_state.show_new_entry = False
             st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
 
 
 def _render_summary(df: pd.DataFrame):
@@ -598,6 +627,10 @@ def render(*_args, **_kwargs) -> None:
     _init_session_state()
 
     inject_journal_css()
+
+    # If not explicitly forcing, auto-close on rerun so it doesn’t keep popping back
+    if st.session_state.get("show_new_entry") and not st.session_state.get("new_entry_force_once"):
+        st.session_state["show_new_entry"] = False
 
     # ===== Journal-scoped CSS (overrides global date-input hiding, styles buttons/X/KPIs) =====
     st.markdown(
@@ -663,20 +696,11 @@ def render(*_args, **_kwargs) -> None:
   box-shadow: none !important;
 }}
 
-
-/* Give the New Journal Entry block a filled card using the same pattern as Overview/Performance */
-div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .je-root) {{
-  background: #0d121f !important;
-  border: 1px solid rgba(255,255,255,0.06);
-  border-radius: 12px !important;
-  padding: 16px !important;
-  overflow: hidden;
-}}
-
 /* st.dataframe text color (explicit header + cell selectors) */
 .journal-scope [data-testid="stDataFrame"] thead th {{
   color: {FG} !important;
 }}
+
 .journal-scope [data-testid="stDataFrame"] tbody td {{
   color: {FG} !important;
 }}
@@ -707,16 +731,6 @@ div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .
 }}
 
 
-/* ✕ borderless & small — help="Close" lives on the container */
-[data-testid="stButton"][title="Close"] > button,
-[data-testid="stFormSubmitButton"][title="Close"] > button {{
-  font-size: 13px !important;
-  padding: 0 6px !important;
-  border: none !important;
-  background: transparent !important;
-  color: var(--blue, #3AA4EB) !important;
-  box-shadow: none !important;
-}}
 
 /* Only buttons rendered like the two Deletes (Styled view path with tooltip wrapper) */
 [data-testid="stButton"] .stTooltipHoverTarget > button {{
@@ -728,6 +742,117 @@ div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .
 
 </style>
 """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        """
+    <style>
+    /* Dialog container = backdrop */
+    div[data-testid="stDialog"] {
+    /* lighten the dimmer (default is darker) */
+    background-color: rgba(0,0,0,0.35) !important;
+    padding: 0 !important;
+    }
+
+    /* Remove the white/grey sheet wrapper */
+    div[data-testid="stDialog"] > div:first-child {
+    background: transparent !important;
+    box-shadow: none !important;
+    width: auto !important;
+    max-width: none !important;
+    margin: 0 auto !important;
+    }
+
+    /* Actual dialog content node (make wide + solid background) */
+    div[data-testid="stDialog"] > div > div {
+    width: 1100px !important;          /* keep it 2–3× wider */
+    max-width: 96vw !important;
+    margin: 0 auto !important;
+    background: #0f1829 !important;    /* solid card bg so it’s not transparent */
+    border: none !important;
+    border-radius: 12px !important;
+    padding: 0 !important;
+    z-index: 10001;                    /* ensure it sits above the backdrop */
+    }
+
+    /* (Optional) keep Modal parity if it appears elsewhere */
+    div[data-testid="stModal"] { background-color: rgba(0,0,0,0.35) !important; padding:0 !important; }
+    div[data-testid="stModal"] > div:first-child { background: transparent !important; box-shadow:none !important; }
+    div[data-testid="stModal"] > div > div {
+    width: 1100px !important; max-width:96vw !important; margin:0 auto !important;
+    background:#0f1829 !important; border:1px solid rgba(255,255,255,0.06) !important;
+    border-radius:12px !important; padding:0 !important; z-index:10001;
+    }
+    </style>
+    """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        """
+    <style>
+    /* ── New Entry popout: outlined inputs & selects ─────────────────────────── */
+    div[data-testid="stDialog"] input,
+    div[data-testid="stDialog"] textarea,
+    div[data-testid="stDialog"] [data-baseweb="select"] > div,
+    div[data-testid="stDialog"] [data-baseweb="input"] input {
+    border: 1px solid rgba(255,255,255,0.18) !important;
+    border-radius: 10px !important;
+    box-shadow: none !important;
+    }
+
+    /* Hover: slightly brighter outline */
+    div[data-testid="stDialog"] input:hover,
+    div[data-testid="stDialog"] textarea:hover,
+    div[data-testid="stDialog"] [data-baseweb="select"] > div:hover,
+    div[data-testid="stDialog"] [data-baseweb="input"] input:hover {
+    border-color: rgba(255,255,255,0.28) !important;
+    }
+
+    /* Focus: blue outline */
+    div[data-testid="stDialog"] input:focus,
+    div[data-testid="stDialog"] textarea:focus,
+    div[data-testid="stDialog"] [data-baseweb="select"]:focus-within > div,
+    div[data-testid="stDialog"] [data-baseweb="input"] input:focus {
+    border-color: var(--blue, #3AA4EB) !important;
+    box-shadow: 0 0 0 1px var(--blue, #3AA4EB) !important;
+    }
+
+    /* Disabled: keep subtle outline */
+    div[data-testid="stDialog"] input[disabled],
+    div[data-testid="stDialog"] [data-baseweb="select"][aria-disabled="true"] > div {
+    border-color: rgba(255,255,255,0.10) !important;
+    box-shadow: none !important;
+    }
+    </style>
+    """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        """
+    <style>
+    /* Fix double-outline in BaseWeb Select: remove inner input border/shadow */
+    div[data-testid="stDialog"] [data-baseweb="select"] input,
+    div[data-testid="stDialog"] [data-baseweb="select"] div[role="combobox"] input {
+    border: none !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    outline: none !important;
+    }
+
+    /* Keep the border only on the outer select container */
+    div[data-testid="stDialog"] [data-baseweb="select"] > div {
+    border: 1px solid rgba(255,255,255,0.18) !important;
+    border-radius: 10px !important;
+    }
+    div[data-testid="stDialog"] [data-baseweb="select"]:focus-within > div {
+    border-color: var(--blue, #3AA4EB) !important;
+    box-shadow: 0 0 0 1px var(--blue, #3AA4EB) !important;
+    }
+    </style>
+    """,
         unsafe_allow_html=True,
     )
 
@@ -1070,6 +1195,7 @@ div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .
         t1, _ = st.columns([1, 5])
         if t1.button("+ New Entry", key="btn_new_entry_below"):
             st.session_state.show_new_entry = True
+            st.session_state.new_entry_force_once = True
             st.rerun()
 
     else:
@@ -1174,32 +1300,34 @@ div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .
             st.session_state["_show_delete_modal"] = True
             st.rerun()
 
-        confirm_box = st.empty()
+        # --- Popout confirm using the same modal helper ---
         if st.session_state.get("_show_delete_modal"):
-            with confirm_box.container():
-                st.markdown("### Confirm deletion")
+
+            def _delete_body():
                 count = len(st.session_state.get("_pending_delete_idx", []))
                 st.write(f"Are you sure you want to delete **{count}** trade(s)?")
                 c_yes, c_no = st.columns(2)
-                if c_yes.button(
-                    "Yes, delete",
-                    type="primary",
-                    use_container_width=True,
-                    key="confirm_delete_yes",
-                ):
-                    idxs = st.session_state.get("_pending_delete_idx", [])
-                    main = st.session_state.journal_df.copy()
-                    main = main.drop(index=idxs, errors="ignore").reset_index(drop=True)
-                    st.session_state.journal_df = _compute_derived(main)
-                    st.session_state.pop("_pending_delete_idx", None)
-                    st.session_state["_show_delete_modal"] = False
-                    confirm_box.empty()
-                    st.rerun()
-                if c_no.button("Cancel", use_container_width=True, key="confirm_delete_no"):
-                    st.session_state.pop("_pending_delete_idx", None)
-                    st.session_state["_show_delete_modal"] = False
-                    confirm_box.empty()
-                    st.rerun()
+                with c_yes:
+                    if st.button(
+                        "Yes, delete",
+                        type="primary",
+                        use_container_width=True,
+                        key="confirm_delete_yes",
+                    ):
+                        idxs = st.session_state.get("_pending_delete_idx", [])
+                        main = st.session_state.journal_df.copy()
+                        main = main.drop(index=idxs, errors="ignore").reset_index(drop=True)
+                        st.session_state.journal_df = _compute_derived(main)
+                        st.session_state.pop("_pending_delete_idx", None)
+                        st.session_state["_show_delete_modal"] = False
+                        st.rerun()
+                with c_no:
+                    if st.button("Cancel", use_container_width=True, key="confirm_delete_no"):
+                        st.session_state.pop("_pending_delete_idx", None)
+                        st.session_state["_show_delete_modal"] = False
+                        st.rerun()
+
+            modal_or_inline("Confirm deletion", _delete_body)
 
         st.markdown("---")
 
@@ -1274,13 +1402,14 @@ div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .
 
     # New entry form (centered 15/70/15; borderless; movable X)
     if st.session_state.show_new_entry:
-        cL, cC, cR = st.columns([0.15, 0.70, 0.15], gap="small")
-        with cC:
-            st.markdown('<div class="journal-entry-wrapper">', unsafe_allow_html=True)
-            with st.container(border=False):
-                st.markdown('<div class="je-root"></div>', unsafe_allow_html=True)
-                _render_new_entry_form()
-            st.markdown("</div>", unsafe_allow_html=True)
+
+        def _new_entry_body():
+            _render_new_entry_form()  # no extra containers/cards
+
+        modal_or_inline("New Entry", _new_entry_body)
+
+        if st.session_state.get("new_entry_force_once"):
+            st.session_state["new_entry_force_once"] = False
 
     # Summary metrics (single row)
     _render_summary(df_view)
