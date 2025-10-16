@@ -18,7 +18,7 @@ KPI_TOP_PADDING_PX = 16  # space above the KPI block (below page padding)
 KPI_VRULE_HEIGHT_PX = 190  # height of vertical dividers between KPI columns
 DIVIDER_MARGIN_PX = 12  # extra space above & below the horizontal divider
 CHART_HEIGHT_PX = 370  # overall height for each chart
-TITLE_TOP_MARGIN = 100  # inside-figure space reserved for the title
+TITLE_TOP_MARGIN = 52  # inside-figure space reserved for the title
 TITLE_X = 0.04  # try 0.03–0.06; 0 = hard left, 0.5 = center
 
 
@@ -163,7 +163,7 @@ def _base_layout(fig: go.Figure, title_text: str, height: int = CHART_HEIGHT_PX)
     fig.update_layout(
         title=dict(text=title_text, x=TITLE_X, xanchor="left", font=dict(size=15, color=FG)),
         height=height,
-        margin=dict(l=8, r=8, t=TITLE_TOP_MARGIN, b=8),  # extra headroom for title
+        margin=dict(l=8, r=8, t=TITLE_TOP_MARGIN, b=12),  # extra headroom for title
         paper_bgcolor=CARD_BG,
         plot_bgcolor=CARD_BG,
     )
@@ -444,11 +444,6 @@ def render(
     # Risk & R
     risk_series = _risk_series(df_view)
     r_series = _r_series(df_view, pnl, risk_series)
-    daily_r_df = (
-        _daily_r(dates, r_series)
-        if (dates is not None and r_series is not None)
-        else pd.DataFrame(columns=["date", "R"])
-    )
 
     # Equity / drawdown (trade-level for KPIs)
     equity = start_equity + pnl.cumsum()
@@ -580,10 +575,13 @@ def render(
 
     with r1c2:
         with st.container(border=False):
-            st.markdown('<div class="perf-cumr"></div>', unsafe_allow_html=True)
-            st.plotly_chart(
-                _fig_cum_r_by_date(daily_r_df), use_container_width=True, key="perf_cumr_date"
-            )
+            st.markdown(
+                '<div class="perf-cumr"></div>', unsafe_allow_html=True
+            )  # keep same card chrome
+            from src.charts.tier_wr import figure_tier_wr  # top-level import is fine too
+
+            fig = figure_tier_wr(df_view, date_col=(date_col or "date"), height=CHART_HEIGHT_PX)
+            st.plotly_chart(fig, use_container_width=True, key="perf_tier_wr")
 
     with r1c3:
         with st.container(border=False):

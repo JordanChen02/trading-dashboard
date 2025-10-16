@@ -196,6 +196,95 @@ div[data-testid="stHorizontalBlock"]:has(h2.cal-title) {{
   padding-top: 0 !important;
 }}
 
+  /* colors for numbers in hover rows */
+  .cal-pos {{ color: #22c55e !important; }}
+  .cal-neg {{ color: #ef4444 !important; }}
+  .cal-zero {{ color: rgba(229,231,235,0.72) !important; }}
+
+  /* ensure the tooltip works on the day card */
+  .day-card {{ position: relative; }}
+  .day-card .hover-tip {{
+    visibility: hidden;
+    opacity: 0;
+    transition: opacity 120ms ease;
+    position: absolute;
+    left: 8px;
+    bottom: calc(100% + 8px);
+    min-width: 400px;
+    max-width: 420px;
+    padding: 10px 12px;
+    background: rgba(13,18,30,0.98);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    z-index: 30;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+  }}
+  .day-card:hover .hover-tip {{ visibility: visible; opacity: 1; }}
+
+  .hover-tip .tr {{ display: grid; grid-template-columns: 1fr 0.9fr 1fr 0.8fr 0.7fr; gap: 10px; align-items: center; padding: 4px 0; }}
+  .hover-tip .tr.head {{
+    font-size: 12px;
+    color: rgba(229,231,235,0.70);
+    border-bottom: 1px dashed rgba(229,231,235,0.14);
+    margin-bottom: 6px;
+    padding-bottom: 6px;
+  }}
+  .hover-tip .sym {{ color: #E5E7EB; font-weight: 700; font-size: 13px; }}
+  .hover-tip .dir {{ color: rgba(229,231,235,0.85); font-size: 13px; }}
+  .hover-tip .pnl, .hover-tip .pct, .hover-tip .rr {{ font-size: 13px; }}
+  
+    /* ensure the tooltip works on the week (Total) card */
+  .week-card {{ position: relative; }}
+  .week-card .hover-tip {{
+    visibility: hidden;
+    opacity: 0;
+    transition: opacity 120ms ease;
+    position: absolute;
+    right: 8px;  
+    left: auto;  
+    bottom: calc(100% + 8px);
+    min-width: 320px;
+    max-width: 420px;
+    padding: 10px 12px;
+    background: rgba(13,18,30,0.98);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    z-index: 30;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+  }}
+  .week-card:hover .hover-tip {{ visibility: visible; opacity: 1; }}
+
+  /* wider layout for Total (weekly) tooltip – day tooltip unchanged */
+  .hover-tip.total {{ min-width: 640px; max-width: 640px; }}
+
+  /* 6 columns: Date | Symbol | PnL | Direction | % | R:R */
+  .hover-tip.total .tr {{
+    display: grid;
+    grid-template-columns: 0.9fr 1fr 1fr 0.9fr 0.7fr 0.7fr;
+    gap: 10px;
+    align-items: center;
+    padding: 4px 0;
+  }}
+
+
+  /* wider layout for Total (weekly) tooltip – leaves day tooltip unchanged */
+  .hover-tip.total {{ min-width: 520px; max-width: 640px; }}
+
+  /* 6 columns: Date | Symbol | PnL | Direction | % | R:R */
+  .hover-tip.total .tr {{
+    display: grid;
+    grid-template-columns: 0.9fr 1fr 1fr 0.9fr 0.7fr 0.7fr;
+    gap: 10px;
+    align-items: center;
+    padding: 4px 0;
+  }}
+/* Date column text size in week (Total) hover */
+.hover-tip.total .dt {{
+  font-size: 14px;    /* try 11–13 to taste */
+  line-height: 1.2;   /* optional: tighten vertical spacing */
+  font-weight: 600;   /* optional: make it a bit lighter/heavier */
+}}
+
 
 </style>
         """,
@@ -220,7 +309,8 @@ def _ensure_df() -> pd.DataFrame:
 
 
 def _fmt_money(x: float) -> str:
-    return f"${x:,.2f}"
+    s = "-" if x < 0 else ""
+    return f"{s}${abs(x):,.2f}"
 
 
 def _fmt_pct(x: float) -> str:
@@ -359,6 +449,113 @@ def _render_header(month_dt: date, sum_pnl: float, sum_pct: float, sum_r: float)
     st.markdown("</div>", unsafe_allow_html=True)
 
 
+def _build_hover_table(day_date: date, baseline_equity: float) -> str:
+    try:
+        df = st.session_state.get("journal_df")
+        if df is None or df.empty or "Date" not in df.columns:
+            return ""
+        dfx = df.copy()
+        dfx["Date"] = pd.to_datetime(dfx["Date"], errors="coerce").dt.date
+        rows = dfx[dfx["Date"] == day_date]
+        if rows.empty:
+            return ""
+
+        html_rows = []
+        html_rows.append(
+            "<div class='tr head'>"
+            "<div class='sym'>Symbol</div>"
+            "<div class='dir'>Direction</div>"
+            "<div class='pnl'>PnL</div>"
+            "<div class='pct'>%</div>"
+            "<div class='rr'>R:R</div>"
+            "</div>"
+        )
+        for _, r in rows.iterrows():
+            sym = str(r.get("Symbol", "")).upper()
+            side = str(r.get("Direction", "") or r.get("Side", ""))
+            pnl = float(pd.to_numeric(r.get("PnL", 0.0), errors="coerce") or 0.0)
+            rr = float(pd.to_numeric(r.get("R Ratio", 0.0), errors="coerce") or 0.0)
+            pct = (pnl / baseline_equity * 100.0) if baseline_equity else 0.0
+
+            cls_pnl = "cal-pos" if pnl > 0 else ("cal-neg" if pnl < 0 else "cal-zero")
+            cls_pct = "cal-pos" if pct > 0 else ("cal-neg" if pct < 0 else "cal-zero")
+            cls_rr = "cal-pos" if rr > 0 else ("cal-neg" if rr < 0 else "cal-zero")
+
+            html_rows.append(
+                f"<div class='tr'>"
+                f"<div class='sym'>{sym}</div>"
+                f"<div class='dir'>{side}</div>"
+                f"<div class='pnl {cls_pnl}'>{_fmt_money(pnl)}</div>"
+                f"<div class='pct {cls_pct}'>{_fmt_pct(pct)}</div>"
+                f"<div class='rr {cls_rr}'>{_fmt_rr(rr)}</div>"
+                f"</div>"
+            )
+
+        return "<div class='hover-tip'>" + "".join(html_rows) + "</div>"
+    except Exception:
+        return ""
+
+
+def _build_week_hover_table(week_start_date: date, baseline_equity: float) -> str:
+    """
+    Week tooltip: Date | Symbol | PnL | Direction | % | R:R
+    % is computed using the WEEK's baseline equity so totals align with the chip.
+    """
+    try:
+        df = st.session_state.get("journal_df")
+        if df is None or df.empty or "Date" not in df.columns:
+            return ""
+
+        # normalize and filter week range [week_start .. week_start + 6 days)
+        dfx = df.copy()
+        dfx["Date"] = pd.to_datetime(dfx["Date"], errors="coerce").dt.date
+        week_end_excl = (pd.Timestamp(week_start_date) + pd.Timedelta(days=7)).date()
+        rows = dfx[(dfx["Date"] >= week_start_date) & (dfx["Date"] < week_end_excl)]
+        if rows.empty:
+            return ""
+
+        # header
+        html_rows = []
+        html_rows.append(
+            "<div class='tr head'>"
+            "<div class='dt'>Date</div>"
+            "<div class='sym'>Symbol</div>"
+            "<div class='pnl'>PnL</div>"
+            "<div class='dir'>Direction</div>"
+            "<div class='pct'>%</div>"
+            "<div class='rr'>R:R</div>"
+            "</div>"
+        )
+
+        # rows (use week baseline for %)
+        for _, r in rows.sort_values("Date").iterrows():
+            dt = r["Date"]
+            sym = str(r.get("Symbol", "")).upper()
+            side = str(r.get("Direction", "") or r.get("Side", ""))
+            pnl = float(pd.to_numeric(r.get("PnL", 0.0), errors="coerce") or 0.0)
+            rr = float(pd.to_numeric(r.get("R Ratio", 0.0), errors="coerce") or 0.0)
+            pct = (pnl / baseline_equity * 100.0) if baseline_equity else 0.0
+
+            cls_pnl = "cal-pos" if pnl > 0 else ("cal-neg" if pnl < 0 else "cal-zero")
+            cls_pct = "cal-pos" if pct > 0 else ("cal-neg" if pct < 0 else "cal-zero")
+            cls_rr = "cal-pos" if rr > 0 else ("cal-neg" if rr < 0 else "cal-zero")
+
+            html_rows.append(
+                f"<div class='tr'>"
+                f"<div class='dt'>{pd.Timestamp(dt).strftime('%b %d')}</div>"
+                f"<div class='sym'>{sym}</div>"
+                f"<div class='pnl {cls_pnl}'>{_fmt_money(pnl)}</div>"
+                f"<div class='dir'>{side}</div>"
+                f"<div class='pct {cls_pct}'>{_fmt_pct(pct)}</div>"
+                f"<div class='rr {cls_rr}'>{_fmt_rr(rr)}</div>"
+                f"</div>"
+            )
+
+        return "<div class='hover-tip total'>" + "".join(html_rows) + "</div>"
+    except Exception:
+        return ""
+
+
 def _render_grid(month_dt: date, stats: Dict[date, DayStats]):
     # Build ONE big HTML string; rendering once keeps the CSS grid intact.
     weeks = _month_weeks(month_dt.year, month_dt.month)
@@ -402,16 +599,18 @@ def _render_grid(month_dt: date, stats: Dict[date, DayStats]):
                     if ds.pct < 0
                     else '<span class="tri-up"></span>'
                 )
+
                 html.append(
                     f"""
-<div class="{" ".join(classes)}">
-  <div class="day-num">{d.day}</div>
-  <div class="day-card" style="background:{bg}; border-color:{bd}">
-    <div class="money">{_fmt_money(ds.pnl)}</div>
-    <div class="pct">{tri}{_fmt_pct(ds.pct)}</div>
-    <span class="rr">{_fmt_rr(ds.r)}</span>
-  </div>
-</div>
+                <div class="{' '.join(classes)}">
+                  <div class="day-num">{d.day}</div>
+                  <div class="day-card" style="background:{bg}; border-color:{bd}">
+                    <div class="money">{_fmt_money(ds.pnl)}</div>
+                    <div class="pct">{tri}{_fmt_pct(ds.pct)}</div>
+                    <span class="rr">{_fmt_rr(ds.r)}</span>
+                    {_build_hover_table(d.date() if hasattr(d, 'date') else d, ds.equity_before)}
+                  </div>
+                </div>
                     """.strip()
                 )
 
@@ -439,6 +638,8 @@ def _render_grid(month_dt: date, stats: Dict[date, DayStats]):
         bg_w, bd_w = _palette(pnl_w, r_w)
         tri_w = '<span class="tri-down"></span>' if pct_w < 0 else '<span class="tri-up"></span>'
 
+        week_start_date = week[0]
+
         html.append(
             f"""
 <div class="week-wrap">
@@ -447,6 +648,7 @@ def _render_grid(month_dt: date, stats: Dict[date, DayStats]):
     <div class="money">{_fmt_money(pnl_w)}</div>
     <div class="pct">{tri_w}{_fmt_pct(pct_w)}</div>
     <span class="rr">{_fmt_rr(r_w)}</span>
+    {_build_week_hover_table(week_start_date, (eq_before or 0.0))}
   </div>
 </div>
             """.strip()

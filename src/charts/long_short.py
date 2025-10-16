@@ -112,7 +112,7 @@ def _fig_long_short_cum_r(
                 mode="lines",
                 line=dict(color=color, width=2),
                 name=f"{label} Cumulative R",
-                hovertemplate="%{x|%b %d, %Y}<br>" + f"{label} Cum R: " + "%{y:.2f}<extra></extra>",
+                hovertemplate="%{x|%b %d, %Y}<br>" + f"{label} R: " + "%{y:.2f}<extra></extra>",
             )
         )
 

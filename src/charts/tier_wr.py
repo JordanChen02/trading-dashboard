@@ -4,9 +4,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-import streamlit as st
 
-from src.theme import AXIS_WEAK, BLUE, CARD_BG, FG, FG_MUTED, GRID_WEAK
+from src.theme import AXIS_WEAK, CARD_BG, FG, FG_MUTED, GRID_WEAK
 
 TIERS_ORDER = ["S", "A+", "A", "A-", "B+", "B", "B-", "C"]
 
@@ -73,175 +72,120 @@ def _prep(df: pd.DataFrame, date_col: str | None, tier_col: str) -> pd.DataFrame
 # -------- figure builder --------
 
 
-def _figure_wr_with_spark(
-    df: pd.DataFrame, date_col: str, tier_col: str, height: int = 300
+def figure_tier_wr(
+    df: pd.DataFrame,
+    date_col: str | None = "date",
+    tier_col: str | None = None,
+    *,
+    height: int = 300,
 ) -> go.Figure:
-    # win/loss
-    pnl_col = _detect_pnl_col(df)
-    r_col = _detect_r_col(df)
-    if pnl_col is None and r_col is None:
-        raise ValueError("Need either a PnL column or an R column to compute WR and the sparkline.")
+    tier_col = tier_col or _detect_tier_col(df)
+    date_col = _detect_date_col(df, date_col)
+    if not tier_col:
+        # empty figure w/ title so the card renders consistently
+        fig = go.Figure()
+        fig.update_layout(
+            title=dict(
+                text="Win Rate by Tier", x=0.04, xanchor="left", font=dict(size=14, color=FG)
+            ),
+            height=height,
+            margin=dict(l=10, r=10, t=28, b=36),
+            paper_bgcolor=CARD_BG,
+            plot_bgcolor=CARD_BG,
+        )
+        return fig
 
+    # Prep
     g = _prep(df, date_col, tier_col)
-    # outcome from PnL or R
+
+    # Outcome from PnL or R
+    pnl_col = _detect_pnl_col(g)
+    r_col = _detect_r_col(g)
     if pnl_col:
         g["win"] = pd.to_numeric(g[pnl_col], errors="coerce") > 0
-    else:
+    elif r_col:
         g["win"] = pd.to_numeric(g[r_col], errors="coerce") > 0
+    else:
+        # Fall back to signless if neither exists (treat missing as loss)
+        g["win"] = False
 
-    # Win Rate by tier
+    # Win rate by ordered tier
     wr = (
         g.groupby("tier_norm", dropna=False)["win"]
         .agg(n="count", wr=lambda s: np.round(100.0 * s.mean(), 2))
         .reset_index()
     )
-    wr = wr[wr["tier_norm"] != "nan"]
-    wr = wr[wr["n"] > 0]
-    if wr.empty:
-        raise ValueError("No graded trades to display.")
+    wr = wr[(wr["tier_norm"] != "nan") & (wr["n"] > 0)]
+    wr["tier_norm"] = pd.Categorical(wr["tier_norm"], TIERS_ORDER, ordered=True)
+    wr = wr.sort_values("tier_norm").reset_index(drop=True)
 
-    # numeric x positions so we can paint sparklines over each bar
-    wr["x"] = range(len(wr))
+    # Colors from Journal (match your table chips)
+    tier_colors = {
+        "S": "#14b8a6",
+        "A+": "#a78bfa",
+        "A": "#a78bfa",
+        "A-": "#a78bfa",
+        "B+": "#1e97e7",
+        "B": "#1e97e7",
+        "B-": "#1e97e7",
+        "C": "#41ce2f",
+    }
+    bar_colors = [tier_colors.get(t, "#233244") for t in wr["tier_norm"].astype(str)]
 
-    # build per-tier cumulative R time series (indexed to 0)
-    if r_col is None:
-        # derive R from pnl if risk column is not available; fall back to 1R per win/loss = sign
-        g["R"] = np.where(g["win"], 1.0, -1.0)
-    else:
-        g["R"] = pd.to_numeric(g[r_col], errors="coerce")
-
-    # aggregate by day within tier to smooth
-    if date_col:
-        g["_day"] = pd.to_datetime(g[date_col]).dt.normalize()
-    else:
-        # if we truly have no date, index by insertion order
-        g["_day"] = range(len(g))
-
-    spark = {}
-    for t in wr["tier_norm"]:
-        sub = g[g["tier_norm"] == t].sort_values("_day")
-        if sub.empty:
-            continue
-        daily = sub.groupby("_day", as_index=False)["R"].sum()
-        curve = daily["R"].cumsum().to_numpy(dtype=float)
-        if curve.size == 0:
-            continue
-        # normalize to 0–1 so it sits neatly inside a small band
-        if np.ptp(curve) == 0:
-            norm = np.zeros_like(curve)
-        else:
-            norm = (curve - curve.min()) / (curve.max() - curve.min())
-        spark[t] = norm
-
-    # ---- figure
     fig = go.Figure()
-
-    # Bars (Win Rate %)
     fig.add_trace(
         go.Bar(
-            x=wr["x"],
+            x=wr["tier_norm"].astype(str),
             y=wr["wr"],
-            marker=dict(color="#233244"),
-            hovertemplate=(
-                "Tier %{customdata[0]}<br>" "WR: %{y:.2f}%<br>" "n: %{customdata[1]}<extra></extra>"
-            ),
-            customdata=np.stack([wr["tier_norm"], wr["n"]], axis=1),
-            name="Win Rate",
+            marker=dict(color=bar_colors, line=dict(width=0)),
+            opacity=0.95,
             width=0.58,
+            hovertemplate="Tier %{x}<br>WR: %{y:.2f}%<br>n: %{customdata}<extra></extra>",
+            customdata=wr["n"],
+            name="Win Rate",
         )
     )
 
-    # Overlay tiny sparklines centered on each bar
-    for _, row in wr.iterrows():
-        t = row["tier_norm"]
-        if t not in spark or len(spark[t]) == 0:
-            continue
-        y = np.asarray(spark[t])
-        # place each sparkline within a narrow vertical band (72–92% of chart)
-        y = 72 + 20 * y  # scaled into [72,92] on WR axis
-        # x spans a small window around the bar center
-        xs = np.linspace(row["x"] - 0.24, row["x"] + 0.24, num=len(y))
-        fig.add_trace(
-            go.Scatter(
-                x=xs,
-                y=y,
-                mode="lines",
-                line=dict(color=BLUE, width=2),
-                hoverinfo="skip",
-                showlegend=False,
-            )
-        )
-
-    # Tier labels on x
-    fig.update_xaxes(
-        tickmode="array",
-        tickvals=wr["x"],
-        ticktext=wr["tier_norm"],
-        tickfont=dict(size=11, color=FG),
-        showgrid=False,
-        zeroline=False,
-    )
-
-    # Y axis (Win Rate %)
-    fig.update_yaxes(
-        title_text="Win Rate (%)",
-        color=FG_MUTED,
-        gridcolor=GRID_WEAK,
-        zerolinecolor=AXIS_WEAK,
-        range=[0, 100],  # clean scale
-    )
-
-    # End-of-bar labels: show WR% · n
+    # End-of-bar labels (WR% · n) — safe at 100%
     for _, r in wr.iterrows():
+        y_val = float(r["wr"])
         fig.add_annotation(
-            x=r["x"],
-            y=r["wr"] + 3,
-            text=f"{r['wr']:.0f}% · n={int(r['n'])}",
+            x=str(r["tier_norm"]),
+            y=y_val,  # anchor at bar top
+            yanchor="bottom",  # place text just above the bar
+            yshift=2,  # tiny gap
+            text=f"{y_val:.0f}% · n={int(r['n'])}",
             showarrow=False,
             font=dict(size=10, color=FG),
             xanchor="center",
             align="center",
         )
 
+    # Axes
+    fig.update_xaxes(
+        title_text=None,
+        tickfont=dict(size=11, color=FG),
+        showgrid=False,
+        zeroline=False,
+    )
+    # Y-axis (add headroom)
+    y_top = max(100.0, wr["wr"].max() + 4)  # 4% buffer above tallest bar
+    fig.update_yaxes(
+        title_text="Win Rate (%)",
+        range=[0, y_top],
+        color=FG_MUTED,
+        gridcolor=GRID_WEAK,
+        zerolinecolor=AXIS_WEAK,
+    )
+
+    # Layout — add more space below title
     fig.update_layout(
-        title=dict(
-            text="Win Rate by Tier + Cumulative R Sparklines",
-            x=0.04,
-            y=0.98,
-            xanchor="left",
-            font=dict(size=14, color=FG),
-        ),
-        height=300,
-        margin=dict(l=10, r=10, t=44, b=40),
+        title=dict(text="Win Rate by Tier", x=0.04, xanchor="left", font=dict(size=14, color=FG)),
+        height=height,
+        margin=dict(l=10, r=10, t=36, b=36),  # t previously 28
         paper_bgcolor=CARD_BG,
         plot_bgcolor=CARD_BG,
         bargap=0.18,
         showlegend=False,
     )
     return fig
-
-
-# -------- public render --------
-
-
-def render_tier_wr_sparkline_card(
-    df: pd.DataFrame,
-    date_col: str | None = "date",
-    tier_col: str | None = None,
-    *,
-    height: int = 300,
-) -> None:
-    tier_col = tier_col or _detect_tier_col(df)
-    date_col = _detect_date_col(df, date_col)
-
-    if not tier_col:
-        st.info("Tier chart: no Tier column found (e.g., 'Tier', 'Setup Tier').")
-        return
-
-    try:
-        fig = _figure_wr_with_spark(df, date_col, tier_col, height=height)
-    except ValueError as e:
-        st.info(str(e))
-        return
-
-    st.plotly_chart(fig, use_container_width=True)
