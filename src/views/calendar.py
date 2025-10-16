@@ -183,6 +183,27 @@ div[data-testid="stHorizontalBlock"]:has(h2.cal-title)
   line-height: 1;
   transform: translateY(46px);
 }}
+
+/***** Style the 'VIEW TRADES' popover trigger like the blue outline button *****/
+div[data-testid="stHorizontalBlock"]:has(h2.cal-title)
+  [data-testid="stColumn"]:nth-of-type(5) [data-testid="stPopover"] > div > button {{
+  background: transparent !important;
+  border: 1px solid {BLUE} !important;
+  color: {BLUE} !important;
+  box-shadow: none !important;
+  font-weight: 800 !important;
+  text-transform: uppercase;
+  border-radius: 10px !important;
+  padding: 6px 16px !important;
+  min-width: 140px;
+  line-height: 1.1;
+  transform: translateY(16px);
+}}
+div[data-testid="stHorizontalBlock"]:has(h2.cal-title)
+  [data-testid="stColumn"]:nth-of-type(5) [data-testid="stPopover"] > div > button:hover {{
+  background: {BLUE_FILL} !important;
+}}
+
 div[data-testid="stHorizontalBlock"]:has(h2.cal-title)
   [data-testid="stColumn"]:nth-of-type(2) [data-testid="stButton"] > button:hover,
 div[data-testid="stHorizontalBlock"]:has(h2.cal-title)
@@ -284,6 +305,34 @@ div[data-testid="stHorizontalBlock"]:has(h2.cal-title) {{
   line-height: 1.2;   /* optional: tighten vertical spacing */
   font-weight: 600;   /* optional: make it a bit lighter/heavier */
 }}
+
+# ----- VIEW TRADES popover table layout -----
+.view-trades-table {{
+  min-width: 520px;   /* keeps the table wide enough to avoid wraps */
+  max-width: 720px;
+}}
+.view-trades-table .vt-row {{
+  display: grid !important;
+  grid-template-columns: 0.9fr 1fr 0.9fr 0.9fr 0.7fr 0.7fr; /* Date | Symbol | Direction | PnL | % | R:R */
+  gap: 10px;
+  align-items: center;
+  padding: 6px 0;
+}}
+.view-trades-table .vt-row.vt-hdr {{
+  font-weight: 700;
+  color: rgba(229,231,235,0.80);
+  border-bottom: 1px dashed rgba(229,231,235,0.18);
+  margin-bottom: 6px;
+  padding-bottom: 6px;
+}}
+.view-trades-table .pnl,
+.view-trades-table .pct,
+.view-trades-table .rr {{ text-align: left; }}
+
+/* reuse your color classes */
+.view-trades-table .cal-pos {{ color: #22c55e !important; }}
+.view-trades-table .cal-neg {{ color: #ef4444 !important; }}
+.view-trades-table .cal-zero {{ color: rgba(229,231,235,0.72) !important; }}
 
 
 </style>
@@ -435,17 +484,91 @@ def _render_header(month_dt: date, sum_pnl: float, sum_pct: float, sum_r: float)
 
     # Right-side chips (reuse your HTML so visuals stay the same)
     with c_stats:
-        st.markdown(
-            f"""
-            <div class="cal-agg" style="display:flex;justify-content:flex-end;align-items:center;gap:10px; margin-top:60px">
-              <div class="chip-plain">{_fmt_money(sum_pnl)}</div>
-              <div class="chip-plain">{'<span class="tri-down"></span>' if sum_pct < 0 else '<span class="tri-up"></span>'}{_fmt_pct(sum_pct)}</div>
-              <div class="chip-rr" style="background:{rr_bg}; color:{rr_fg}; border:none;">{_fmt_rr(sum_r)}</div>
-              <div class="view-btn"><button class="btn-outline">VIEW TRADES -▸</button></div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        col_chips, col_btn = st.columns([0.86, 0.14], vertical_alignment="bottom")
+
+        with col_chips:
+            st.markdown(
+                f"""
+                <div class="cal-agg" style="display:flex;justify-content:flex-end;align-items:center;gap:10px; margin-top:60px">
+                  <div class="chip-plain">{_fmt_money(sum_pnl)}</div>
+                  <div class="chip-plain">{'<span class="tri-down"></span>' if sum_pct < 0 else '<span class="tri-up"></span>'}{_fmt_pct(sum_pct)}</div>
+                  <div class="chip-rr" style="background:{rr_bg}; color:{rr_fg}; border:none;">{_fmt_rr(sum_r)}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        with col_btn:
+            with st.popover("VIEW TRADES", use_container_width=False):
+                df_all = _ensure_df().copy()
+                if not df_all.empty and "Date" in df_all.columns:
+                    df_all["Date"] = pd.to_datetime(df_all["Date"], errors="coerce").dt.date
+
+                    month_start = month_dt.replace(day=1)
+                    month_end_excl = (
+                        pd.Timestamp(month_start) + pd.offsets.MonthEnd(1) + pd.Timedelta(days=1)
+                    ).date()
+                    dft = df_all[
+                        (df_all["Date"] >= month_start) & (df_all["Date"] < month_end_excl)
+                    ].copy()
+
+                    start_equity_local = float(
+                        st.session_state.get("calendar_start_equity", 100000.0)
+                    )
+                    day_stats_local = _build_day_stats(df_all, start_equity_local)
+
+                    def _pct_for_trade(row):
+                        d = row["Date"]
+                        base = day_stats_local.get(d).equity_before if d in day_stats_local else 0.0
+                        pnl = float(pd.to_numeric(row.get("PnL", 0.0), errors="coerce") or 0.0)
+                        return (pnl / base * 100.0) if base else 0.0
+
+                    dft["pct_calc"] = dft.apply(_pct_for_trade, axis=1)
+
+                    # ---- TABLE (header + rows in a single block so CSS applies) ----
+                    rows_html = [
+                        """
+                        <div class="view-trades-table">
+                          <div class="vt-row vt-hdr">
+                            <div>Date</div>
+                            <div>Symbol</div>
+                            <div>Direction</div>
+                            <div>PnL</div>
+                            <div>%</div>
+                            <div>R:R</div>
+                          </div>
+                        """
+                    ]
+
+                    for _, r in dft.sort_values("Date").iterrows():
+                        dt = r["Date"]
+                        sym = str(r.get("Symbol", "")).upper()
+                        side = str(r.get("Direction", "") or r.get("Side", ""))
+                        pnl = float(pd.to_numeric(r.get("PnL", 0.0), errors="coerce") or 0.0)
+                        rr = float(pd.to_numeric(r.get("R Ratio", 0.0), errors="coerce") or 0.0)
+                        pct = float(r["pct_calc"])
+
+                        cls_pnl = "cal-pos" if pnl > 0 else ("cal-neg" if pnl < 0 else "cal-zero")
+                        cls_pct = "cal-pos" if pct > 0 else ("cal-neg" if pct < 0 else "cal-zero")
+                        cls_rr = "cal-pos" if rr > 0 else ("cal-neg" if rr < 0 else "cal-zero")
+
+                        rows_html.append(
+                            f"<div class='vt-row'>"
+                            f"<div>{pd.Timestamp(dt).strftime('%b %d')}</div>"
+                            f"<div>{sym}</div>"
+                            f"<div>{side}</div>"
+                            f"<div class='pnl {cls_pnl}'>{_fmt_money(pnl)}</div>"
+                            f"<div class='pct {cls_pct}'>{_fmt_pct(pct)}</div>"
+                            f"<div class='rr {cls_rr}'>{_fmt_rr(rr)}</div>"
+                            f"</div>"
+                        )
+
+                    rows_html.append("</div>")  # close .view-trades-table
+                    st.markdown("".join(rows_html), unsafe_allow_html=True)
+
+                else:
+                    st.info("No trades for this month.")
+
     st.markdown("</div>", unsafe_allow_html=True)
 
 
@@ -520,8 +643,8 @@ def _build_week_hover_table(week_start_date: date, baseline_equity: float) -> st
             "<div class='tr head'>"
             "<div class='dt'>Date</div>"
             "<div class='sym'>Symbol</div>"
-            "<div class='pnl'>PnL</div>"
             "<div class='dir'>Direction</div>"
+            "<div class='pnl'>PnL</div>"
             "<div class='pct'>%</div>"
             "<div class='rr'>R:R</div>"
             "</div>"
@@ -544,8 +667,8 @@ def _build_week_hover_table(week_start_date: date, baseline_equity: float) -> st
                 f"<div class='tr'>"
                 f"<div class='dt'>{pd.Timestamp(dt).strftime('%b %d')}</div>"
                 f"<div class='sym'>{sym}</div>"
-                f"<div class='pnl {cls_pnl}'>{_fmt_money(pnl)}</div>"
                 f"<div class='dir'>{side}</div>"
+                f"<div class='pnl {cls_pnl}'>{_fmt_money(pnl)}</div>"
                 f"<div class='pct {cls_pct}'>{_fmt_pct(pct)}</div>"
                 f"<div class='rr {cls_rr}'>{_fmt_rr(rr)}</div>"
                 f"</div>"
