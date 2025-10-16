@@ -343,18 +343,68 @@ div[data-testid="stHorizontalBlock"]:has(h2.cal-title) {{
 
 # ---------- data ----------
 def _ensure_df() -> pd.DataFrame:
+    # First preference: a pre-filtered, normalized view injected by app.py
+    cal_df = st.session_state.get("cal_df")
+    if isinstance(cal_df, pd.DataFrame):
+        return cal_df.copy()
+
+    # Fallback (legacy): raw journal_df from session (no global selector)
     if "journal_df" in st.session_state and isinstance(st.session_state.journal_df, pd.DataFrame):
         df = st.session_state.journal_df.copy()
         if "Date" in df.columns:
-            df["Date"] = pd.to_datetime(df["Date"]).dt.date
+            df["Date"] = pd.to_datetime(df["Date"], errors="coerce").dt.date
         else:
             df["Date"] = pd.NaT
-        if "PnL" not in df.columns:
+        if "PnL" not in df.columns and "pnl" in df.columns:
+            df["PnL"] = pd.to_numeric(df["pnl"], errors="coerce")
+        elif "PnL" in df.columns:
+            df["PnL"] = pd.to_numeric(df["PnL"], errors="coerce")
+        else:
             df["PnL"] = 0.0
-        if "R Ratio" not in df.columns:
+        if "R Ratio" not in df.columns and "r" in df.columns:
+            df["R Ratio"] = pd.to_numeric(df["r"], errors="coerce")
+        elif "R Ratio" in df.columns:
+            df["R Ratio"] = pd.to_numeric(df["R Ratio"], errors="coerce")
+        else:
             df["R Ratio"] = 0.0
         return df
+
     return pd.DataFrame(columns=["Date", "PnL", "R Ratio"])
+
+
+def _normalize_view(df_view: pd.DataFrame, date_col: str | None) -> pd.DataFrame:
+    """Normalize df_view coming from app.py so Calendar can use it directly."""
+    if df_view is None or len(df_view) == 0:
+        return pd.DataFrame(columns=["Date", "PnL", "R Ratio", "Symbol", "Direction", "Account"])
+
+    d = df_view.copy()
+
+    # Date
+    if date_col and date_col in d.columns:
+        d["Date"] = pd.to_datetime(d[date_col], errors="coerce").dt.date
+    elif "Date" in d.columns:
+        d["Date"] = pd.to_datetime(d["Date"], errors="coerce").dt.date
+    else:
+        d["Date"] = pd.NaT
+
+    # PnL / R
+    if "PnL" not in d.columns and "pnl" in d.columns:
+        d["PnL"] = pd.to_numeric(d["pnl"], errors="coerce")
+    else:
+        d["PnL"] = pd.to_numeric(d.get("PnL", 0.0), errors="coerce")
+
+    if "R Ratio" not in d.columns and "r" in d.columns:
+        d["R Ratio"] = pd.to_numeric(d["r"], errors="coerce")
+    else:
+        d["R Ratio"] = pd.to_numeric(d.get("R Ratio", 0.0), errors="coerce")
+
+    # Optional standardizations
+    if "Symbol" not in d.columns and "symbol" in d.columns:
+        d["Symbol"] = d["symbol"]
+    if "Direction" not in d.columns and "Side" in d.columns:
+        d["Direction"] = d["Side"]
+
+    return d
 
 
 def _fmt_money(x: float) -> str:
@@ -574,10 +624,10 @@ def _render_header(month_dt: date, sum_pnl: float, sum_pct: float, sum_r: float)
 
 def _build_hover_table(day_date: date, baseline_equity: float) -> str:
     try:
-        df = st.session_state.get("journal_df")
-        if df is None or df.empty or "Date" not in df.columns:
+        dfx = _ensure_df()
+        if dfx is None or dfx.empty or "Date" not in dfx.columns:
             return ""
-        dfx = df.copy()
+        dfx = dfx.copy()
         dfx["Date"] = pd.to_datetime(dfx["Date"], errors="coerce").dt.date
         rows = dfx[dfx["Date"] == day_date]
         if rows.empty:
@@ -625,12 +675,11 @@ def _build_week_hover_table(week_start_date: date, baseline_equity: float) -> st
     % is computed using the WEEK's baseline equity so totals align with the chip.
     """
     try:
-        df = st.session_state.get("journal_df")
-        if df is None or df.empty or "Date" not in df.columns:
+        dfx = _ensure_df()
+        if dfx is None or dfx.empty or "Date" not in dfx.columns:
             return ""
 
-        # normalize and filter week range [week_start .. week_start + 6 days)
-        dfx = df.copy()
+        dfx = dfx.copy()
         dfx["Date"] = pd.to_datetime(dfx["Date"], errors="coerce").dt.date
         week_end_excl = (pd.Timestamp(week_start_date) + pd.Timedelta(days=7)).date()
         rows = dfx[(dfx["Date"] >= week_start_date) & (dfx["Date"] < week_end_excl)]
@@ -782,10 +831,13 @@ def _render_grid(month_dt: date, stats: Dict[date, DayStats]):
     st.markdown("</div>", unsafe_allow_html=True)  # .cal-wrap
 
 
-def render(*_args, **_kwargs):
+def render(*, df_view: pd.DataFrame, _date_col: str | None, month_start=None, key: str = "cal"):
     _inject_css()
 
+    # Normalize the already-filtered global view and stash it so helpers can reuse it
+    st.session_state["cal_df"] = _normalize_view(df_view, _date_col)
     df = _ensure_df()
+
     start_equity = float(st.session_state.get("calendar_start_equity", 100000.0))
     stats = _build_day_stats(df, start_equity)
 

@@ -1513,6 +1513,9 @@ date_col = st.session_state.get("_date_col")
 dfrom = st.session_state.get("date_from", None)
 dto = st.session_state.get("date_to", None)
 
+# Keep a copy of the full merged frame for “equity at window start” math
+df_all = df.copy()
+
 # If All Dates is selected → both are None → skip filtering entirely
 if date_col is not None and date_col in df.columns and not (dfrom is None and dto is None):
     dtser = pd.to_datetime(df[date_col], errors="coerce")
@@ -1527,7 +1530,42 @@ if date_col is not None and date_col in df.columns and not (dfrom is None and dt
 # ===================== RUNTIME SETTINGS (no UI) =====================
 # Defaults for now; we'll move breakeven policy into Filters later
 be_policy = st.session_state.get("be_policy", "be excluded from win-rate")
-start_equity = float(st.session_state.get("start_equity", 5000.0))
+
+# --- Compute equity AT the start of the selected window, per Account settings ---
+acct_eq_map = st.session_state.get("acct_equity", {})  # set on Account page
+default_base = float(st.session_state.get("default_equity_base", 5000.0))
+
+# Use the pre-slice frame for account selection (df_all was created just before the date filter)
+if "Account" in df_all.columns and len(df_all):
+    sel_accounts = df_all["Account"].astype(str).str.strip().dropna().unique().tolist()
+else:
+    sel_accounts = []
+
+# Sum starting equity for the selected accounts (fallback to default if none)
+base_eq = (
+    sum(float(acct_eq_map.get(acc, default_base)) for acc in sel_accounts)
+    if sel_accounts
+    else float(default_base)
+)
+
+# Add PnL accrued BEFORE the current window start (anchor equity at window start)
+pnl_col = "pnl" if "pnl" in df_all.columns else ("PnL" if "PnL" in df_all.columns else None)
+prior_sum = 0.0
+if (
+    (pnl_col is not None)
+    and (dfrom is not None)
+    and (date_col is not None)
+    and (date_col in df_all.columns)
+):
+    dt_all = pd.to_datetime(df_all[date_col], errors="coerce")
+    mask_prior = dt_all < pd.to_datetime(dfrom)
+    if sel_accounts and "Account" in df_all.columns:
+        mask_prior &= df_all["Account"].astype(str).isin(sel_accounts)
+    prior_sum = pd.to_numeric(df_all.loc[mask_prior, pnl_col], errors="coerce").fillna(0.0).sum()
+
+# Final: equity at the beginning of the window
+start_equity = float(base_eq + prior_sum)
+
 
 # --- Win-rate components depending on breakeven policy ---
 is_win = df["pnl"] > 0
