@@ -8,7 +8,6 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from src.charts.equity import plot_equity
 from src.charts.long_short import render_long_short_card
 from src.charts.pnl import plot_pnl
 from src.components.last_trades import render_last_trades
@@ -326,18 +325,30 @@ def render_overview(
           min-height: 392px;
           overflow: hidden;
         }}
-
-        /* Long vs Short (cumulative R) */
-        div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .lsr-root) {{
-          background: {CARD_BG} !important;
-          border: 1px solid rgba(255,255,255,0.06);
-          border-radius: 12px !important;
-          padding: 6px !important;
-          transform: translateY(-35px);
-          min-height: 392px;
-          overflow: visible;
-          padding-bottom: 0px; 
+        
+        /* Unified chart/card title style */
+        .chart-title {{
+        margin: 0 0 2px 18px;      /* tight, like your other cards */
+        font-size: 14px;        /* match */
+        font-weight: 700;       /* match */
+        line-height: 1.25;
+        color: var(--fg, #E5E7EB);
         }}
+
+        /* Long vs Short card — mirror equity card shell */
+        div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .lsr-root) {{
+        background: {CARD_BG} !important;
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 12px !important;
+        padding: 12px !important;
+        /* keep ticks safe if the next row sits close */
+        overflow: visible;
+        /* if you pull the equity card up with translateY, mirror that here */
+        transform: translateY(-34px);
+        }}
+
+
+        
         div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .wr-root) [data-testid="stPlotlyChart"],
         div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .pf-root) [data-testid="stPlotlyChart"]{{
         margin: 0 !important;
@@ -813,66 +824,108 @@ def render_overview(
                 else:
                     st.empty()
 
-        # === Equity Curve (bottom of s_left) — with tabs and date x-axis ===
+        # === Equity Curve — title + Streamlit segmented control, height=282 ===
         with st.container(border=False):
             st.markdown('<div class="eq-root"></div>', unsafe_allow_html=True)
 
-            # build equity series (same logic you had)
+            # Header row: title (left) + segmented control (right)
+            h1, h2 = st.columns([1, 0.26], vertical_alignment="center")
+            with h1:
+                # match other chart titles (size 14, weight 700)
+                st.markdown('<div class="chart-title">Equity Curve</div>', unsafe_allow_html=True)
+
+            with h2:
+                mode = st.segmented_control(
+                    label="",
+                    options=["PnL", "R:R"],
+                    default="PnL",
+                    label_visibility="collapsed",
+                    key="eq_mode_segmented",
+                )
+
+            # -------- data prep (unchanged) --------
             _has_date = date_col is not None and date_col in df_view.columns and len(df_view) > 0
-            df_ec = df_view.copy()
-            pnl_num = pd.to_numeric(df_ec["pnl"], errors="coerce").fillna(0.0)
-            df_ec["cum_pnl"] = pnl_num.cumsum()
-            df_ec["equity"] = float(start_equity) + df_ec["cum_pnl"]
+            dfe = df_view.copy()
+            pnl_col = "pnl" if "pnl" in dfe.columns else "PnL"
+            pnl_num = pd.to_numeric(dfe.get(pnl_col, 0.0), errors="coerce").fillna(0.0)
 
             if _has_date:
-                _dt = pd.to_datetime(df_ec[date_col], errors="coerce")
-                df_ec = df_ec.assign(_date=_dt).sort_values("_date")
+                _dt = pd.to_datetime(dfe[date_col], errors="coerce")
+                dfe = dfe.assign(_date=_dt).dropna(subset=["_date"]).sort_values("_date")
             else:
-                df_ec = df_ec.reset_index(drop=True).assign(
-                    _date=pd.RangeIndex(start=0, stop=len(df_ec))
-                )
-            # TUNING KNOBS
-            EQ_HEIGHT = 310  # overall chart height
-            EQ_TOP_PAD = 20  # extra padding above the title area
-            EQ_BOTTOM_PAD = 10  # extra padding under x-axis
-            EQ_VSHIFT = 0  # positive pushes plot DOWN, negative pulls UP
+                dfe = dfe.reset_index(drop=True).assign(_date=pd.RangeIndex(start=0, stop=len(dfe)))
 
-            fig_eq = plot_equity(
-                df_ec,
-                start_equity=start_equity,
-                has_date=_has_date,
-                height=EQ_HEIGHT,
+            dfe["cum_pnl"] = pnl_num.loc[dfe.index].cumsum()
+            dfe["equity"] = float(start_equity) + dfe["cum_pnl"]
+
+            def _find_r(frame):
+                for c in ["R Ratio", "R", "r", "rr", "R Multiple", "r_ratio", "R:R"]:
+                    if c in frame.columns:
+                        return c
+                return None
+
+            rc = _find_r(dfe)
+            r_vals = (
+                pd.to_numeric(dfe[rc], errors="coerce").fillna(0.0)
+                if rc
+                else np.where(pnl_num.loc[dfe.index] > 0, 1.0, -1.0)
             )
-            fig_eq.update_layout(
+            dfe["cum_r"] = pd.Series(r_vals).cumsum()
+
+            # -------- figure (only height changed previously) --------
+            EQ_HEIGHT = 282
+            LEFT_M, RIGHT_M, TOP_M, BOT_M = 66, 10, 6, 4  # keep y-title visible & padding tight
+
+            fig = go.Figure()
+            if mode == "PnL":
+                # baseline for fill (Starting Equity)
+                fig.add_trace(
+                    go.Scatter(
+                        x=dfe["_date"],
+                        y=np.full(len(dfe), float(start_equity)),
+                        mode="lines",
+                        line=dict(width=0),
+                        hoverinfo="skip",
+                        showlegend=False,
+                        name="Baseline",
+                    )
+                )
+                fig.add_trace(
+                    go.Scatter(
+                        x=dfe["_date"],
+                        y=dfe["equity"],
+                        mode="lines",
+                        line=dict(width=2, color="#9ec1ff"),
+                        fill="tonexty",
+                        fillcolor="rgba(158,193,255,0.15)",
+                        name="Balance",
+                    )
+                )
+                y_title = "PnL"
+            else:
+                fig.add_trace(
+                    go.Scatter(
+                        x=dfe["_date"],
+                        y=dfe["cum_r"],
+                        mode="lines",
+                        line=dict(width=2, color="#64d4c3"),
+                        name="Cumulative R",
+                    )
+                )
+                y_title = "R:R"
+
+            fig.update_layout(
+                height=EQ_HEIGHT,
                 paper_bgcolor=CARD_BG,
                 plot_bgcolor=CARD_BG,
-                margin=dict(
-                    l=8,
-                    r=8,
-                    t=26 + EQ_TOP_PAD - EQ_VSHIFT,
-                    b=8 + EQ_BOTTOM_PAD + EQ_VSHIFT,
-                ),
+                margin=dict(l=LEFT_M, r=RIGHT_M, t=TOP_M, b=BOT_M),
+                showlegend=False,
+                uirevision="eq_static",  # prevents margin reflow on toggle
             )
+            fig.update_xaxes(tickangle=0, tickformat="%b %d")
+            fig.update_yaxes(title_text=y_title, title_standoff=24, automargin=False)
 
-            # y-axis label
-            fig_eq.update_yaxes(title_text="Balance")
-
-            # x-axis labels: horizontal Month Day
-            fig_eq.update_xaxes(tickangle=0, tickformat="%b %d")
-
-            # title inside chart
-            fig_eq.add_annotation(
-                x=-0.09,
-                y=1.17,
-                xref="paper",
-                yref="paper",
-                text="<b>Equity Curve</b>",
-                showarrow=False,
-                align="left",
-                font=dict(size=14, color="#E5E7EB"),
-            )
-
-            st.plotly_chart(fig_eq, use_container_width=True, key="ov_eq_curve_all")
+            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
     # === Right column top row (split in 2) ===
     with s_right:
@@ -883,35 +936,58 @@ def render_overview(
         with right_top[0]:
             with st.container(border=False):
                 st.markdown('<div class="pnl-root"></div>', unsafe_allow_html=True)
+
                 # ---- Chart ----
-                # TUNING KNOBS
-                PNL_HEIGHT = 310  # overall chart height
-                PNL_TOP_PAD = 11  # extra padding above the title area
-                PNL_BOTTOM_PAD = 10  # extra padding under x-axis
-                PNL_VSHIFT = 0  # positive pushes plot DOWN, negative pulls UP
+                PNL_HEIGHT = 310
+                PNL_TOP_PAD = 11
+                PNL_BOTTOM_PAD = 10
+                PNL_VSHIFT = 0
+                mode = "Daily"
 
-                mode = "Daily"  # fixed mode
+                # Build the figure as usual
+                fig_pnl = plot_pnl(df_view, (date_col or "date"), mode=mode, height=PNL_HEIGHT)
 
-                fig_pnl = plot_pnl(df_view, date_col, mode=mode, height=PNL_HEIGHT)
+                # Card styling / margins
                 fig_pnl.update_layout(
                     paper_bgcolor=CARD_BG,
                     plot_bgcolor=CARD_BG,
-                    # top/bottom margins control padding AND act like a vertical shift
                     margin=dict(
                         l=8,
                         r=8,
-                        t=26 + PNL_TOP_PAD - PNL_VSHIFT,  # title + padding - shift
-                        b=8 + PNL_BOTTOM_PAD + PNL_VSHIFT,  # bottom padding + shift
+                        t=26 + PNL_TOP_PAD - PNL_VSHIFT,
+                        b=8 + PNL_BOTTOM_PAD + PNL_VSHIFT,
                     ),
+                )
+
+                # --- Make x truly datetime & clear categorical ticks ---
+                for i, tr in enumerate(fig_pnl.data):
+                    if getattr(tr, "type", None) == "bar" and hasattr(tr, "x"):
+                        try:
+                            x_dt = pd.to_datetime(list(tr.x), errors="coerce")
+                            fig_pnl.data[i].x = x_dt
+                        except Exception:
+                            pass
+
+                # Remove any ticktext/tickvals set by plot_pnl so our formatter applies
+                fig_pnl.update_xaxes(ticktext=None, tickvals=None)
+
+                # --- Force exact range: start one day before first bar, end one day before last bar ---
+                xs = pd.to_datetime(fig_pnl.data[0].x)
+                start_range = xs.min() - pd.Timedelta(days=1)
+                end_range = xs.max() - pd.Timedelta(days=1)
+
+                fig_pnl.update_xaxes(
+                    type="date",
+                    tickformat="%b %d",
+                    hoverformat="%b %d, %Y",
+                    tickangle=0,
+                    range=[start_range, end_range],
                 )
 
                 # y-axis label
                 fig_pnl.update_yaxes(title_text="PnL")
 
-                # x-axis labels: horizontal Month Day (e.g., 'Sep 27')
-                fig_pnl.update_xaxes(tickangle=0, tickformat="%b %d")
-
-                # title inside chart
+                # Title inside chart
                 fig_pnl.add_annotation(
                     x=-0.09,
                     y=1.17,
@@ -925,16 +1001,21 @@ def render_overview(
 
                 st.plotly_chart(fig_pnl, use_container_width=True)
 
+            # === Long vs Short — Cumulative R (matches Equity Curve card layout) ===
             row_cumr = st.container(border=False)
             with row_cumr:
+                # same border/rounding hook as Equity (own class)
+                st.markdown('<div class="lsr-root"></div>', unsafe_allow_html=True)
+
+                # figure (rendered by the chart helper)
                 render_long_short_card(
                     df_view,
                     date_col=(date_col or "date"),
-                    height=262,
-                    top_pad=12,
-                    bottom_pad=0,
+                    height=317,  # same as Equity Curve
+                    top_pad=10,  # tight top (title is in header)
+                    bottom_pad=28,  # safe bottom so ticks never clip
                     vshift=0,
-                    title_text="Long vs Short — Cumulative R",
+                    title_text="Long vs Short — Cumulative R",  # title handled by header row
                 )
 
     with right_top[1]:

@@ -129,17 +129,12 @@ def _fig_long_short_cum_r(
     )
 
     fig.update_layout(
-        title=dict(
-            text=title_text,
-            x=0.04,
-            y=1.0,
-            xanchor="left",
-            font=dict(size=14, color=FG),
-        ),
-        height=311,
-        margin=dict(l=10, r=10, t=top_pad, b=48),
+        # title comes from the page header; keep Plotly title empty
+        height=height,
+        margin=dict(l=66, r=10, t=top_pad, b=bottom_pad),
         paper_bgcolor=CARD_BG,
         plot_bgcolor=CARD_BG,
+        showlegend=True,
         legend=dict(
             orientation="h",
             y=1.0,
@@ -149,7 +144,30 @@ def _fig_long_short_cum_r(
             font=dict(size=10, color=FG),
             bgcolor="rgba(0,0,0,0)",
         ),
+        uirevision="ls_cumr_static",
     )
+
+    # Title inside the chart, aligned with the legend row
+    if title_text:
+        fig.add_annotation(
+            x=-0.08,
+            y=1.18,
+            xref="paper",
+            yref="paper",
+            text=f"<b>{title_text}</b>",
+            showarrow=False,
+            align="left",
+            font=dict(size=14, color=FG),  # same size/weight as other charts
+        )
+
+    # match axis style to Equity Curve (labels outside; month-day ticks)
+    fig.update_xaxes(
+        ticklabelposition="outside",
+        ticks="outside",
+        tickformat="%b %d",
+        hoverformat="%b %d, %Y",
+    )
+
     return fig
 
 
@@ -184,7 +202,7 @@ def render_long_short_card(
         return
 
     with st.container(border=False):
-        st.markdown('<div class="lsr-root"></div>', unsafe_allow_html=True)
+
         fig = _fig_long_short_cum_r(
             df[date_col],
             df[side_col],
@@ -200,4 +218,4 @@ def render_long_short_card(
             unsafe_allow_html=True,
         )
         st.plotly_chart(fig, use_container_width=True, key="ov_ls_cumr")
-        st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)  # <-- close the wrapper
