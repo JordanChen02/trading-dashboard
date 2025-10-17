@@ -128,7 +128,7 @@ def figure_tier_wr(
         "B+": "#1e97e7",
         "B": "#1e97e7",
         "B-": "#1e97e7",
-        "C": "#41ce2f",
+        "C": "#2baf2b",
     }
     bar_colors = [tier_colors.get(t, "#233244") for t in wr["tier_norm"].astype(str)]
 

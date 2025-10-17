@@ -317,42 +317,119 @@ def _generate_tp_distribution(rng: np.random.Generator, is_win: bool) -> Tuple[i
     return 0, 0, 0
 
 
-def _generate_fake_journal(n: int = 50) -> pd.DataFrame:
-    rng = np.random.default_rng(42)
+def _generate_fake_journal(n: int = 200) -> pd.DataFrame:
+    """
+    Realistic-but-not-crazy placeholder:
+      - ~1–3 trades per weekday; some days off; weekends skipped
+      - Profitable overall with a right-skew (Mean > Median)
+      - Includes losers (esp. in lower tiers)
+      - Every tier present; few 'S' and they are 100% win
+      - Mostly A+; fewer as quality decreases
+    """
+    rng = np.random.default_rng(1337)  # tweak this for a different "look"
+
+    # --- Tier mix & win rates ---
+    # Make A+ the workhorse; S is rare and 100% win; others taper down.
+    tier_weights = {
+        "S": 0.02,
+        "A+": 0.38,
+        "A": 0.20,
+        "A-": 0.14,
+        "B+": 0.10,
+        "B": 0.08,
+        "B-": 0.05,
+        "C": 0.03,
+    }
+    # Target win probabilities per tier
+    tier_winrate = {
+        "S": 1.00,
+        "A+": 0.64,
+        "A": 0.60,
+        "A-": 0.57,
+        "B+": 0.54,
+        "B": 0.50,
+        "B-": 0.46,
+        "C": 0.43,
+    }
+    # Score baselines by tier (for table chips)
+    tier_score_baseline = {
+        "S": 98,
+        "A+": 94,
+        "A": 90,
+        "A-": 87,
+        "B+": 83,
+        "B": 78,
+        "B-": 72,
+        "C": 68,
+    }
+
+    def grade_from_score(s: int) -> str:
+        if s >= 96:
+            return "S"
+        if s >= 90:
+            return "A+"
+        if s >= 85:
+            return "A"
+        if s >= 80:
+            return "A-"
+        if s >= 75:
+            return "B+"
+        if s >= 70:
+            return "B"
+        if s >= 65:
+            return "B-"
+        return "C"
+
+    # Helper to pick respecting weights order in TIER list if present
+    def weighted_choice_tier():
+        # Keep only tiers that exist in your TIER list (in case it's customized)
+        usable = [t for t in TIER if t in tier_weights]
+        w = np.array([tier_weights[t] for t in usable], dtype=float)
+        w = w / w.sum()
+        return rng.choice(usable, p=w)
+
     rows = []
-    start = date.today() - timedelta(days=120)
-    win_flags = rng.random(n) < rng.uniform(0.58, 0.62)
 
-    for i in range(n):
-        sym = rng.choice(
-            SYMBOLS,
-            p=[0.17, 0.16, 0.10, 0.10, 0.15, 0.08, 0.12, 0.12],
-        )
+    # --- Ensure at least one of each tier (S will be win) ---
+    today = date.today()
+    start = date(today.year, 6, 1)  # June 1 of the current year
+    end = date(today.year, 10, 17)  # Oct 17 of the current year
+    preload_day = start
+    for t in ["S", "A+", "A", "A-", "B+", "B", "B-", "C"]:
+        if t not in TIER:
+            continue
+        d = preload_day
+        # If weekend, bump to Monday
+        while d.weekday() >= 5:
+            d += timedelta(days=1)
+        e_hour = int(rng.integers(6, 14))  # morning to early afternoon feel
+        e_min = int(rng.integers(0, 60))
+        e_time = datetime(d.year, d.month, d.day, e_hour, e_min)
+        hold = int(rng.integers(10, 90))
+        x_time = e_time + timedelta(minutes=hold)
+        # Risk and R-multiple (S always win; others later use tier win prob)
+        dollars_risked = float(rng.integers(50, 100))
+        if t == "S":
+            # clean winner 1.4–2.8R, sometimes a 3–3.8R runner
+            r_mult = rng.choice([rng.uniform(1.4, 2.4), rng.uniform(2.4, 3.8)], p=[0.7, 0.3])
+        else:
+            r_mult = rng.choice([rng.uniform(0.9, 2.2), -rng.uniform(0.3, 1.0)], p=[0.6, 0.4])
+        pnl = round(dollars_risked * r_mult, 2)
+
+        sym = rng.choice(SYMBOLS)
         direction = rng.choice(DIRECTIONS, p=[0.6, 0.4])
-        tf = rng.choice(TIMEFRAMES, p=[0.15, 0.08, 0.3, 0.25, 0.12, 0.07, 0.03])
-        typ = rng.choice(TYPES, p=[0.45, 0.55])
-        setup_tier = rng.choice(TIER, p=[0.03, 0.12, 0.25, 0.12, 0.15, 0.2, 0.08, 0.05])
-
-        d = start + timedelta(days=int(rng.integers(0, 120)))
-        start_hour = int(rng.integers(0, 24))
-        start_min = int(rng.integers(0, 60))
-        e_time = datetime(d.year, d.month, d.day, start_hour, start_min)
-        hold_minutes = int(rng.integers(5, 180))
-        x_time = e_time + timedelta(minutes=hold_minutes)
-
-        dollars_risked = float(rng.integers(50, 250))
-        r = float(rng.uniform(0.5, 3.0)) if win_flags[i] else -float(rng.uniform(0.2, 1.5))
-        pnl = round(dollars_risked * r, 2)
-
-        tp1, tp2, tp3 = _generate_tp_distribution(rng, pnl > 0)
-
+        tf = rng.choice(TIMEFRAMES)
+        typ = rng.choice(TYPES)
         confirmations = rng.choice(
             DEFAULT_CONFIRMATIONS, size=int(rng.integers(1, 4)), replace=False
         ).tolist()
+        base = tier_score_baseline.get(str(t), 78)
+        score = int(np.clip(rng.normal(loc=base, scale=3.0), 65, 99))
+        grade = grade_from_score(score)
 
         rows.append(
             {
-                "Trade #": i + 1,
+                "Trade #": len(rows) + 1,
                 "Account": (
                     "NQ"
                     if sym == "NQ"
@@ -365,12 +442,14 @@ def _generate_fake_journal(n: int = 50) -> pd.DataFrame:
                 "Direction": direction,
                 "Timeframe": tf,
                 "Type": typ,
-                "Setup Tier": setup_tier,
+                "Setup Tier": t,
+                "Score": score,
+                "Grade": grade,
                 "Confirmations": confirmations,
                 "Entry Time": e_time,
                 "Exit Time": x_time,
                 "Duration": "",
-                "Duration (min)": float(hold_minutes),
+                "Duration (min)": float(hold),
                 "PnL": pnl,
                 "Dollars Risked": dollars_risked,
                 "R Ratio": round(pnl / dollars_risked, 2),
@@ -379,14 +458,117 @@ def _generate_fake_journal(n: int = 50) -> pd.DataFrame:
                 "Comments": _fake_comment(pnl > 0),
             }
         )
+        preload_day += timedelta(days=1)
+
+    # --- Fill remaining rows with weekday cadence (1–3 per day, some off days) ---
+    needed = max(0, n - len(rows))
+    d = start
+    while needed > 0 and d <= end:
+        if d.weekday() >= 5:
+            # Saturday/Sunday: mostly 0–1 trade
+            trades_today = rng.choice([0, 1, 2, 3], p=[0.55, 0.35, 0.09, 0.01])
+        else:
+            # Weekdays: 1–2 most common
+            trades_today = rng.choice([0, 1, 2, 3], p=[0.12, 0.48, 0.30, 0.10])
+        for _ in range(trades_today):
+            if needed <= 0:
+                break
+            t = weighted_choice_tier()
+            # date/time
+            e_hour = int(
+                rng.choice(
+                    [6, 7, 8, 9, 10, 11, 12, 13, 14],
+                    p=[0.06, 0.10, 0.14, 0.18, 0.18, 0.14, 0.10, 0.06, 0.04],
+                )
+            )
+            e_min = int(rng.integers(0, 60))
+            e_time = datetime(d.year, d.month, d.day, e_hour, e_min)
+            hold = int(rng.integers(8, 160))
+            x_time = e_time + timedelta(minutes=hold)
+
+            # risk & outcome determined by tier win rate
+            dollars_risked = float(rng.integers(50, 250))
+            # Risk result: shape winners 1.5–3.0R with rare 6–10R; losers mostly 1.0–1.2R
+            win = rng.random() < tier_winrate.get(t, 0.5)
+            if win:
+                r_mult = rng.choice([rng.uniform(1.5, 3.0), rng.uniform(6.0, 10.0)], p=[0.95, 0.05])
+            else:
+                r_mult = -rng.choice(
+                    [rng.uniform(1.0, 1.2), rng.uniform(1.2, 1.6), rng.uniform(1.6, 2.0)],
+                    p=[0.70, 0.20, 0.10],
+                )
+
+            pnl = round(dollars_risked * r_mult, 2)
+
+            # symbol / meta
+            # Slight tilt toward BTC/ETH/SOL; keep others present
+            sym = rng.choice(
+                SYMBOLS,
+                p=np.array([0.20, 0.18] + [0.12] * max(0, len(SYMBOLS) - 2))[: len(SYMBOLS)]
+                / np.array([0.20, 0.18] + [0.12] * max(0, len(SYMBOLS) - 2))[: len(SYMBOLS)].sum(),
+            )
+            direction = rng.choice(DIRECTIONS, p=[0.6, 0.4])
+            tf = rng.choice(TIMEFRAMES, p=None)
+            typ = rng.choice(TYPES)
+            confirmations = rng.choice(
+                DEFAULT_CONFIRMATIONS, size=int(rng.integers(1, 4)), replace=False
+            ).tolist()
+
+            # score & grade (tied loosely to tier)
+            base = tier_score_baseline.get(str(t), 78)
+            score = int(np.clip(rng.normal(loc=base, scale=3.5), 65, 99))
+            grade = grade_from_score(score)
+
+            rows.append(
+                {
+                    "Trade #": len(rows) + 1,
+                    "Account": (
+                        "NQ"
+                        if sym == "NQ"
+                        else ("Crypto (Prop)" if sym == "BTCUSDT" else "Crypto (Live)")
+                    ),
+                    "Win/Loss": "Win" if pnl > 0 else "Loss",
+                    "Symbol": sym,
+                    "Date": d,
+                    "Day of Week": d.strftime("%A"),
+                    "Direction": direction,
+                    "Timeframe": tf,
+                    "Type": typ,
+                    "Setup Tier": t,
+                    "Score": score,
+                    "Grade": grade,
+                    "Confirmations": confirmations,
+                    "Entry Time": e_time,
+                    "Exit Time": x_time,
+                    "Duration": "",
+                    "Duration (min)": float(hold),
+                    "PnL": pnl,
+                    "Dollars Risked": dollars_risked,
+                    "R Ratio": round(pnl / dollars_risked, 2),
+                    "Chart URL": "",
+                    "Micromanaged?": False,
+                    "Comments": _fake_comment(pnl > 0),
+                }
+            )
+            needed -= 1
+        d += timedelta(days=1)
 
     df = pd.DataFrame(rows)
+
+    # Small shuffle so the pre-seeded tier rows aren’t all at the top visually
+    df = (
+        df.sample(frac=1.0, random_state=7)
+        .sort_values(["Date", "Entry Time"])
+        .reset_index(drop=True)
+    )
+    df["Trade #"] = np.arange(1, len(df) + 1)
+
     return _compute_derived(df)
 
 
 def _init_session_state():
     if "journal_df" not in st.session_state:
-        st.session_state.journal_df = _generate_fake_journal(50)
+        st.session_state.journal_df = _generate_fake_journal(300)
         st.session_state.setdefault("new_entry_force_once", False)
 
     if "show_new_entry" not in st.session_state:
@@ -496,6 +678,28 @@ def _render_new_entry_form():
             help="Loaded from Checklist (excludes Bias Confidence).",
         )
 
+        # ===== Score / Grade (small row placed after Confirmations) =====
+        SG = ["S", "A+", "A", "A-", "B+", "B", "B-", "C"]
+
+        # defaults if "Load from Checklist" filled them earlier
+        _score_default = st.session_state.get("new_entry_score_default", None)
+        _grade_default = st.session_state.get("new_entry_grade_default", "")
+
+        sg1, sg2, _ = st.columns([0.4, 0.4, 2.2], gap="small")
+        with sg1:
+            score = st.number_input(
+                "Score (%)",
+                value=_score_default if isinstance(_score_default, (int, float)) else 0,
+                min_value=0,
+                max_value=100,
+                step=1,
+                format="%d",
+            )
+        with sg2:
+            # if grade default is in list, show it preselected; otherwise first option
+            _g_idx = SG.index(_grade_default) if _grade_default in SG else 0
+            grade = st.selectbox("Grade", SG, index=_g_idx)
+
         # Any newly typed confirmations become part of the global options + color map
         if conf:
             cmap = st.session_state["confirm_color_map"]
@@ -534,6 +738,14 @@ def _render_new_entry_form():
                     cmap[t] = pal[i]
                     st.session_state["confirm_color_idx"] += 1
 
+            # Prefill Score / Grade from checklist payload
+            pct = pending.get("overall_pct", None)
+            grd = pending.get("overall_grade", "")
+            st.session_state["new_entry_score_default"] = (
+                int(pct) if isinstance(pct, (int, float)) else None
+            )
+            st.session_state["new_entry_grade_default"] = grd
+
             # keep the dialog OPEN on rerun
             st.session_state["journal_conf_default"] = confs
             st.session_state["show_new_entry"] = True
@@ -564,6 +776,8 @@ def _render_new_entry_form():
                 "Timeframe": timeframe,
                 "Type": typ,
                 "Setup Tier": setup_tier,
+                "Score": float(score) if score is not None else None,
+                "Grade": grade,
                 "Confirmations": conf,
                 "Entry Time": entry_dt,
                 "Exit Time": exit_dt,
@@ -1119,6 +1333,14 @@ def render(*_args, **_kwargs) -> None:
 
         df_disp["PnL ($)"] = df_disp["PnL"].apply(_fmt_money_sign_after)
 
+        REQUIRED_COLS = ["Exit Time", "Score", "Grade"]
+        for _c in REQUIRED_COLS:
+            if _c not in df_disp.columns:
+                df_disp[_c] = pd.NA
+
+        # keep Score numeric for formatting/sorting
+        df_disp["Score"] = pd.to_numeric(df_disp["Score"], errors="coerce")
+
         # Start from the original order only (no auto-added columns)
         col_order = base_cols[:]  # copy
 
@@ -1135,6 +1357,10 @@ def render(*_args, **_kwargs) -> None:
         _put_after_in(col_order, "Day of Week", "DOW Tag")
         _put_after_in(col_order, "Win/Loss", "Result Tag")
         _put_after_in(col_order, "Timeframe", "Timeframe Tag")
+        # Put Score & Grade immediately to the right of Setup Tier (or Tier Tag if you hide Setup Tier)
+        anchor = "Setup Tier" if "Setup Tier" in col_order else "Tier Tag"
+        _put_after_in(col_order, anchor, "Score")
+        _put_after_in(col_order, "Score", "Grade")
 
         # Swap 'PnL' for the formatted display column (no duplicates)
         if "PnL" in col_order and "PnL ($)" in df_disp.columns:
@@ -1171,6 +1397,8 @@ def render(*_args, **_kwargs) -> None:
                 "Tier Tag": st.column_config.MultiselectColumn(
                     "Setup Tier", options=TIER_OPTS, color=TIER_COLORS, width="small"
                 ),
+                "Score": st.column_config.NumberColumn("Score (%)", format="%d", width="small"),
+                "Grade": st.column_config.TextColumn("Grade", width="small"),
                 "DOW Tag": st.column_config.MultiselectColumn(
                     "Day of Week", options=DOW_OPTS, color=DOW_COLORS, width="small"
                 ),
@@ -1224,6 +1452,30 @@ def render(*_args, **_kwargs) -> None:
 
         st.markdown('<div class="je-grid-root"></div>', unsafe_allow_html=True)
 
+        cols = list(df_view.columns)
+        if "Setup Tier" in cols:
+            # place Score then Grade after "Setup Tier" if present
+            for name in ["Grade", "Score"][::-1]:  # insert Score first, then Grade
+                if name in cols:
+                    # remove and reinsert right after "Setup Tier"
+                    cols.insert(cols.index("Setup Tier") + 1, cols.pop(cols.index(name)))
+            df_view = df_view[cols]
+
+        REQ_EDITOR_COLS = ["Exit Time", "Score", "Grade"]
+        for _c in REQ_EDITOR_COLS:
+            if _c not in df_view.columns:
+                df_view[_c] = pd.NA
+
+        df_view["Score"] = pd.to_numeric(df_view["Score"], errors="coerce")
+
+        # optional: place Score & Grade after Setup Tier
+        cols = list(df_view.columns)
+        if "Setup Tier" in cols:
+            for name in ["Grade", "Score"][::-1]:
+                if name in cols:
+                    cols.insert(cols.index("Setup Tier") + 1, cols.pop(cols.index(name)))
+            df_view = df_view[cols]
+
         edited = st.data_editor(
             df_view,
             key="journal_editor",
@@ -1254,6 +1506,10 @@ def render(*_args, **_kwargs) -> None:
                 "Type": st.column_config.SelectboxColumn("Type", options=TYPES, width="small"),
                 "Setup Tier": st.column_config.SelectboxColumn(
                     "Setup Tier", options=TIER, width="small"
+                ),
+                "Score": st.column_config.NumberColumn("Score (%)", format="%d", width="small"),
+                "Grade": st.column_config.SelectboxColumn(
+                    "Grade", options=["S", "A+", "A", "A-", "B+", "B", "B-", "C"], width="small"
                 ),
                 "Confirmations": st.column_config.MultiselectColumn(
                     "Confirmations",

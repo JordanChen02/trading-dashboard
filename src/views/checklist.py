@@ -5,15 +5,11 @@ from typing import Dict, List, Tuple
 
 import plotly.graph_objects as go
 import streamlit as st
-from streamlit.components.v1 import iframe  # <- added for embedding non-image URLs
+from streamlit.components.v1 import iframe  # kept for your current file’s behavior
 
 
-# --- modal fallback (works whether st.modal exists or not) ---
+# --- modal fallback (unchanged) ---
 def modal_or_inline(title: str, render_body):
-    """
-    Open a real modal/dialog if available; otherwise render a simple overlay.
-    `render_body` is a function that draws the modal content.
-    """
     dlg = getattr(st, "modal", None) or getattr(st, "dialog", None)
     if callable(dlg):
         decorator = dlg(title)
@@ -24,7 +20,6 @@ def modal_or_inline(title: str, render_body):
 
         _show()
     else:
-        # Fallback overlay
         st.markdown(
             f"""
             <div style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;">
@@ -37,7 +32,7 @@ def modal_or_inline(title: str, render_body):
         st.markdown("</div></div>", unsafe_allow_html=True)
 
 
-# ---- Theme (fallbacks if module not present) ----
+# ---- Theme (fallbacks) ----
 try:
     from src.theme import BLUE, CARD_BG
 except Exception:
@@ -47,17 +42,13 @@ except Exception:
 RED = "#E06B6B"
 FG = "#E5E7EB"
 FG_MUTED = "#9AA4B2"
-
-# Distinct card bg so inputs don’t blend with cards
 LOCAL_CARD_BG = "#0F1829"
 
 
 # ==============================
 # Session init & data defaults
 # ==============================
-# Default option→points mappings (adjustable here)
 BIAS_POINTS = {str(i): float(i) for i in range(1, 11)}
-
 SWEEP_DOL_POINTS = {
     "Equal High/Low": 10.0,
     "Internal High/Low": 9.0,
@@ -67,7 +58,6 @@ SWEEP_DOL_POINTS = {
     "LRLR >3": 10.0,
     "LRLR <3": 9.2,
 }
-
 MOMENTUM_POINTS = {"Low": 8.0, "Medium": 8.8, "High": 9.5, "Very High": 10.0}
 IFVG_POINTS = {"Small": 8.8, "Medium": 9.6, "Large": 10.0}
 POI_POINTS = {"Daily FVG": 10.0, "H4 FVG": 10.0, "H1 FVG": 9.8, "M15 FVG": 9.5}
@@ -117,7 +107,6 @@ DEFAULT_CHECKLIST: List[Dict] = [
     },
 ]
 
-# Confluences default OFF
 DEFAULT_CONFS: List[Dict] = [
     {"name": "12 EMA (1H)", "on": False, "pts": 1},
     {"name": "12 EMA (4H)", "on": False, "pts": 2},
@@ -148,27 +137,19 @@ def _ensure_state():
     st.session_state.setdefault("add_item_title", "")
     st.session_state.setdefault("add_item_rows", [{"opt": "", "pts": 0.0}])
 
-    # Flags to control lifecycle & clean reset
-    st.session_state.setdefault(
-        "add_item_force_show_once", False
-    )  # show only when explicitly opened
-    st.session_state.setdefault("add_item_should_reset", False)  # defer reset to next run
-    st.session_state.setdefault(
-        "add_item_keep_open", False
-    )  # keep modal open across reruns after +Add / delete
+    # Label offset (NEW adjustable knob); default a bit lower for your request
+    st.session_state.setdefault("cl_label_offset", 10)
+
+    # Lifecycle flags (unchanged)
+    st.session_state.setdefault("add_item_force_show_once", False)
+    st.session_state.setdefault("add_item_should_reset", False)
+    st.session_state.setdefault("add_item_keep_open", False)
 
 
 # ==============================
 # Scoring / grade helpers
 # ==============================
 def _score(items: List[Dict], confs: List[Dict]) -> Tuple[int, str]:
-    """
-    Checklist always tops out at 100% regardless of count:
-      For N items, each item contributes 100/N at max.
-      Contribution = (selected / max_for_item) * (100/N)
-
-    Confluences: flat bonus = sum(pts). Cap final at 100.
-    """
     n = max(1, len(items))
     per_item_weight = 100.0 / n
 
@@ -208,6 +189,7 @@ def _score(items: List[Dict], confs: List[Dict]) -> Tuple[int, str]:
 # UI helpers
 # ==============================
 def _inject_css():
+    offset = int(st.session_state.get("cl_label_offset", 10))
     st.markdown(
         f"""
 <style>
@@ -243,7 +225,7 @@ def _inject_css():
   padding: 2px 6px !important;
   box-shadow: none !important;
 }}
-/* Card shells — match your reference */
+/* Card shells */
 div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .chk-card),
 div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .conf-card),
 div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .score-card),
@@ -259,8 +241,15 @@ div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .
 
 /* Titles */
 .card-title, .section-title {{ font-weight:700; font-size:16px; color:{FG}; }}
-/* Checklist criteria labels */
-.item-name {{ color:{FG}; font-weight:700; font-size:14px; }}
+
+/* Checklist criteria labels — nudged DOWN; adjustable via 'cl_label_offset' */
+.item-name {{
+  color:{FG};
+  font-weight:700;
+  font-size:14px;
+  position: relative;
+  top: {offset}px;
+}}
 
 /* Wider header buttons */
 .wide-btn .stButton > button {{ padding:8px 16px !important; min-width:120px; }}
@@ -274,7 +263,6 @@ div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .
 
 
 def _half_donut_fig(title: str, pct: int) -> go.Figure:
-    """Half-gauge like overview Win Rate — same size & layout; % INSIDE the arc."""
     fig = go.Figure(
         go.Indicator(
             mode="gauge",
@@ -298,7 +286,6 @@ def _half_donut_fig(title: str, pct: int) -> go.Figure:
         paper_bgcolor=LOCAL_CARD_BG,
         plot_bgcolor=LOCAL_CARD_BG,
     )
-    # Title above donut
     fig.add_annotation(
         x=0.5,
         y=1.24,
@@ -309,7 +296,6 @@ def _half_donut_fig(title: str, pct: int) -> go.Figure:
         font=dict(size=14, color=FG),
         align="center",
     )
-    # % inside donut
     fig.add_annotation(
         x=0.5,
         y=0.10,
@@ -324,7 +310,7 @@ def _half_donut_fig(title: str, pct: int) -> go.Figure:
 
 
 # ==============================
-# Add Item Modal
+# Add Item Modal (unchanged)
 # ==============================
 def _add_item_modal():
     def _body():
@@ -356,13 +342,13 @@ def _add_item_modal():
                     remove = idx
         if remove is not None:
             rows.pop(remove)
-            st.session_state.add_item_keep_open = True  # keep modal open on rerun
-            st.rerun()  # reflect removal instantly
+            st.session_state.add_item_keep_open = True
+            st.rerun()
 
         if st.button("+ Add option", key="add_row_add"):
             rows.append({"opt": "", "pts": 0.0})
-            st.session_state.add_item_keep_open = True  # keep modal open on rerun
-            st.rerun()  # reflect new row instantly
+            st.session_state.add_item_keep_open = True
+            st.rerun()
 
         st.markdown("---")
         cols = st.columns([0.7, 0.3])
@@ -385,7 +371,6 @@ def _add_item_modal():
                             "value": opts[0],
                         }
                     )
-                    # close dialog now; defer resetting widget keys to next run
                     st.session_state.add_item_open = False
                     st.session_state.add_item_should_reset = True
                     st.rerun()
@@ -400,25 +385,23 @@ def render(*_args, **_kwargs):
     _ensure_state()
     _inject_css()
 
-    # Ensure the dialog does NOT auto-open when navigating back
+    # Prevent auto-open
     if st.session_state.get("add_item_open") and not st.session_state.get(
         "add_item_force_show_once", False
     ):
         st.session_state["add_item_open"] = False
 
-    # Handle deferred reset after save (avoid mutating widget keys during dialog render)
     if st.session_state.get("add_item_should_reset"):
         st.session_state["add_item_title"] = ""
         st.session_state["add_item_rows"] = [{"opt": "", "pts": 0.0}]
         st.session_state["add_item_should_reset"] = False
 
-    # If we just added/deleted an option, keep the modal open on the next run
     if st.session_state.get("add_item_keep_open"):
         st.session_state["add_item_open"] = True
         st.session_state["add_item_force_show_once"] = True
         st.session_state["add_item_keep_open"] = False
 
-    # Top bar: dropdown + New button next to it (same row)
+    # Top bar
     topL, _ = st.columns([0.3, 0.7], gap="small")
     with topL:
         dd_col, new_col = st.columns([0.82, 0.18])
@@ -433,44 +416,39 @@ def render(*_args, **_kwargs):
         with new_col:
             st.button("New", key="cl_new_template")
 
-    # Main split 0.6 / 0.4
+    # Main split
     left, right = st.columns([0.55, 0.5], gap="large")
 
-    # ---------------- LEFT: each section in its OWN card (unchanged structure) ----------------
+    # ---------------- LEFT ----------------
     with left:
-        # Row 1: Checklist & Confluences (separate cards)
         cL, cR = st.columns([1, 1], gap="small")
 
         # Checklist card
         with cL:
             st.markdown('<div class="chk-card"></div>', unsafe_allow_html=True)
             with st.container(border=False):
-                st.markdown('<div class="card-title">Checklist</div>', unsafe_allow_html=True)
-
-                a1, a2, _ = st.columns([1.5, 1.9, 4])
-                with a1:
+                header_row = st.columns([2.7, 1, 1.2], gap="small")
+                with header_row[0]:
+                    st.markdown('<div class="card-title">Checklist</div>', unsafe_allow_html=True)
+                with header_row[1]:
                     st.markdown('<div class="wide-btn">', unsafe_allow_html=True)
                     if st.button("+ Add item", key="cl_add_item"):
                         st.session_state.add_item_open = True
-                        st.session_state.add_item_force_show_once = (
-                            True  # ensure it shows once only when clicked
-                        )
+                        st.session_state.add_item_force_show_once = True
                     st.markdown("</div>", unsafe_allow_html=True)
-                with a2:
+                with header_row[2]:
                     st.markdown('<div class="wide-btn">', unsafe_allow_html=True)
                     if st.button("🗑 Delete last", key="cl_del_item", help="danger"):
                         if st.session_state.cl_items:
                             st.session_state.cl_items.pop()
                     st.markdown("</div>", unsafe_allow_html=True)
 
-                # Modal for adding item
                 if st.session_state.add_item_open:
                     _add_item_modal()
-                # After rendering once, drop the force flag
                 if st.session_state.get("add_item_force_show_once"):
                     st.session_state["add_item_force_show_once"] = False
 
-                # Render each checklist row
+                # Render checklist rows
                 for i, it in enumerate(st.session_state.cl_items):
                     ncol, selcol = st.columns([1.2, 3.0], gap="small")
                     with ncol:
@@ -491,7 +469,7 @@ def render(*_args, **_kwargs):
                             label_visibility="collapsed",
                         )
 
-        # Confluences card
+        # Confluences card (unchanged)
         with cR:
             st.markdown('<div class="conf-card"></div>', unsafe_allow_html=True)
             with st.container(border=False):
@@ -544,11 +522,10 @@ def render(*_args, **_kwargs):
                         )
                         st.rerun()
 
-        # -------- Score & Grade shifted left: [0.6, 0.4] [score, empty] --------
+        # Score & Grade
         sc_left, sc_right = st.columns([0.6, 0.4], gap="large")
         with sc_left:
-            # NEW: narrow the card by putting it in an inner column
-            narrow, _ = st.columns([0.8, 0.2])  # ← tweak 0.8 smaller/bigger to taste
+            narrow, _ = st.columns([0.8, 0.2])
             with narrow:
                 st.markdown('<div class="score-card"></div>', unsafe_allow_html=True)
                 with st.container(border=False):
@@ -569,9 +546,9 @@ def render(*_args, **_kwargs):
                             unsafe_allow_html=True,
                         )
 
-        # Save for Journal under the score card (still left side)
-        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)  # tiny spacer
-        btn_col, _ = st.columns([0.35, 0.65])  # keep it tucked under the card
+        # Save for Journal (NOW also saves formatted score string)
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+        btn_col, _ = st.columns([0.35, 0.65])
         with btn_col:
             if st.button("Save for Journal", key="cl_save_for_journal"):
                 items = {it["name"]: it["value"] for it in st.session_state.cl_items}
@@ -589,13 +566,15 @@ def render(*_args, **_kwargs):
 
                 pct, grade = _score(st.session_state.cl_items, st.session_state.cl_confs)
                 st.session_state["pending_checklist"] = {
-                    "overall_pct": pct,
-                    "overall_grade": grade,
+                    "overall_pct": pct,  # numeric (kept)
+                    "overall_pct_str": f"{pct}%",  # NEW formatted string
+                    "overall_grade": grade,  # e.g., "S"
                     "journal_checklist": lines,
                     "journal_confirms": lines,
                 }
                 st.toast("Saved to Journal loader ✅")
-    # ---------------- RIGHT: Chart Examples (unchanged except rendering) ----------------
+
+    # ---------------- RIGHT: Chart Examples (kept as in your current file) ----------------
     with right:
         st.markdown('<div class="section-title">Chart Examples</div>', unsafe_allow_html=True)
 
@@ -618,14 +597,13 @@ def render(*_args, **_kwargs):
                         "Paste image URL",
                         value=st.session_state.cl_chart_1.get("url", ""),
                         key="ex1_url",
-                        placeholder="https://www.tradingview.com/x/RMJesEwo/",
+                        placeholder="https://example.com/image.png",
                     )
                 with f1:
                     st.session_state.cl_chart_1["file"] = st.file_uploader(
                         "or Upload", key="ex1_file", type=["png", "jpg", "jpeg"]
                     )
 
-            # NEW: render image if direct image; otherwise embed page (e.g., TradingView)
             if st.session_state.cl_chart_1.get("file") is not None:
                 st.image(st.session_state.cl_chart_1["file"], use_container_width=True)
             else:
@@ -658,14 +636,13 @@ def render(*_args, **_kwargs):
                         "Paste image URL ",
                         value=st.session_state.cl_chart_2.get("url", ""),
                         key="ex2_url",
-                        placeholder="https://www.tradingview.com/x/fvMNs5k2/",
+                        placeholder="https://example.com/image.png",
                     )
                 with f2:
                     st.session_state.cl_chart_2["file"] = st.file_uploader(
                         "or Upload ", key="ex2_file", type=["png", "jpg", "jpeg"]
                     )
 
-            # NEW: render image if direct image; otherwise embed page (e.g., TradingView)
             if st.session_state.cl_chart_2.get("file") is not None:
                 st.image(st.session_state.cl_chart_2["file"], use_container_width=True)
             else:

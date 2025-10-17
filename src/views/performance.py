@@ -328,47 +328,57 @@ def _fig_pnl_histogram(pnl_per_trade: pd.Series, nbins: int = 40) -> go.Figure:
             layer="below",
         )
 
-    # Histogram bars
     fig.add_trace(
         go.Histogram(
             x=s,
             nbinsx=nbins,
-            name="Trades",
             marker=dict(color=BLUE_LIGHT, line=dict(width=0)),
             opacity=0.9,
+            name=None,
+            showlegend=False,
         )
     )
 
     # Reference lines: zero, median, mean
     fig.add_vline(x=0, line_width=1, line_dash="dot", line_color=AXIS_WEAK)
-    fig.add_vline(x=med_v, line_width=1, line_dash="solid", line_color="rgba(255,255,255,0.28)")
-    fig.add_vline(x=mean_v, line_width=1, line_dash="solid", line_color="rgba(255,255,255,0.28)")
+    fig.add_vline(
+        x=med_v, line_width=2, line_dash="dash", line_color="rgba(167,139,250,0.95)"
+    )  # violet
+    fig.add_vline(
+        x=mean_v, line_width=2, line_dash="dash", line_color="rgba(34,211,238,0.95)"
+    )  # cyan
 
-    # Labels for mean/median (placed near the top)
-    fig.add_annotation(
-        x=med_v,
-        y=1.02,
-        xref="x",
-        yref="paper",
-        text="Median",
-        showarrow=False,
-        font=dict(size=10, color=FG_MUTED),
-        yanchor="bottom",
+    # legend-only vertical lines (match colors; thin & dashed)
+    counts, _ = np.histogram(s, bins=nbins)
+    y_max = int(counts.max()) if len(counts) else 1
+    y_min = max(0.25, 0.12 * y_max)  # start slightly above zero to avoid spilling
+
+    fig.add_trace(
+        go.Scatter(
+            x=[med_v, med_v],
+            y=[y_min, y_max],
+            mode="lines",
+            name="Median",
+            line=dict(color="rgba(167,139,250,0.95)", width=2, dash="dash"),
+            hoverinfo="skip",
+            showlegend=True,
+        )
     )
-    fig.add_annotation(
-        x=mean_v,
-        y=1.02,
-        xref="x",
-        yref="paper",
-        text="Mean",
-        showarrow=False,
-        font=dict(size=10, color=FG_MUTED),
-        yanchor="bottom",
+    fig.add_trace(
+        go.Scatter(
+            x=[mean_v, mean_v],
+            y=[y_min, y_max],
+            mode="lines",
+            name="Mean",
+            line=dict(color="rgba(34,211,238,0.95)", width=2, dash="dash"),
+            hoverinfo="skip",
+            showlegend=True,
+        )
     )
 
     fig.update_layout(
         bargap=0.15,
-        showlegend=False,
+        showlegend=True,
         xaxis_title="PnL per trade ($)",
         yaxis_title="Count",
     )
