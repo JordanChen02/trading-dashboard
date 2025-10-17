@@ -33,8 +33,39 @@ from src.views.journal import render as render_journal
 from src.views.overview import render_overview
 from src.views.performance import render as render_performance
 
-_raw = st.secrets.get("app", {}).get("SKIP_TRADES_VALIDATION", "")
-SKIP_TRADES_VALIDATION = (str(_raw).lower() == "true") or (_raw is True)
+# Read secrets
+_raw_demo = st.secrets.get("app", {}).get("DEMO_MODE", "")
+DEMO_MODE = (str(_raw_demo).lower() == "true") or (_raw_demo is True)
+
+_raw_skip = st.secrets.get("app", {}).get("SKIP_TRADES_VALIDATION", "")
+SKIP_TRADES_VALIDATION = (str(_raw_skip).lower() == "true") or (_raw_skip is True)
+
+st.sidebar.caption(f"SKIP_TRADES_VALIDATION = {SKIP_TRADES_VALIDATION}")
+
+# The absolute minimum schema the "trades" engine expects
+REQUIRED_BASE_COLS = ["trade_id", "symbol", "side", "entry_time", "exit_time"]
+
+# Optional columns many charts compute from; we’ll stub them to avoid KeyErrors
+OPTIONAL_COLS = ["entry_price", "exit_price", "qty", "pnl"]
+
+
+def make_empty_trades() -> pd.DataFrame:
+    """Return an empty trades DF with all required columns present so the app doesn't crash."""
+    df = pd.DataFrame(columns=REQUIRED_BASE_COLS + OPTIONAL_COLS)
+    # ensure correct dtypes when empty to keep downstream happy
+    for c in ["entry_time", "exit_time"]:
+        df[c] = pd.to_datetime(df[c], errors="coerce")
+    for c in ["entry_price", "exit_price", "qty", "pnl"]:
+        df[c] = pd.to_numeric(df[c], errors="coerce")
+    return df
+
+
+def validate_trades(df: pd.DataFrame) -> list[str]:
+    """Central validator wrapper. Returns [] when skipping validation."""
+    if SKIP_TRADES_VALIDATION:
+        return []
+    # your existing validator (rename if needed)
+    return _flexible_validate_df(df)
 
 
 def require_password():
@@ -86,7 +117,6 @@ if "starting_equity" not in st.session_state:
 # ---------------------------------------------------------------
 # ---- KPI inputs from df_view: Net Profit & Balance (per-account equity map) ----
 def _kpi_net_and_balance(df_view):
-    import streamlit as st
 
     if df_view is None or len(df_view) == 0:
         # No data → net = 0; balance = sum of starting_equity for any selected accounts (or default once)
@@ -1017,6 +1047,8 @@ if extra_frames:
 
 
 def _flexible_validate_df(df_in: pd.DataFrame) -> list[str]:
+    if SKIP_TRADES_VALIDATION:
+        return []
     """
     Accept rows that have the base identity fields AND either:
       - a numeric 'pnl' column, OR
@@ -1101,10 +1133,23 @@ if not SKIP_TRADES_VALIDATION:
             st.write(f"{i}. {msg}")
         st.stop()
 else:
-    # Do NOT block the app; allow running with no CSV
-    # If df is missing/invalid, just use an empty DataFrame so pages can show "no data" messages
-    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
-        df = pd.DataFrame()
+    df = pd.DataFrame(
+        columns=[
+            "trade_id",
+            "symbol",
+            "side",
+            "entry_time",
+            "exit_time",
+            "entry_price",
+            "exit_price",
+            "qty",
+            "fees",
+            "session",
+            "notes",
+            "pnl",
+            "Account",
+        ]
+    )
 
 
 # If a PnL column already exists, keep it. Otherwise compute PnL only if we have price/qty.
