@@ -51,7 +51,7 @@ def require_password():
 
 require_password()
 
-st.sidebar.caption("DEMO_MODE")
+# st.sidebar.caption("DEMO_MODE")
 
 _settings_path = _Path(__file__).with_name("settings.json")
 if _settings_path.exists() and "app_settings" not in st.session_state:
