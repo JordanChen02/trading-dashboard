@@ -892,6 +892,10 @@ else:
 # Normalize just like before (maps Journal column names)
 df, _j_issues = normalize_trades(df, account_label="Journal")
 
+# Ensure pnl column exists (prevents KeyError when journal is empty)
+if "pnl" not in df.columns:
+    df["pnl"] = 0.0
+
 # Safety: ensure Account column
 if "Account" not in df.columns:
     df["Account"] = "Journal"
