@@ -33,6 +33,10 @@ from src.views.journal import render as render_journal
 from src.views.overview import render_overview
 from src.views.performance import render as render_performance
 
+SKIP_TRADES_VALIDATION = (
+    str(st.secrets.get("app", {}).get("SKIP_TRADES_VALIDATION", "")).lower() == "true"
+)
+
 
 def require_password():
     pw = st.secrets.get("auth", {}).get("PASSWORD")
