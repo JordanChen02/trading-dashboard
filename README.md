@@ -72,35 +72,54 @@ Deep-dive analytics:
 <details>
 <summary>Click to expand</summary>
 
-<pre><code>src/
-├─ app.py                # main entrypoint
-├─ theme.py              # color and style constants
-├─ styles.py             # injected CSS + layout overrides
-├─ io.py  utils.py  state.py  metrics.py
+<pre><code>.
+├─ app.py                 # main entrypoint
+├─ requirements.txt       # dependencies for Streamlit Cloud
+├─ README.md              # project documentation
 │
-├─ charts/               # all Plotly charts
-│  ├─ equity.py
-│  ├─ drawdown.py
-│  ├─ rr.py
-│  ├─ pnl.py
-│  ├─ long_short.py
-│  └─ tier_wr.py
+├─ src/                   # core source folder
+│  ├─ theme.py            # color and style constants
+│  ├─ styles.py           # injected CSS + layout overrides
+│  ├─ io.py               # data loading and file utilities
+│  ├─ utils.py            # helper functions
+│  ├─ state.py            # session state + app config
+│  ├─ metrics.py          # PnL and performance calculations
+│  │
+│  ├─ charts/             # all Plotly charts
+│  │  ├─ equity.py
+│  │  ├─ drawdown.py
+│  │  ├─ rr.py
+│  │  ├─ pnl.py
+│  │  ├─ long_short.py
+│  │  └─ tier_wr.py
+│  │
+│  ├─ components/         # reusable UI submodules
+│  │  ├─ monthly_stats.py
+│  │  ├─ winstreak.py
+│  │  └─ last_trades.py
+│  │
+│  └─ views/              # page-level views
+│     ├─ overview.py
+│     ├─ performance.py
+│     ├─ calendar.py
+│     ├─ journal.py
+│     ├─ account.py
+│     └─ checklist.py
 │
-├─ components/           # UI submodules
-│  ├─ monthly_stats.py
-│  ├─ winstreak.py
-│  └─ last_trades.py
+├─ assets/                # images, icons, etc.
 │
-└─ views/                # page-level views
-   ├─ overview.py
-   ├─ performance.py
-   ├─ calendar.py
-   ├─ journal.py
-   ├─ account.py
-   └─ checklist.py
+└─ data/                  # sample data and schemas
+   ├─ journals/
+   │  ├─ sample_trades.csv
+   │  ├─ sample_trade_med_schema.csv
+   │  └─ sample_tv_trades.csv
+   └─ docs/
+      ├─ metrics.md
+      └─ schema.md
 </code></pre>
 
 </details>
+
 
 
 
