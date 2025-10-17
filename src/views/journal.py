@@ -284,11 +284,52 @@ def _compute_derived(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _init_session_state() -> None:
+    """Initialize journal session keys for PRIVATE mode (no CSV required)."""
+    import pandas as pd
+    import streamlit as st
+
+    # Empty, editable journal schema (matches your Styled view/editor columns)
+    if "journal_df" not in st.session_state or st.session_state.get("journal_df") is None:
+        st.session_state.journal_df = pd.DataFrame(
+            columns=[
+                "Trade #",
+                "Account",
+                "Win/Loss",
+                "Symbol",
+                "Date",
+                "Day of Week",
+                "Direction",
+                "Timeframe",
+                "Type",
+                "Setup Tier",
+                "Score",
+                "Grade",
+                "Confirmations",
+                "Entry Time",
+                "Exit Time",
+                "Duration (min)",
+                "Duration",
+                "PnL",
+                "Dollars Risked",
+                "R Ratio",
+                "Chart URL",
+                "Micromanaged?",
+                "Comments",
+            ]
+        )
+
+    # Topbar / filters safe defaults used across pages
+    st.session_state.setdefault("accounts_options", ["NQ", "Crypto (Live)", "Crypto (Prop)"])
+    st.session_state.setdefault("journal_view_mode", "Styled")
+    st.session_state.setdefault("new_entry_force_once", False)
+
+
 def load_journal_for_page() -> pd.DataFrame:
     """
     Returns the journal DataFrame based on DEMO_MODE.
-    - DEMO: always use the built-in placeholder generator (fake data).
-    - PRIVATE: ask the user for a CSV (or reuse what's already in session).
+    DEMO: generate placeholder data once per session.
+    PRIVATE: never require CSV; always use session (init empty schema if missing).
     """
     if DEMO_MODE:
         if (
@@ -299,22 +340,35 @@ def load_journal_for_page() -> pd.DataFrame:
             st.session_state.journal_df = _generate_fake_journal(300)
         return st.session_state.journal_df
 
-    # PRIVATE MODE:
-    if (
-        "journal_df" in st.session_state
-        and isinstance(st.session_state.journal_df, pd.DataFrame)
-        and not st.session_state.journal_df.empty
-    ):
-        return st.session_state.journal_df
-
-    st.info("Private mode — upload your journal CSV to continue.", icon="📄")
-    file = st.file_uploader("Upload journal CSV", type=["csv"], key="jr_csv")
-    if file is None:
-        st.stop()  # pause page until a file is provided
-
-    # Minimal path: read CSV directly. (You can swap to src.io.load_trades later.)
-    df = pd.read_csv(file)
-    st.session_state.journal_df = _compute_derived(df)
+    # PRIVATE MODE: no CSV dependency
+    if "journal_df" not in st.session_state or st.session_state.journal_df is None:
+        st.session_state.journal_df = pd.DataFrame(
+            columns=[
+                "Trade #",
+                "Account",
+                "Win/Loss",
+                "Symbol",
+                "Date",
+                "Day of Week",
+                "Direction",
+                "Timeframe",
+                "Type",
+                "Setup Tier",
+                "Score",
+                "Grade",
+                "Confirmations",
+                "Entry Time",
+                "Exit Time",
+                "Duration (min)",
+                "Duration",
+                "PnL",
+                "Dollars Risked",
+                "R Ratio",
+                "Chart URL",
+                "Micromanaged?",
+                "Comments",
+            ]
+        )
     return st.session_state.journal_df
 
 
@@ -608,13 +662,38 @@ def _generate_fake_journal(n: int = 200) -> pd.DataFrame:
     return _compute_derived(df)
 
 
-def _init_session_state():
-    if "journal_df" not in st.session_state:
-        if DEMO_MODE:
-            st.session_state.journal_df = _generate_fake_journal(300)
-        else:
-            st.session_state.journal_df = pd.DataFrame()
-        st.session_state.setdefault("new_entry_force_once", False)
+if "journal_df" not in st.session_state:
+    if DEMO_MODE:
+        st.session_state.journal_df = _generate_fake_journal(300)
+    else:
+        st.session_state.journal_df = pd.DataFrame(
+            columns=[
+                "Trade #",
+                "Account",
+                "Win/Loss",
+                "Symbol",
+                "Date",
+                "Day of Week",
+                "Direction",
+                "Timeframe",
+                "Type",
+                "Setup Tier",
+                "Score",
+                "Grade",
+                "Confirmations",
+                "Entry Time",
+                "Exit Time",
+                "Duration (min)",
+                "Duration",
+                "PnL",
+                "Dollars Risked",
+                "R Ratio",
+                "Chart URL",
+                "Micromanaged?",
+                "Comments",
+            ]
+        )
+    st.session_state.setdefault("new_entry_force_once", False)
 
     if "show_new_entry" not in st.session_state:
         st.session_state.show_new_entry = False
@@ -882,6 +961,9 @@ def _render_summary(df: pd.DataFrame):
 
 
 # ----------------------------- main render -----------------------------
+df = st.session_state.get("journal_df", pd.DataFrame()).copy()
+
+
 def render(*_args, **_kwargs) -> None:
     _init_session_state()
 
