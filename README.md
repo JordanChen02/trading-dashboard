@@ -69,32 +69,37 @@ Deep-dive analytics:
 ---
 
 ## 🧱 Project Structure
+<details>
+<summary>Click to expand</summary>
 src/
-├── app.py # main entrypoint
-├── theme.py # color and style constants
-├── styles.py # injected CSS + layout overrides
-├── io.py, utils.py, state.py, metrics.py
+├─ app.py # main entrypoint
+├─ theme.py # color and style constants
+├─ styles.py # injected CSS + layout overrides
+├─ io.py utils.py state.py metrics.py
 │
-├── charts/ # all Plotly charts
-│ ├── equity.py
-│ ├── drawdown.py
-│ ├── rr.py
-│ ├── pnl.py
-│ ├── long_short.py
-│ └── tier_wr.py
+├─ charts/
+│ ├─ equity.py
+│ ├─ drawdown.py
+│ ├─ rr.py
+│ ├─ pnl.py
+│ ├─ long_short.py
+│ └─ tier_wr.py
 │
-├── components/ # UI submodules
-│ ├── monthly_stats.py
-│ ├── winstreak.py
-│ └── last_trades.py
+├─ components/
+│ ├─ monthly_stats.py
+│ ├─ winstreak.py
+│ └─ last_trades.py
 │
-└── views/ # page-level views
-├── overview.py
-├── performance.py
-├── calendar.py
-├── journal.py
-├── account.py
-└── checklist.py
+└─ views/
+├─ overview.py
+├─ performance.py
+├─ calendar.py
+├─ journal.py
+├─ account.py
+└─ checklist.py
+
+</details>
+
 
 
 ---
