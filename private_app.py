@@ -1092,12 +1092,15 @@ def _flexible_validate_df(df_in: pd.DataFrame) -> list[str]:
 
 
 # ===================== PIPELINE: Validate → PnL → Preview =====================
-issues = _flexible_validate_df(df)
-if issues:
-    st.error("We found issues in your CSV:")
-    for i, msg in enumerate(issues, start=1):
-        st.write(f"{i}. {msg}")
-    st.stop()
+# Only validate when not explicitly skipping
+if not SKIP_TRADES_VALIDATION:
+    issues = _flexible_validate_df(df)
+    if issues:
+        st.error("We found issues in your CSV:")
+        for i, msg in enumerate(issues, start=1):
+            st.write(f"{i}. {msg}")
+        st.stop()
+
 
 # If a PnL column already exists, keep it. Otherwise compute PnL only if we have price/qty.
 if "pnl" in df.columns:
