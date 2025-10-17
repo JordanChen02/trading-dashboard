@@ -17,7 +17,6 @@ try:
 except Exception:
     import streamlit as st  # ensure st is in scope
 
-    DEMO_MODE = str(st.secrets.get("app", {}).get("DEMO_MODE", "")).lower() == "true"
 
 # ----------------------------- config -----------------------------
 SYMBOLS = [

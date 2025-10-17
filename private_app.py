@@ -14,8 +14,6 @@ import plotly.graph_objects as go
 import streamlit as st
 
 # 👇 our modules
-from src.io import load_trades
-from src.metrics import add_pnl
 from src.state import ensure_defaults
 from src.styles import (
     inject_filters_css,
@@ -33,40 +31,6 @@ from src.views.journal import render as render_journal
 from src.views.overview import render_overview
 from src.views.performance import render as render_performance
 
-# Read secrets
-_raw_demo = st.secrets.get("app", {}).get("DEMO_MODE", "")
-DEMO_MODE = (str(_raw_demo).lower() == "true") or (_raw_demo is True)
-
-_raw_skip = st.secrets.get("app", {}).get("SKIP_TRADES_VALIDATION", "")
-SKIP_TRADES_VALIDATION = (str(_raw_skip).lower() == "true") or (_raw_skip is True)
-
-st.sidebar.caption(f"SKIP_TRADES_VALIDATION = {SKIP_TRADES_VALIDATION}")
-
-# The absolute minimum schema the "trades" engine expects
-REQUIRED_BASE_COLS = ["trade_id", "symbol", "side", "entry_time", "exit_time"]
-
-# Optional columns many charts compute from; we’ll stub them to avoid KeyErrors
-OPTIONAL_COLS = ["entry_price", "exit_price", "qty", "pnl"]
-
-
-def make_empty_trades() -> pd.DataFrame:
-    """Return an empty trades DF with all required columns present so the app doesn't crash."""
-    df = pd.DataFrame(columns=REQUIRED_BASE_COLS + OPTIONAL_COLS)
-    # ensure correct dtypes when empty to keep downstream happy
-    for c in ["entry_time", "exit_time"]:
-        df[c] = pd.to_datetime(df[c], errors="coerce")
-    for c in ["entry_price", "exit_price", "qty", "pnl"]:
-        df[c] = pd.to_numeric(df[c], errors="coerce")
-    return df
-
-
-def validate_trades(df: pd.DataFrame) -> list[str]:
-    """Central validator wrapper. Returns [] when skipping validation."""
-    if SKIP_TRADES_VALIDATION:
-        return []
-    # your existing validator (rename if needed)
-    return _flexible_validate_df(df)
-
 
 def require_password():
     pw = st.secrets.get("auth", {}).get("PASSWORD")
@@ -83,7 +47,6 @@ def require_password():
 
 require_password()
 
-# st.sidebar.caption("DEMO_MODE")
 
 _settings_path = _Path(__file__).with_name("settings.json")
 if _settings_path.exists() and "app_settings" not in st.session_state:
@@ -117,6 +80,7 @@ if "starting_equity" not in st.session_state:
 # ---------------------------------------------------------------
 # ---- KPI inputs from df_view: Net Profit & Balance (per-account equity map) ----
 def _kpi_net_and_balance(df_view):
+    import streamlit as st
 
     if df_view is None or len(df_view) == 0:
         # No data → net = 0; balance = sum of starting_equity for any selected accounts (or default once)
@@ -915,271 +879,25 @@ with st.sidebar:
     st.divider()
 
 
-# ===================== MAIN: Upload OR Journal Fallback =====================
-df = None
-source_label = ""
+# ===================== MAIN: Journal Session Only =====================
 
-# 1) If user picked a file from the burger/popover, use it
-_menu_file = st.session_state.get("_menu_file_obj")
+# Pull from in-memory Journal only (no CSV)
+df = st.session_state.get("journal_df", pd.DataFrame()).copy()
 
-if _menu_file is not None:
-    source_label = f"uploaded: {getattr(_menu_file, 'name', 'file.csv')}"
-    try:
-        _menu_file.seek(0)
-        df = load_trades(_menu_file)
-    except Exception as e:
-        st.error(f"Could not read that file: {e}")
-        st.stop()
+if df.empty:
+    st.warning("No trades yet — add some in Journal.")
 else:
-    # 2) Otherwise fallback to currently selected journal (if any)
-    sel_id = st.session_state.get("selected_journal")
-    if sel_id:
-        idx = load_journal_index()
-        rec = next((j for j in idx.get("journals", []) if j["id"] == sel_id), None)
-        if rec and Path(rec["path"]).exists():
-            source_label = f"journal: {rec['name']}"
-            # ---- read file in a way that tolerates empty CSVs ----
-            with open(rec["path"], "rb") as f:
-                _bytes = f.read()
+    st.success(f"Loaded {len(df)} trades from Journal session.")
 
-            # If empty file → show an empty Journal page instead of erroring
-            if not _bytes.strip():
-                empty_cols = [
-                    "trade_id",
-                    "symbol",
-                    "side",
-                    "entry_time",
-                    "exit_time",
-                    "entry_price",
-                    "exit_price",
-                    "qty",
-                    "fees",
-                    "session",
-                    "notes",
-                ]
-                df = pd.DataFrame(columns=empty_cols)
+# Normalize just like before (maps Journal column names)
+df, _j_issues = normalize_trades(df, account_label="Journal")
 
-            else:
-                import io
-
-                try:
-                    df = load_trades(io.BytesIO(_bytes))
-                except Exception as e:
-                    st.warning(f"Journal file couldn’t be parsed ({e}). Opening Journal.")
-                    empty_cols = [
-                        "trade_id",
-                        "symbol",
-                        "side",
-                        "entry_time",
-                        "exit_time",
-                        "entry_price",
-                        "exit_price",
-                        "qty",
-                        "fees",
-                        "session",
-                        "notes",
-                    ]
-                    df = pd.DataFrame(columns=empty_cols)
-
-# 3) Final safety: ensure df is always defined
-if df is None:
-    df = pd.DataFrame(
-        columns=[
-            "trade_id",
-            "symbol",
-            "side",
-            "entry_time",
-            "exit_time",
-            "entry_price",
-            "exit_price",
-            "qty",
-            "fees",
-            "session",
-            "notes",
-        ]
-    )
-    source_label = "empty"
-
-
-# If we still don't have data, bail out gently
-if df is None:
-    st.info("Use the profile menu (top-right) to upload a CSV, or create/select a journal.")
-    st.stop()
-
-
-# st.caption(f"Data source: **{source_label}**")
-st.toast(f"✅ Loaded {len(df)} trades from {source_label}")
-
-# Use Journal as the base, normalized
-base_journal_raw = st.session_state.get("journal_df", pd.DataFrame()).copy()
-base_journal, _j_issues = normalize_trades(base_journal_raw, account_label="Journal")
-df = base_journal
-
-
-# ===================== COMPOSE MULTI-ACCOUNT VIEW (Journal + any uploaded CSVs) =====================
-# Keep Journal account names as-is. Only add a fallback if column is missing.
+# Safety: ensure Account column
 if "Account" not in df.columns:
-    df["Account"] = "Journal (Base)"
-else:
-    df["Account"] = df["Account"].astype(str).str.strip()
+    df["Account"] = "Journal"
 
-# If you’ve stored uploads in the profile menu (top-right), they live in st.session_state["_uploaded_files"].
-# We’ll add each one as its own Account, labelled by filename (without extension).
-extra_frames = []
-_uploaded = st.session_state.get("_uploaded_files", {}) or {}
-if _uploaded:
-    import io
-    import os
-
-    for _fname, _bytes in _uploaded.items():
-        try:
-            raw = pd.read_csv(io.BytesIO(_bytes))
-        except Exception as e:
-            st.warning(f"Failed to read '{_fname}': {e}")
-            continue
-        label = os.path.splitext(os.path.basename(_fname))[0] or "CSV"
-        clean, _c_issues = normalize_trades(raw, account_label=label)
-        extra_frames.append(clean)
-
-if extra_frames:
-    df = pd.concat([df] + extra_frames, ignore_index=True)
-    st.toast(f"📎 Merged {len(extra_frames)} uploaded file(s) as Account(s)")
-
-
-def _flexible_validate_df(df_in: pd.DataFrame) -> list[str]:
-    if SKIP_TRADES_VALIDATION:
-        return []
-    """
-    Accept rows that have the base identity fields AND either:
-      - a numeric 'pnl' column, OR
-      - the trio entry_price/exit_price/qty (so we can compute PnL).
-    Optional columns ('fees','session','notes') are auto-created if missing.
-    """
-    problems: list[str] = []
-    df = df_in.copy()
-
-    # Always-required (existence)
-    base_req = ["trade_id", "symbol", "side", "entry_time", "exit_time"]
-    missing_base = [c for c in base_req if c not in df.columns]
-    if missing_base:
-        problems.append(f"Missing required columns: {missing_base}")
-        return problems
-
-    # Optional defaults (so downstream charts don’t crash)
-    if "fees" not in df.columns:
-        df["fees"] = 0.0
-    if "session" not in df.columns:
-        df["session"] = ""
-    if "notes" not in df.columns:
-        df["notes"] = ""
-
-    # Coerce types
-    for c in ["entry_time", "exit_time"]:
-        df[c] = pd.to_datetime(df[c], errors="coerce")
-    for c in ["entry_price", "exit_price", "qty", "fees", "pnl"]:
-        if c in df.columns:
-            df[c] = pd.to_numeric(df[c], errors="coerce")
-
-    # Backfill exit_time from entry_time if exit_time is missing/empty
-    if "exit_time" not in df.columns:
-        df["exit_time"] = df.get("entry_time")
-    else:
-        _et = pd.to_datetime(df["exit_time"], errors="coerce")
-        df.loc[_et.isna(), "exit_time"] = df.get("entry_time")
-
-    # Normalize side
-    side_map = {
-        "buy": "long",
-        "long": "long",
-        "l": "long",
-        "sell": "short",
-        "short": "short",
-        "s": "short",
-    }
-    df["side"] = df["side"].astype(str).str.strip().str.lower().map(side_map)
-
-    # Row viability: base identity present & either pnl or components present
-    base_ok = (
-        df["trade_id"].notna()
-        & df["symbol"].notna()
-        & df["side"].isin(["long", "short"])
-        & df["entry_time"].notna()
-        & df["exit_time"].notna()
-    )
-    pnl_ser = pd.to_numeric(df.get("pnl"), errors="coerce")
-    has_pnl = pnl_ser.notna()
-    has_components = (
-        df.get("entry_price", pd.Series(index=df.index, dtype="float64")).notna()
-        & df.get("exit_price", pd.Series(index=df.index, dtype="float64")).notna()
-        & df.get("qty", pd.Series(index=df.index, dtype="float64")).notna()
-    )
-    viable = base_ok & (has_pnl | has_components)
-
-    dropped = int((~viable).sum())
-    if dropped:
-        problems.append(f"Dropped {dropped} rows that failed minimal checks")
-
-    return problems
-
-
-# ===================== PIPELINE: Validate → PnL → Preview =====================
-# df is whatever you've loaded as "trades" for the pages
-# Only validate/stop when the flag is OFF
-if not SKIP_TRADES_VALIDATION:
-    issues = _flexible_validate_df(df)
-    if issues:
-        st.error("We found issues in your CSV:")
-        for i, msg in enumerate(issues, start=1):
-            st.write(f"{i}. {msg}")
-        st.stop()
-else:
-    df = pd.DataFrame(
-        columns=[
-            "trade_id",
-            "symbol",
-            "side",
-            "entry_time",
-            "exit_time",
-            "entry_price",
-            "exit_price",
-            "qty",
-            "fees",
-            "session",
-            "notes",
-            "pnl",
-            "Account",
-        ]
-    )
-
-
-# If a PnL column already exists, keep it. Otherwise compute PnL only if we have price/qty.
-if "pnl" in df.columns:
-    pass  # already there
-else:
-    needed = {"entry_price", "exit_price", "qty"}
-    if needed.issubset(set(df.columns)):
-        # Only try to compute if there is at least one row; otherwise add_pnl is a no-op anyway
-        if len(df) > 0:
-            df = add_pnl(df)
-        else:
-            df["pnl"] = pd.Series(dtype="float64")
-    else:
-        # ← THIS is the part that was stopping you. Make it lenient when skip flag is on.
-        if SKIP_TRADES_VALIDATION:
-            # Let the app run: create a zero-PnL column and keep going.
-            df["pnl"] = 0.0
-            # also ensure the three columns exist so downstream code doesn’t KeyError
-            for c in ("entry_price", "exit_price", "qty"):
-                if c not in df.columns:
-                    df[c] = pd.Series(dtype="float64")
-        else:
-            missing_needed = sorted(list(needed - set(df.columns)))
-            st.error("We found issues in your CSV:")
-            st.write(
-                f"1. Missing required columns to compute PnL: {missing_needed}. "
-                f"Provide a 'pnl' column OR include entry_price, exit_price, and qty."
-            )
-            st.stop()
+# Optional: caption to confirm data source
+st.caption("Source: **Journal (session)**")
 
 
 # --- Detect a usable date column ONCE and compute bounds for "All Dates" ---
@@ -1479,34 +1197,6 @@ with t_profile:
         inject_upload_css()
         st.markdown('<div class="upload-pop">', unsafe_allow_html=True)
 
-        if "_uploaded_files" not in st.session_state:
-            st.session_state["_uploaded_files"] = {}
-
-        _newfile = st.file_uploader("Browse file", type=["csv"], key="file_menu")
-        if _newfile is not None:
-            st.session_state["_uploaded_files"][_newfile.name] = _newfile.read()
-            st.toast(f"Saved '{_newfile.name}'")
-            st.session_state["_selected_upload"] = _newfile.name
-
-        if st.session_state["_uploaded_files"]:
-            _names = list(st.session_state["_uploaded_files"].keys())
-            _sel_ix = _names.index(st.session_state.get("_selected_upload", _names[0]))
-            _sel = st.selectbox(
-                "Uploaded files", options=_names, index=_sel_ix, key="uploaded_files_select"
-            )
-            st.session_state["_selected_upload"] = _sel
-
-            if st.button("Use this file", use_container_width=True):
-                import io
-
-                file = io.BytesIO(st.session_state["_uploaded_files"][_sel])
-                file.name = _sel
-                st.session_state["_menu_file_obj"] = file
-                st.toast(f"Using '{_sel}' as current dataset")
-                st.rerun()
-        else:
-            st.caption("No uploads yet.")
-
         st.markdown("</div>", unsafe_allow_html=True)  # close .upload-pop
         st.markdown("</div>", unsafe_allow_html=True)  # close .profile-pop
 # ====================================================================
@@ -1528,6 +1218,8 @@ if "_trade_tags" not in st.session_state:
     st.session_state["_trade_tags"] = {}
 
 # Determine journal meta sidecar path (if current source is a journal) and load it once
+source_label = "journal: session"  # added placeholder since we removed CSV logic
+
 _journal_meta_path = None
 sel_id = st.session_state.get("selected_journal")
 if isinstance(source_label, str) and source_label.startswith("journal:") and sel_id:
