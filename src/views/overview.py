@@ -255,7 +255,7 @@ def render_overview(
             background: {CARD_BG} !important;
             border: 1px solid rgba(255,255,255,0.06);
             border-radius: 16px !important;
-            padding: 12.5px !important;
+            padding: 10px !important;
             transform: translateY(0px);
             min-height: 145px;
             overflow: hidden;
@@ -689,7 +689,13 @@ def render_overview(
                         .ls-card .ls-inner {{ transform: translateY(-16px); }}  /* raise/lower content only */
                         .ls-title {{ text-align:center; font-weight:600; font-size:14px; color:#E5E7EB; margin:0 0 8px 0; }}
                         .ls-wrap {{ width:100%; }}
-
+                        .ls-card .ui-title {{
+                            font-size: 14px;      /* smaller like other titles */
+                            font-weight: 700;     /* heavier */
+                            margin: 0 0 16px 0;    /* a bit of space below */
+                            text-align: center;
+                            color: #E5E7EB;
+                        }}
                         /* Center the two text rows; pill remains full width below */
                         .ls-row {{
                         display:grid; grid-template-columns:1fr 1fr; align-items:baseline;
@@ -777,8 +783,9 @@ def render_overview(
 
         # ===== Most Traded Assets (donut + legend/table) — ABOVE Equity Curve =====
         with st.container(border=False):
+            MTA_TITLE_XSHIFT_PX = 19  # ⬅︎ adjust this to move the title right (+) / left (−)
             st.markdown(
-                "<div class='mta-root' style='font-weight:600; margin:10px 0 4px;'>Most Traded Assets</div>",
+                f"<div class='mta-root' style='font-weight:700; margin:10px 0 4px; margin-left:{MTA_TITLE_XSHIFT_PX}px;'>Most Traded Assets</div>",
                 unsafe_allow_html=True,
             )
 

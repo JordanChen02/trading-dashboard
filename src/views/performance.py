@@ -19,6 +19,7 @@ KPI_VRULE_HEIGHT_PX = 190  # height of vertical dividers between KPI columns
 DIVIDER_MARGIN_PX = 12  # extra space above & below the horizontal divider
 CHART_HEIGHT_PX = 370  # overall height for each chart
 TITLE_TOP_MARGIN = 52  # inside-figure space reserved for the title
+TITLE_BOTTOM_GAP_PX = 18  # extra space *below* the chart title (adjust to taste)
 TITLE_X = 0.04  # try 0.03–0.06; 0 = hard left, 0.5 = center
 
 
@@ -161,7 +162,13 @@ def _daily_r(dates: pd.Series, r: pd.Series) -> pd.DataFrame:
 # ================ Base figure styling ================
 def _base_layout(fig: go.Figure, title_text: str, height: int = CHART_HEIGHT_PX) -> go.Figure:
     fig.update_layout(
-        title=dict(text=title_text, x=TITLE_X, xanchor="left", font=dict(size=15, color=FG)),
+        title=dict(
+            text=title_text,
+            x=TITLE_X,
+            xanchor="left",
+            font=dict(size=15, color=FG),
+            pad=dict(b=TITLE_BOTTOM_GAP_PX),
+        ),
         height=height,
         margin=dict(l=8, r=8, t=TITLE_TOP_MARGIN, b=12),  # extra headroom for title
         paper_bgcolor=CARD_BG,
@@ -379,10 +386,23 @@ def _fig_pnl_histogram(pnl_per_trade: pd.Series, nbins: int = 40) -> go.Figure:
     fig.update_layout(
         bargap=0.15,
         showlegend=True,
+        legend=dict(
+            orientation="h",  # horizontal legend
+            yanchor="bottom",
+            y=1.02,  # place ABOVE the plotting area
+            xanchor="center",
+            x=0.8,  # center it
+        ),
         xaxis_title="PnL per trade ($)",
         yaxis_title="Count",
     )
-    fig.update_xaxes(tickprefix="$", separatethousands=True)
+    fig.update_xaxes(
+        tickprefix="$",
+        separatethousands=True,
+        ticklabelposition="outside",
+        ticklabelshift=28,  # ← shift labels to the right (px). Adjust to taste.
+        automargin=True,
+    )
 
     return _base_layout(fig, title)
 
