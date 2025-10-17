@@ -1205,6 +1205,11 @@ with t_profile:
         st.markdown("</div>", unsafe_allow_html=True)  # close .profile-pop
 # ====================================================================
 
+# --- Ensure both 'symbol' and 'Symbol' exist before any page uses df ---
+if "symbol" in df.columns and "Symbol" not in df.columns:
+    df["Symbol"] = df["symbol"]
+elif "Symbol" in df.columns and "symbol" not in df.columns:
+    df["symbol"] = df["Symbol"]
 
 # ---- Router: open Journal page if selected ----
 if st.session_state.get("nav", "Dashboard") == "Journal":

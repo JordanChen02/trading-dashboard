@@ -969,9 +969,6 @@ def render(*_args, **_kwargs) -> None:
 
     inject_journal_css()
 
-    if DEMO_MODE:
-        st.caption("**Demo Mode** — using placeholder data (resets per session).")
-
     # If not explicitly forcing, auto-close on rerun so it doesn’t keep popping back
     if st.session_state.get("show_new_entry") and not st.session_state.get("new_entry_force_once"):
         st.session_state["show_new_entry"] = False
