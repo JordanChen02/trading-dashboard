@@ -10,6 +10,15 @@ import streamlit as st
 
 from src.styles import inject_journal_css
 
+# --- Demo flag (read from Streamlit secrets) ---
+try:
+    # if you later put DEMO_MODE in src/state.py, this import will work
+    from src.state import DEMO_MODE  # optional
+except Exception:
+    import streamlit as st  # ensure st is in scope
+
+    DEMO_MODE = str(st.secrets.get("app", {}).get("DEMO_MODE", "")).lower() == "true"
+
 # ----------------------------- config -----------------------------
 SYMBOLS = [
     "BTCUSDT",
@@ -274,6 +283,40 @@ def _compute_derived(df: pd.DataFrame) -> pd.DataFrame:
     ).reset_index(drop=True)
     df["Trade #"] = df.index + 1
     return df
+
+
+def load_journal_for_page() -> pd.DataFrame:
+    """
+    Returns the journal DataFrame based on DEMO_MODE.
+    - DEMO: always use the built-in placeholder generator (fake data).
+    - PRIVATE: ask the user for a CSV (or reuse what's already in session).
+    """
+    if DEMO_MODE:
+        if (
+            "journal_df" not in st.session_state
+            or st.session_state.journal_df is None
+            or st.session_state.journal_df.empty
+        ):
+            st.session_state.journal_df = _generate_fake_journal(300)
+        return st.session_state.journal_df
+
+    # PRIVATE MODE:
+    if (
+        "journal_df" in st.session_state
+        and isinstance(st.session_state.journal_df, pd.DataFrame)
+        and not st.session_state.journal_df.empty
+    ):
+        return st.session_state.journal_df
+
+    st.info("Private mode — upload your journal CSV to continue.", icon="📄")
+    file = st.file_uploader("Upload journal CSV", type=["csv"], key="jr_csv")
+    if file is None:
+        st.stop()  # pause page until a file is provided
+
+    # Minimal path: read CSV directly. (You can swap to src.io.load_trades later.)
+    df = pd.read_csv(file)
+    st.session_state.journal_df = _compute_derived(df)
+    return st.session_state.journal_df
 
 
 def _fake_comment(win: bool) -> str:
@@ -568,7 +611,10 @@ def _generate_fake_journal(n: int = 200) -> pd.DataFrame:
 
 def _init_session_state():
     if "journal_df" not in st.session_state:
-        st.session_state.journal_df = _generate_fake_journal(300)
+        if DEMO_MODE:
+            st.session_state.journal_df = _generate_fake_journal(300)
+        else:
+            st.session_state.journal_df = pd.DataFrame()
         st.session_state.setdefault("new_entry_force_once", False)
 
     if "show_new_entry" not in st.session_state:
@@ -842,6 +888,9 @@ def render(*_args, **_kwargs) -> None:
 
     inject_journal_css()
 
+    if DEMO_MODE:
+        st.caption("**Demo Mode** — using placeholder data (resets per session).")
+
     # If not explicitly forcing, auto-close on rerun so it doesn’t keep popping back
     if st.session_state.get("show_new_entry") and not st.session_state.get("new_entry_force_once"):
         st.session_state["show_new_entry"] = False
@@ -1074,7 +1123,7 @@ def render(*_args, **_kwargs) -> None:
     st.markdown('<div class="journal-scope">', unsafe_allow_html=True)
 
     # ---------------- Filters ----------------
-    df_all = st.session_state.journal_df.copy()
+    df_all = load_journal_for_page().copy()
     df_all = _ensure_session_column(df_all)
 
     # Ensure Account exists for filtering

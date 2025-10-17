@@ -4,6 +4,8 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
+DEMO_MODE = str(st.secrets.get("app", {}).get("DEMO_MODE", "")).lower() == "true"
+
 
 def ensure_defaults() -> None:
     """Initialize Streamlit session_state defaults once."""

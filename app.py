@@ -36,6 +36,23 @@ from src.views.performance import render as render_performance
 # (other imports are fine above or below — imports don’t matter)
 
 
+def require_password():
+    pw = st.secrets.get("auth", {}).get("PASSWORD")
+    if not pw:
+        return  # no password configured → do nothing
+    if not st.session_state.get("_authed"):
+        st.title("Edgeboard — Sign in")
+        i = st.text_input("Password", type="password")
+        if st.button("Enter"):
+            st.session_state["_authed"] = i == pw
+        if not st.session_state.get("_authed"):
+            st.stop()
+
+
+require_password()
+
+st.sidebar.caption("DEMO_MODE")
+
 _settings_path = _Path(__file__).with_name("settings.json")
 if _settings_path.exists() and "app_settings" not in st.session_state:
     try:
