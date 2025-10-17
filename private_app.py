@@ -33,9 +33,8 @@ from src.views.journal import render as render_journal
 from src.views.overview import render_overview
 from src.views.performance import render as render_performance
 
-SKIP_TRADES_VALIDATION = (
-    str(st.secrets.get("app", {}).get("SKIP_TRADES_VALIDATION", "")).lower() == "true"
-)
+_raw = st.secrets.get("app", {}).get("SKIP_TRADES_VALIDATION", "")
+SKIP_TRADES_VALIDATION = (str(_raw).lower() == "true") or (_raw is True)
 
 
 def require_password():
@@ -1092,7 +1091,8 @@ def _flexible_validate_df(df_in: pd.DataFrame) -> list[str]:
 
 
 # ===================== PIPELINE: Validate → PnL → Preview =====================
-# Only validate when not explicitly skipping
+# df is whatever you've loaded as "trades" for the pages
+# Only validate/stop when the flag is OFF
 if not SKIP_TRADES_VALIDATION:
     issues = _flexible_validate_df(df)
     if issues:
@@ -1100,25 +1100,41 @@ if not SKIP_TRADES_VALIDATION:
         for i, msg in enumerate(issues, start=1):
             st.write(f"{i}. {msg}")
         st.stop()
+else:
+    # Do NOT block the app; allow running with no CSV
+    # If df is missing/invalid, just use an empty DataFrame so pages can show "no data" messages
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        df = pd.DataFrame()
 
 
 # If a PnL column already exists, keep it. Otherwise compute PnL only if we have price/qty.
 if "pnl" in df.columns:
-    # nothing to do; downstream charts will use df["pnl"] as provided
-    pass
+    pass  # already there
 else:
     needed = {"entry_price", "exit_price", "qty"}
     if needed.issubset(set(df.columns)):
-        df = add_pnl(df)
+        # Only try to compute if there is at least one row; otherwise add_pnl is a no-op anyway
+        if len(df) > 0:
+            df = add_pnl(df)
+        else:
+            df["pnl"] = pd.Series(dtype="float64")
     else:
-        # We reach here only if there's no 'pnl' and we also can't compute it.
-        missing_needed = sorted(list(needed - set(df.columns)))
-        st.error("We found issues in your CSV:")
-        st.write(
-            f"1. Missing required columns to compute PnL: {missing_needed}. "
-            f"Provide a 'pnl' column OR include entry_price, exit_price, and qty."
-        )
-        st.stop()
+        # ← THIS is the part that was stopping you. Make it lenient when skip flag is on.
+        if SKIP_TRADES_VALIDATION:
+            # Let the app run: create a zero-PnL column and keep going.
+            df["pnl"] = 0.0
+            # also ensure the three columns exist so downstream code doesn’t KeyError
+            for c in ("entry_price", "exit_price", "qty"):
+                if c not in df.columns:
+                    df[c] = pd.Series(dtype="float64")
+        else:
+            missing_needed = sorted(list(needed - set(df.columns)))
+            st.error("We found issues in your CSV:")
+            st.write(
+                f"1. Missing required columns to compute PnL: {missing_needed}. "
+                f"Provide a 'pnl' column OR include entry_price, exit_price, and qty."
+            )
+            st.stop()
 
 
 # --- Detect a usable date column ONCE and compute bounds for "All Dates" ---
