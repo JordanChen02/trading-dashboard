@@ -318,11 +318,59 @@ def _init_session_state() -> None:
                 "Comments",
             ]
         )
-
-    # Topbar / filters safe defaults used across pages
+    # Keys New Entry & filters expect
+    st.session_state.setdefault("show_new_entry", False)
+    st.session_state.setdefault("jr_date_range", (date.today(), date.today()))
     st.session_state.setdefault("accounts_options", ["NQ", "Crypto (Live)", "Crypto (Prop)"])
     st.session_state.setdefault("journal_view_mode", "Styled")
     st.session_state.setdefault("new_entry_force_once", False)
+
+    # ✅ Use a COLOR PALETTE (not labels), same as the top-level initializer below
+    st.session_state.setdefault(
+        "confirm_color_palette",
+        [
+            "#1E3B8ACE",
+            "#0E7490CE",
+            "#065F46CE",
+            "#7C2D12CE",
+            "#6B21A8CE",
+            "#0F766ECE",
+            "#1F2937CE",
+            "#1B4079CE",
+            "#14532DCE",
+            "#3F1D38CE",
+            "#2B2D42CE",
+            "#23395BCE",
+            "#2F3E46CE",
+            "#264653CE",
+            "#3A0CA3CE",
+        ],
+    )
+    st.session_state.setdefault("confirm_color_map", {})
+    st.session_state.setdefault("confirm_color_idx", 0)
+    st.session_state.setdefault("confirmations_options", list(DEFAULT_CONFIRMATIONS))
+
+    # If there is already data, (re)seed the color map for any seen confirmation tags
+    try:
+        known = set(st.session_state.get("confirmations_options", []))
+        dfc = st.session_state.journal_df.get("Confirmations", pd.Series([], dtype=object))
+        for cell in dfc:
+            if isinstance(cell, list):
+                known.update(x for x in cell if x)
+            elif isinstance(cell, str):
+                for x in [t.strip() for t in cell.split(",") if t.strip()]:
+                    known.add(x)
+        cmap = st.session_state["confirm_color_map"]
+        pal = st.session_state["confirm_color_palette"]
+        idx = st.session_state["confirm_color_idx"]
+        for tag in sorted(known):
+            if tag not in cmap:
+                cmap[tag] = pal[idx % len(pal)]
+                idx += 1
+        st.session_state["confirm_color_idx"] = idx
+        st.session_state["confirmations_options"] = sorted(set(known))
+    except Exception:
+        pass
 
 
 def load_journal_for_page() -> pd.DataFrame:
@@ -1254,12 +1302,16 @@ def render(*_args, **_kwargs) -> None:
             default_start = _min_ts.date() if pd.notna(_min_ts) else date.today()
             default_end = _max_ts.date() if pd.notna(_max_ts) else date.today()
 
+        # Avoid warning: don't pass a default `value` AND set the same key via Session State.
+        if "jr_date_range" not in st.session_state:
+            st.session_state["jr_date_range"] = (default_start, default_end)
+
         date_range = st.date_input(
             "Date range",
-            value=(default_start, default_end),
-            help="Filter trades between start and end date (inclusive).",
             key="jr_date_range",
+            help="Filter trades between start and end date (inclusive).",
         )
+
         start_date, end_date = None, None
         if isinstance(date_range, tuple):
             if len(date_range) == 2 and all(date_range):

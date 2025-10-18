@@ -884,11 +884,6 @@ with st.sidebar:
 # Pull from in-memory Journal only (no CSV)
 df = st.session_state.get("journal_df", pd.DataFrame()).copy()
 
-if df.empty:
-    st.warning("No trades yet — add some in Journal.")
-else:
-    st.success(f"Loaded {len(df)} trades from Journal session.")
-
 # Normalize just like before (maps Journal column names)
 df, _j_issues = normalize_trades(df, account_label="Journal")
 
@@ -899,9 +894,6 @@ if "pnl" not in df.columns:
 # Safety: ensure Account column
 if "Account" not in df.columns:
     df["Account"] = "Journal"
-
-# Optional: caption to confirm data source
-st.caption("Source: **Journal (session)**")
 
 
 # --- Detect a usable date column ONCE and compute bounds for "All Dates" ---
