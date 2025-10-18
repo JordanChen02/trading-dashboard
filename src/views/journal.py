@@ -995,7 +995,8 @@ def _render_summary(df: pd.DataFrame):
     win_rate = (wins / total) * 100 if total else 0.0
     r_total = float(pd.to_numeric(df["R Ratio"], errors="coerce").fillna(0).sum())
     risk_avg = float(pd.to_numeric(df["Dollars Risked"], errors="coerce").fillna(0).mean())
-    dur_avg_min = float(pd.to_numeric(df["Duration (min)"], errors="coerce").fillna(0).mean())
+    dur_series = pd.to_numeric(df.get("Duration (min)", pd.Series(dtype=float)), errors="coerce")
+    dur_avg_min = float(dur_series.dropna().mean()) if not dur_series.empty else 0.0
 
     st.markdown("---")
     s = st.columns([1, 1, 1, 1, 1, 1, 1], gap="large")
