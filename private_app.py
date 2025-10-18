@@ -34,7 +34,10 @@ from src.views.performance import render as render_performance
 
 # ---- PRIVATE MODE: never use demo data ----
 
-jr.DEMO_MODE = False  # hard stop demo generation in this app
+
+jr.DEMO_MODE = False  # keep private app real (demo uses app.py)
+jr._init_session_state()
+
 
 # --- HARD RESET: never reuse any demo caches in the private app ---
 try:

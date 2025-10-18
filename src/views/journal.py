@@ -370,15 +370,21 @@ def _init_session_state() -> None:
     # --- Journal dataframe: DEMO vs PRIVATE ---
     if "journal_df" not in st.session_state or st.session_state.get("journal_df") is None:
         if DEMO_MODE:
-            # Generate ~300 fake trades once (demo)
+            # DEMO: generate once per session
             st.session_state.journal_df = _generate_fake_journal(300)
         else:
-            # PRIVATE: try load from disk; else empty schema
+            # PRIVATE: try load from disk; if missing, seed ONCE from fake then persist
             _loaded = _load_persisted_journal()
             if _loaded is not None:
                 st.session_state.journal_df = _loaded
             else:
-                st.session_state.journal_df = pd.DataFrame(columns=_EMPTY_SCHEMA)
+                if not st.session_state.get("_seeded_fake_once", False):
+                    df_seed = _generate_fake_journal(300)
+                    st.session_state.journal_df = df_seed
+                    _save_persisted_journal(df_seed)  # persist immediately
+                    st.session_state["_seeded_fake_once"] = True  # never reseed again
+                else:
+                    st.session_state.journal_df = pd.DataFrame(columns=_EMPTY_SCHEMA)
 
     # baseline sig for autosave
     st.session_state["_journal_sig"] = _df_checksum(st.session_state.journal_df)
