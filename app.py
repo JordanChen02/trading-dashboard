@@ -39,9 +39,19 @@ try:
 except Exception:
     pass
 
-# bootstrap journal session + generate fake entries once
-jr._init_session_state()
+
+from src.views import journal as jr
+
+jr.DEMO_MODE = True  # tell journal.py to use fake data
+jr._init_session_state()  # initialize session keys
 st.session_state["journal_df"] = jr.load_journal_for_page().copy()
+
+# Also set the Journal page date-range to cover all generated rows
+df_demo = st.session_state["journal_df"]
+if not df_demo.empty and "Date" in df_demo.columns:
+    start = pd.to_datetime(df_demo["Date"], errors="coerce").min().date()
+    end = pd.to_datetime(df_demo["Date"], errors="coerce").max().date()
+    st.session_state["jr_date_range"] = (start, end)
 
 
 def require_password():

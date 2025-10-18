@@ -24,12 +24,15 @@ from src.styles import (
 )
 from src.theme import BLUE_FILL
 from src.utils import ensure_journal_store, load_journal_index
+from src.views import journal as jr
 from src.views.account import render_account
 from src.views.calendar import render as render_calendar
 from src.views.checklist import render as render_checklist
 from src.views.journal import render as render_journal
 from src.views.overview import render_overview
 from src.views.performance import render as render_performance
+
+jr.DEMO_MODE = False
 
 
 def require_password():

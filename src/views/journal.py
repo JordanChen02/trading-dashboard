@@ -375,11 +375,15 @@ def _init_session_state() -> None:
 
 def load_journal_for_page() -> pd.DataFrame:
     """
-    Returns the journal DataFrame based on DEMO_MODE.
-    DEMO: generate placeholder data once per session.
+    Returns the journal DataFrame.
+    DEMO_MODE: generate placeholder data once per session.
     PRIVATE: never require CSV; always use session (init empty schema if missing).
     """
+    import pandas as pd
+    import streamlit as st
+
     if DEMO_MODE:
+        # Generate once and cache
         if (
             "journal_df" not in st.session_state
             or st.session_state.journal_df is None
