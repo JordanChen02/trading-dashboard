@@ -978,32 +978,56 @@ def render_overview(
                 # Remove any ticktext/tickvals set by plot_pnl so our formatter applies
                 fig_pnl.update_xaxes(ticktext=None, tickvals=None)
 
-                # --- Force exact range: start one day before first bar, end one day before last bar ---
-                xs = pd.to_datetime(fig_pnl.data[0].x)
-                start_range = xs.min() - pd.Timedelta(days=1)
-                end_range = xs.max() - pd.Timedelta(days=1)
-
-                fig_pnl.update_xaxes(
-                    type="date",
-                    tickformat="%b %d",
-                    hoverformat="%b %d, %Y",
-                    tickangle=0,
-                    range=[start_range, end_range],
+                # --- Only set x-range if we actually have bars ---
+                _has_bars = any(
+                    getattr(tr, "type", None) == "bar" and hasattr(tr, "x") and len(tr.x) > 0
+                    for tr in fig_pnl.data
                 )
 
-                # y-axis label
-                fig_pnl.update_yaxes(title_text="PnL")
+                if _has_bars:
+                    xs = pd.to_datetime(fig_pnl.data[0].x, errors="coerce")
+                    start_range = xs.min() - pd.Timedelta(days=1)
+                    end_range = xs.max() - pd.Timedelta(days=1)
+                    fig_pnl.update_xaxes(
+                        type="date",
+                        tickformat="%b %d",
+                        hoverformat="%b %d, %Y",
+                        tickangle=0,
+                        range=[start_range, end_range],
+                    )
 
-                # Title inside chart
-                fig_pnl.add_annotation(
-                    x=-0.09,
-                    y=1.17,
-                    xref="paper",
-                    yref="paper",
-                    text="<b>Daily PnL</b>",
-                    showarrow=False,
-                    align="left",
-                    font=dict(size=14, color="#E5E7EB"),
+                    # Sparse-data handling: if only 1 day of bars, match L/S card sizing and skip title
+                    n_days = pd.Series(xs).dropna().dt.normalize().nunique()
+                    if int(n_days) <= 1:
+                        fig_pnl.update_layout(
+                            height=298,  # same as Long vs Short — Cumulative R
+                            margin=dict(l=8, r=8, t=10, b=28),
+                        )
+                        # no internal title in sparse mode (reduces extra top padding)
+                    else:
+                        # normal case (2+ days of bars): label + internal title as before
+                        fig_pnl.update_yaxes(title_text="PnL")
+
+                else:
+                    # Empty state: keep date styling, but hide axes and match L/S card sizing
+                    fig_pnl.update_xaxes(
+                        type="date",
+                        tickformat="%b %d",
+                        hoverformat="%b %d, %Y",
+                        tickangle=0,
+                        visible=False,
+                        showgrid=False,
+                    )
+                    fig_pnl.update_yaxes(visible=False, showgrid=False)
+                    # Match Long vs Short — Cumulative R card footprint
+                    fig_pnl.update_layout(
+                        height=280,
+                        margin=dict(l=8, r=8, t=10, b=28),
+                    )
+
+                fig_pnl.update_layout(
+                    height=298,  # same as Long vs Short — Cumulative R
+                    margin=dict(l=8, r=8, t=10, b=28),
                 )
 
                 st.plotly_chart(fig_pnl, use_container_width=True)

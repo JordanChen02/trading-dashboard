@@ -367,6 +367,44 @@ def _ensure_df() -> pd.DataFrame:
             df["R Ratio"] = pd.to_numeric(df["R Ratio"], errors="coerce")
         else:
             df["R Ratio"] = 0.0
+
+        # --- Normalize Symbol and Direction so downstream hover/view works ---
+        # --- Make sure both 'Symbol' and 'symbol' exist (Calendar uses 'Symbol' in several places)
+        if "Symbol" in df.columns and "symbol" not in df.columns:
+            df["symbol"] = df["Symbol"]
+        elif "symbol" in df.columns and "Symbol" not in df.columns:
+            df["Symbol"] = df["symbol"]
+
+        # Direction → accept multiple source names
+        if "Direction" not in df.columns:
+            if "Side" in df.columns:
+                df["Direction"] = df["Side"]
+            elif "side" in df.columns:
+                df["Direction"] = df["side"]
+            elif "direction" in df.columns:
+                df["Direction"] = df["direction"]
+            elif "Type" in df.columns:
+                df["Direction"] = df["Type"]
+
+        # Map common values to 'Long'/'Short'
+        if "Direction" in df.columns:
+            _dir_map = {
+                "l": "Long",
+                "long": "Long",
+                "buy": "Long",
+                "s": "Short",
+                "short": "Short",
+                "sell": "Short",
+            }
+            df["Direction"] = (
+                df["Direction"]
+                .astype(str)
+                .str.strip()
+                .str.lower()
+                .map(_dir_map)
+                .fillna(df["Direction"])
+            )
+
         return df
 
     return pd.DataFrame(columns=["Date", "PnL", "R Ratio"])
@@ -398,11 +436,36 @@ def _normalize_view(df_view: pd.DataFrame, date_col: str | None) -> pd.DataFrame
     else:
         d["R Ratio"] = pd.to_numeric(d.get("R Ratio", 0.0), errors="coerce")
 
-    # Optional standardizations
-    if "Symbol" not in d.columns and "symbol" in d.columns:
+    # Ensure both cases exist after standardizations
+    if "Symbol" in d.columns and "symbol" not in d.columns:
+        d["symbol"] = d["Symbol"]
+    elif "symbol" in d.columns and "Symbol" not in d.columns:
         d["Symbol"] = d["symbol"]
-    if "Direction" not in d.columns and "Side" in d.columns:
-        d["Direction"] = d["Side"]
+
+    # Direction: accept several aliases/cases
+    if "Direction" not in d.columns:
+        if "Side" in d.columns:
+            d["Direction"] = d["Side"]
+        elif "side" in d.columns:
+            d["Direction"] = d["side"]
+        elif "direction" in d.columns:
+            d["Direction"] = d["direction"]
+        elif "Type" in d.columns:
+            d["Direction"] = d["Type"]
+
+    # Normalize to 'Long'/'Short'
+    if "Direction" in d.columns:
+        _dir_map = {
+            "l": "Long",
+            "long": "Long",
+            "buy": "Long",
+            "s": "Short",
+            "short": "Short",
+            "sell": "Short",
+        }
+        d["Direction"] = (
+            d["Direction"].astype(str).str.strip().str.lower().map(_dir_map).fillna(d["Direction"])
+        )
 
     return d
 
@@ -592,7 +655,7 @@ def _render_header(month_dt: date, sum_pnl: float, sum_pct: float, sum_r: float)
 
                     for _, r in dft.sort_values("Date").iterrows():
                         dt = r["Date"]
-                        sym = str(r.get("Symbol", "")).upper()
+                        sym = str(r.get("Symbol", r.get("symbol", ""))).upper()
                         side = str(r.get("Direction", "") or r.get("Side", ""))
                         pnl = float(pd.to_numeric(r.get("PnL", 0.0), errors="coerce") or 0.0)
                         rr = float(pd.to_numeric(r.get("R Ratio", 0.0), errors="coerce") or 0.0)
@@ -644,7 +707,7 @@ def _build_hover_table(day_date: date, baseline_equity: float) -> str:
             "</div>"
         )
         for _, r in rows.iterrows():
-            sym = str(r.get("Symbol", "")).upper()
+            sym = str(r.get("Symbol", r.get("symbol", ""))).upper()
             side = str(r.get("Direction", "") or r.get("Side", ""))
             pnl = float(pd.to_numeric(r.get("PnL", 0.0), errors="coerce") or 0.0)
             rr = float(pd.to_numeric(r.get("R Ratio", 0.0), errors="coerce") or 0.0)
@@ -702,7 +765,7 @@ def _build_week_hover_table(week_start_date: date, baseline_equity: float) -> st
         # rows (use week baseline for %)
         for _, r in rows.sort_values("Date").iterrows():
             dt = r["Date"]
-            sym = str(r.get("Symbol", "")).upper()
+            sym = str(r.get("Symbol", r.get("symbol", ""))).upper()
             side = str(r.get("Direction", "") or r.get("Side", ""))
             pnl = float(pd.to_numeric(r.get("PnL", 0.0), errors="coerce") or 0.0)
             rr = float(pd.to_numeric(r.get("R Ratio", 0.0), errors="coerce") or 0.0)

@@ -18,13 +18,53 @@ def _month_name(i: int) -> str:
 
 
 def _ensure_rr(df: pd.DataFrame) -> pd.Series:
-    """Return R multiples; if no 'rr' column, derive from pnl / median(|loss|)."""
-    if "rr" in df.columns:
-        return pd.to_numeric(df["rr"], errors="coerce").fillna(0.0)
-    pnl = pd.to_numeric(df.get("pnl", 0.0), errors="coerce").fillna(0.0)
-    losses = pnl[pnl < 0].abs()
-    risk_proxy = float(losses.median()) if len(losses) else 1.0
-    return pnl / (risk_proxy or 1.0)
+    """
+    Return a per-trade R multiple series.
+
+    Priority:
+      1) Use an existing R column if present (rr, R Ratio, etc.).
+      2) Else, if a per-trade risk column exists (e.g., Dollars Risked), use pnl / risk.
+      3) Else, as a last resort use pnl / median(|losses|). If there are no losses yet,
+         return NaN (not an arbitrary 1.0 baseline) to avoid inflated 100x values.
+    """
+    import numpy as np
+    import pandas as pd
+
+    # 1) Prefer explicit R columns if any exist
+    r_cols = ["rr", "R Ratio", "R", "r", "R Multiple", "R:R"]
+    for c in r_cols:
+        if c in df.columns:
+            s = pd.to_numeric(df[c], errors="coerce")
+            return s
+
+    # Find a PnL column
+    pnl_col = None
+    for cand in ["pnl", "PnL ($)", "PnL", "pnl_$"]:
+        if cand in df.columns:
+            pnl_col = cand
+            break
+    if pnl_col is None:
+        # No pnl => no R possible
+        return pd.Series(np.nan, index=df.index)
+
+    pnl = pd.to_numeric(df[pnl_col], errors="coerce")
+
+    # 2) If per-trade risk exists, use it directly
+    risk_cols = ["Dollars Risked", "Risk ($)", "risk", "Risk"]
+    for rc in risk_cols:
+        if rc in df.columns:
+            risk = pd.to_numeric(df[rc], errors="coerce")
+            risk = risk.replace(0, np.nan)  # avoid div-by-zero explosions
+            return pnl / risk
+
+    # 3) Last resort: divide by median absolute loss
+    losses = pnl[pnl < 0].abs().dropna()
+    if len(losses) == 0:
+        # No loss history yet -> don't invent huge R values
+        return pd.Series(np.nan, index=df.index)
+
+    denom = losses.median()
+    return pnl / denom
 
 
 def _compute_monthly(df: pd.DataFrame, date_col: Optional[str]) -> pd.DataFrame:
