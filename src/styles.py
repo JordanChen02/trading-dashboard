@@ -569,3 +569,63 @@ def inject_ui_title_css():
         """,
         unsafe_allow_html=True,
     )
+
+
+RESPONSIVE_CSS = """
+<style>
+:root{
+  --gap:16px;
+  --card-min:340px;        /* min width for any card */
+  --kpi-min:220px;         /* min width for KPI cards */
+  --nav-wide:220px;
+  --nav-compact:72px;
+}
+
+/* Fluid type */
+html{ font-size: clamp(12px, 0.95vw, 16px); }
+
+/* Generic responsive grids */
+.grid-main{
+  display:grid;
+  grid-template-columns: repeat(auto-fit, minmax(var(--card-min), 1fr));
+  gap: var(--gap);
+}
+.grid-kpi{
+  display:grid;
+  grid-template-columns: repeat(auto-fit, minmax(var(--kpi-min), 1fr));
+  gap: var(--gap);
+}
+
+/* Prevent clipping */
+.card, .stPlotlyChart, [data-testid="stDataFrame"]{ width:100%; }
+.card *{ min-width:0; }
+.truncate{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+img, svg{ max-width:100%; height:auto; }
+
+/* Sidebar: built-in Streamlit */
+[data-testid="stSidebar"]{
+  width: var(--nav-wide) !important;
+  min-width: var(--nav-wide) !important;
+  transition: width .18s ease;
+}
+@media (max-width: 1280px){
+  :root{ --gap:12px; --card-min:300px; }
+  [data-testid="stSidebar"]{
+    width: 180px !important; min-width:180px !important;
+  }
+}
+@media (max-width: 1100px){
+  [data-testid="stSidebar"]{
+    width: var(--nav-compact) !important;
+    min-width: var(--nav-compact) !important;
+  }
+  /* If your items render as: <span class="nav-emoji">📊</span><span class="nav-label">Dashboard</span> */
+  .nav-label{ display:none !important; }
+  .nav-emoji{ font-size:18px !important; display:inline-block; text-align:center; width:100%; }
+}
+
+/* Tighten layout at tablet/phone */
+@media (max-width: 992px){ :root{ --card-min:260px; } }
+@media (max-width: 768px){ :root{ --card-min:100%; } }
+</style>
+"""

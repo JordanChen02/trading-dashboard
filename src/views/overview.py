@@ -344,7 +344,7 @@ def render_overview(
         /* keep ticks safe if the next row sits close */
         overflow: visible;
         /* if you pull the equity card up with translateY, mirror that here */
-        transform: translateY(-34px);
+        transform: translateY(-35px);
         }}
 
 
@@ -943,6 +943,7 @@ def render_overview(
         with right_top[0]:
             with st.container(border=False):
                 st.markdown('<div class="pnl-root"></div>', unsafe_allow_html=True)
+                st.markdown('<div class="chart-title">Daily PnL</div>', unsafe_allow_html=True)
 
                 # ---- Chart ----
                 PNL_HEIGHT = 310
@@ -1026,7 +1027,7 @@ def render_overview(
                     )
 
                 fig_pnl.update_layout(
-                    height=298,  # same as Long vs Short — Cumulative R
+                    height=291,  # same as Long vs Short — Cumulative R
                     margin=dict(l=8, r=8, t=10, b=28),
                 )
 

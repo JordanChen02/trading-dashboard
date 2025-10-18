@@ -544,18 +544,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# st.markdown(
-#     """
-# <style>
-# /* Hide the native date text completely so it can't ghost-underlap the overlay */
-# .topbar [data-testid="stDateInput"]:has(+ .topbar-range .tb-overlay) input{ color:transparent !important; caret-color:transparent !important; text-shadow:none !important; font-size:0 !important; }
-# .topbar .topbar-range [data-testid="stDateInput"] svg{ display:none !important; }
-# </style>
-
-# """,
-#     unsafe_allow_html=True,
-# )
-
 st.markdown(
     """
 <style>
