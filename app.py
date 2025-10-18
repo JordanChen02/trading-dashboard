@@ -42,6 +42,11 @@ except Exception:
 
 from src.views import journal as jr
 
+jr.DEMO_MODE = True
+jr._init_session_state()
+st.session_state["journal_df"] = jr.load_journal_for_page().copy()
+
+
 jr.DEMO_MODE = True  # tell journal.py to use fake data
 jr._init_session_state()  # initialize session keys
 st.session_state["journal_df"] = jr.load_journal_for_page().copy()

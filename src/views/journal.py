@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from typing import List, Tuple
 
 import numpy as np
@@ -16,6 +17,86 @@ try:
     from src.state import DEMO_MODE  # optional
 except Exception:
     import streamlit as st  # ensure st is in scope
+
+# --- Demo flag is toggled by parent app (app.py / private_app.py) ---
+DEMO_MODE = False  # app.py sets True for demo; private_app keeps False
+
+# --- Local persistence target for the private app ---
+_DATA_DIR = Path.home() / ".edgeboard"
+_DATA_DIR.mkdir(parents=True, exist_ok=True)
+_JOURNAL_PATH = _DATA_DIR / "journal.csv"
+
+# --- Minimal schema used when starting empty ---
+_EMPTY_SCHEMA = [
+    "Trade #",
+    "Account",
+    "Win/Loss",
+    "Symbol",
+    "Date",
+    "Day of Week",
+    "Direction",
+    "Timeframe",
+    "Type",
+    "Setup Tier",
+    "Score",
+    "Grade",
+    "Confirmations",
+    "Entry Time",
+    "Exit Time",
+    "Duration (min)",
+    "Duration",
+    "PnL",
+    "Dollars Risked",
+    "R Ratio",
+    "Chart URL",
+    "Micromanaged?",
+    "Comments",
+]
+
+
+def _df_checksum(df: pd.DataFrame) -> str:
+    # small, fast checksum to detect changes
+    try:
+        return pd.util.hash_pandas_object(df.reset_index(drop=True), index=False).sum().__str__()
+    except Exception:
+        return str(hash(df.to_json(orient="split")))
+
+
+def _load_persisted_journal() -> pd.DataFrame | None:
+    if _JOURNAL_PATH.exists():
+        try:
+            df = pd.read_csv(_JOURNAL_PATH)
+            # ensure columns exist (in case of older file)
+            for col in _EMPTY_SCHEMA:
+                if col not in df.columns:
+                    df[col] = pd.Series(dtype=object)
+            return df[_EMPTY_SCHEMA]
+        except Exception:
+            pass
+    return None
+
+
+def _save_persisted_journal(df: pd.DataFrame) -> None:
+    # never save in demo
+    if DEMO_MODE:
+        return
+    try:
+        df[_EMPTY_SCHEMA].to_csv(_JOURNAL_PATH, index=False)
+    except Exception:
+        pass
+
+
+def _autosave_journal() -> None:
+    """Persist journal_df if changed (private only). Call once near end of render()."""
+    if DEMO_MODE:
+        return
+    df = st.session_state.get("journal_df")
+    if not isinstance(df, pd.DataFrame):
+        return
+    new_sig = _df_checksum(df)
+    if st.session_state.get("_journal_sig") != new_sig:
+        _save_persisted_journal(df)
+        st.session_state["_journal_sig"] = new_sig
 
 
 # ----------------------------- config -----------------------------
@@ -285,47 +366,32 @@ def _compute_derived(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _init_session_state() -> None:
-    """Initialize journal session keys for PRIVATE mode (no CSV required)."""
-    import pandas as pd
-    import streamlit as st
-
-    # Empty, editable journal schema (matches your Styled view/editor columns)
+    """Initialize journal session keys."""
+    # --- Journal dataframe: DEMO vs PRIVATE ---
     if "journal_df" not in st.session_state or st.session_state.get("journal_df") is None:
-        st.session_state.journal_df = pd.DataFrame(
-            columns=[
-                "Trade #",
-                "Account",
-                "Win/Loss",
-                "Symbol",
-                "Date",
-                "Day of Week",
-                "Direction",
-                "Timeframe",
-                "Type",
-                "Setup Tier",
-                "Score",
-                "Grade",
-                "Confirmations",
-                "Entry Time",
-                "Exit Time",
-                "Duration (min)",
-                "Duration",
-                "PnL",
-                "Dollars Risked",
-                "R Ratio",
-                "Chart URL",
-                "Micromanaged?",
-                "Comments",
-            ]
-        )
-    # Keys New Entry & filters expect
-    st.session_state.setdefault("show_new_entry", False)
-    st.session_state.setdefault("jr_date_range", (date.today(), date.today()))
+        if DEMO_MODE:
+            # Generate ~300 fake trades once (demo)
+            st.session_state.journal_df = _generate_fake_journal(300)
+        else:
+            # PRIVATE: try load from disk; else empty schema
+            _loaded = _load_persisted_journal()
+            if _loaded is not None:
+                st.session_state.journal_df = _loaded
+            else:
+                st.session_state.journal_df = pd.DataFrame(columns=_EMPTY_SCHEMA)
+
+    # baseline sig for autosave
+    st.session_state["_journal_sig"] = _df_checksum(st.session_state.journal_df)
+
+    # Other keys you already use
+    from datetime import date
+
     st.session_state.setdefault("accounts_options", ["NQ", "Crypto (Live)", "Crypto (Prop)"])
     st.session_state.setdefault("journal_view_mode", "Styled")
     st.session_state.setdefault("new_entry_force_once", False)
-
-    # ✅ Use a COLOR PALETTE (not labels), same as the top-level initializer below
+    st.session_state.setdefault("show_new_entry", False)
+    st.session_state.setdefault("confirm_color_map", {})
+    st.session_state.setdefault("confirm_color_idx", 0)
     st.session_state.setdefault(
         "confirm_color_palette",
         [
@@ -346,9 +412,8 @@ def _init_session_state() -> None:
             "#3A0CA3CE",
         ],
     )
-    st.session_state.setdefault("confirm_color_map", {})
-    st.session_state.setdefault("confirm_color_idx", 0)
     st.session_state.setdefault("confirmations_options", list(DEFAULT_CONFIRMATIONS))
+    st.session_state.setdefault("jr_date_range", (date.today(), date.today()))
 
     # If there is already data, (re)seed the color map for any seen confirmation tags
     try:
@@ -1856,3 +1921,6 @@ def render(*_args, **_kwargs) -> None:
 
     # Close scope
     st.markdown("</div>", unsafe_allow_html=True)
+
+    # Persist journal on any change (private only)
+    _autosave_journal()

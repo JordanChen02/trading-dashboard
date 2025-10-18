@@ -32,7 +32,8 @@ from src.views.journal import render as render_journal
 from src.views.overview import render_overview
 from src.views.performance import render as render_performance
 
-jr.DEMO_MODE = False
+jr.DEMO_MODE = False  # private app = real data
+jr._init_session_state()
 
 
 def require_password():
