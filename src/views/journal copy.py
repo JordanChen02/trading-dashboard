@@ -10,6 +10,14 @@ import streamlit as st
 
 from src.styles import inject_journal_css
 
+# --- Demo flag (read from Streamlit secrets) ---
+try:
+    # if you later put DEMO_MODE in src/state.py, this import will work
+    from src.state import DEMO_MODE  # optional
+except Exception:
+    import streamlit as st  # ensure st is in scope
+
+
 # ----------------------------- config -----------------------------
 SYMBOLS = [
     "BTCUSDT",
@@ -274,6 +282,142 @@ def _compute_derived(df: pd.DataFrame) -> pd.DataFrame:
     ).reset_index(drop=True)
     df["Trade #"] = df.index + 1
     return df
+
+
+def _init_session_state() -> None:
+    """Initialize journal session keys for PRIVATE mode (no CSV required)."""
+    import pandas as pd
+    import streamlit as st
+
+    # Empty, editable journal schema (matches your Styled view/editor columns)
+    if "journal_df" not in st.session_state or st.session_state.get("journal_df") is None:
+        st.session_state.journal_df = pd.DataFrame(
+            columns=[
+                "Trade #",
+                "Account",
+                "Win/Loss",
+                "Symbol",
+                "Date",
+                "Day of Week",
+                "Direction",
+                "Timeframe",
+                "Type",
+                "Setup Tier",
+                "Score",
+                "Grade",
+                "Confirmations",
+                "Entry Time",
+                "Exit Time",
+                "Duration (min)",
+                "Duration",
+                "PnL",
+                "Dollars Risked",
+                "R Ratio",
+                "Chart URL",
+                "Micromanaged?",
+                "Comments",
+            ]
+        )
+    # Keys New Entry & filters expect
+    st.session_state.setdefault("show_new_entry", False)
+    st.session_state.setdefault("jr_date_range", (date.today(), date.today()))
+    st.session_state.setdefault("accounts_options", ["NQ", "Crypto (Live)", "Crypto (Prop)"])
+    st.session_state.setdefault("journal_view_mode", "Styled")
+    st.session_state.setdefault("new_entry_force_once", False)
+
+    # ✅ Use a COLOR PALETTE (not labels), same as the top-level initializer below
+    st.session_state.setdefault(
+        "confirm_color_palette",
+        [
+            "#1E3B8ACE",
+            "#0E7490CE",
+            "#065F46CE",
+            "#7C2D12CE",
+            "#6B21A8CE",
+            "#0F766ECE",
+            "#1F2937CE",
+            "#1B4079CE",
+            "#14532DCE",
+            "#3F1D38CE",
+            "#2B2D42CE",
+            "#23395BCE",
+            "#2F3E46CE",
+            "#264653CE",
+            "#3A0CA3CE",
+        ],
+    )
+    st.session_state.setdefault("confirm_color_map", {})
+    st.session_state.setdefault("confirm_color_idx", 0)
+    st.session_state.setdefault("confirmations_options", list(DEFAULT_CONFIRMATIONS))
+
+    # If there is already data, (re)seed the color map for any seen confirmation tags
+    try:
+        known = set(st.session_state.get("confirmations_options", []))
+        dfc = st.session_state.journal_df.get("Confirmations", pd.Series([], dtype=object))
+        for cell in dfc:
+            if isinstance(cell, list):
+                known.update(x for x in cell if x)
+            elif isinstance(cell, str):
+                for x in [t.strip() for t in cell.split(",") if t.strip()]:
+                    known.add(x)
+        cmap = st.session_state["confirm_color_map"]
+        pal = st.session_state["confirm_color_palette"]
+        idx = st.session_state["confirm_color_idx"]
+        for tag in sorted(known):
+            if tag not in cmap:
+                cmap[tag] = pal[idx % len(pal)]
+                idx += 1
+        st.session_state["confirm_color_idx"] = idx
+        st.session_state["confirmations_options"] = sorted(set(known))
+    except Exception:
+        pass
+
+
+def load_journal_for_page() -> pd.DataFrame:
+    """
+    Returns the journal DataFrame based on DEMO_MODE.
+    DEMO: generate placeholder data once per session.
+    PRIVATE: never require CSV; always use session (init empty schema if missing).
+    """
+    if DEMO_MODE:
+        if (
+            "journal_df" not in st.session_state
+            or st.session_state.journal_df is None
+            or st.session_state.journal_df.empty
+        ):
+            st.session_state.journal_df = _generate_fake_journal(300)
+        return st.session_state.journal_df
+
+    # PRIVATE MODE: no CSV dependency
+    if "journal_df" not in st.session_state or st.session_state.journal_df is None:
+        st.session_state.journal_df = pd.DataFrame(
+            columns=[
+                "Trade #",
+                "Account",
+                "Win/Loss",
+                "Symbol",
+                "Date",
+                "Day of Week",
+                "Direction",
+                "Timeframe",
+                "Type",
+                "Setup Tier",
+                "Score",
+                "Grade",
+                "Confirmations",
+                "Entry Time",
+                "Exit Time",
+                "Duration (min)",
+                "Duration",
+                "PnL",
+                "Dollars Risked",
+                "R Ratio",
+                "Chart URL",
+                "Micromanaged?",
+                "Comments",
+            ]
+        )
+    return st.session_state.journal_df
 
 
 def _fake_comment(win: bool) -> str:
@@ -566,10 +710,38 @@ def _generate_fake_journal(n: int = 200) -> pd.DataFrame:
     return _compute_derived(df)
 
 
-def _init_session_state():
-    if "journal_df" not in st.session_state:
+if "journal_df" not in st.session_state:
+    if DEMO_MODE:
         st.session_state.journal_df = _generate_fake_journal(300)
-        st.session_state.setdefault("new_entry_force_once", False)
+    else:
+        st.session_state.journal_df = pd.DataFrame(
+            columns=[
+                "Trade #",
+                "Account",
+                "Win/Loss",
+                "Symbol",
+                "Date",
+                "Day of Week",
+                "Direction",
+                "Timeframe",
+                "Type",
+                "Setup Tier",
+                "Score",
+                "Grade",
+                "Confirmations",
+                "Entry Time",
+                "Exit Time",
+                "Duration (min)",
+                "Duration",
+                "PnL",
+                "Dollars Risked",
+                "R Ratio",
+                "Chart URL",
+                "Micromanaged?",
+                "Comments",
+            ]
+        )
+    st.session_state.setdefault("new_entry_force_once", False)
 
     if "show_new_entry" not in st.session_state:
         st.session_state.show_new_entry = False
@@ -823,7 +995,8 @@ def _render_summary(df: pd.DataFrame):
     win_rate = (wins / total) * 100 if total else 0.0
     r_total = float(pd.to_numeric(df["R Ratio"], errors="coerce").fillna(0).sum())
     risk_avg = float(pd.to_numeric(df["Dollars Risked"], errors="coerce").fillna(0).mean())
-    dur_avg_min = float(pd.to_numeric(df["Duration (min)"], errors="coerce").fillna(0).mean())
+    dur_series = pd.to_numeric(df.get("Duration (min)", pd.Series(dtype=float)), errors="coerce")
+    dur_avg_min = float(dur_series.dropna().mean()) if not dur_series.empty else 0.0
 
     st.markdown("---")
     s = st.columns([1, 1, 1, 1, 1, 1, 1], gap="large")
@@ -837,6 +1010,9 @@ def _render_summary(df: pd.DataFrame):
 
 
 # ----------------------------- main render -----------------------------
+df = st.session_state.get("journal_df", pd.DataFrame()).copy()
+
+
 def render(*_args, **_kwargs) -> None:
     _init_session_state()
 
@@ -1074,7 +1250,7 @@ def render(*_args, **_kwargs) -> None:
     st.markdown('<div class="journal-scope">', unsafe_allow_html=True)
 
     # ---------------- Filters ----------------
-    df_all = st.session_state.journal_df.copy()
+    df_all = load_journal_for_page().copy()
     df_all = _ensure_session_column(df_all)
 
     # Ensure Account exists for filtering
@@ -1127,12 +1303,16 @@ def render(*_args, **_kwargs) -> None:
             default_start = _min_ts.date() if pd.notna(_min_ts) else date.today()
             default_end = _max_ts.date() if pd.notna(_max_ts) else date.today()
 
+        # Avoid warning: don't pass a default `value` AND set the same key via Session State.
+        if "jr_date_range" not in st.session_state:
+            st.session_state["jr_date_range"] = (default_start, default_end)
+
         date_range = st.date_input(
             "Date range",
-            value=(default_start, default_end),
-            help="Filter trades between start and end date (inclusive).",
             key="jr_date_range",
+            help="Filter trades between start and end date (inclusive).",
         )
+
         start_date, end_date = None, None
         if isinstance(date_range, tuple):
             if len(date_range) == 2 and all(date_range):
