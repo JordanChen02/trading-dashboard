@@ -2,9 +2,8 @@
 import json  # read/write sidecar metadata for notes/tags
 import json as _json
 import re
+import sys
 from datetime import date, timedelta
-
-# ---- Load saved settings (if any) and mirror into session ----
 from pathlib import Path
 from pathlib import Path as _Path
 
@@ -13,24 +12,55 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-# 👇 our modules
-from src.state import ensure_defaults
-from src.styles import (
-    inject_filters_css,
-    inject_header_layout_css,
-    inject_isolated_ui_css,
-    inject_topbar_css,
-    inject_upload_css,
-)
-from src.theme import BLUE_FILL
-from src.utils import ensure_journal_store, load_journal_index
-from src.views import journal as jr
-from src.views.account import render_account
-from src.views.calendar import render as render_calendar
-from src.views.checklist import render as render_checklist
-from src.views.journal import render as render_journal
-from src.views.overview import render_overview
-from src.views.performance import render as render_performance
+# Try normal package imports first (keeps Ruff E402 happy).
+try:
+    # state/styles/theme/utils
+    from src.state import ensure_defaults
+    from src.styles import (
+        inject_filters_css,
+        inject_header_layout_css,
+        inject_isolated_ui_css,
+        inject_topbar_css,
+        inject_upload_css,
+    )
+    from src.theme import BLUE_FILL
+    from src.utils import ensure_journal_store, load_journal_index
+
+    # views
+    from src.views import journal as jr
+    from src.views.account import render_account
+    from src.views.calendar import render as render_calendar
+    from src.views.checklist import render as render_checklist
+    from src.views.journal import render as render_journal
+    from src.views.overview import render_overview
+    from src.views.performance import render as render_performance
+
+except ModuleNotFoundError:
+    # Fallback: add project root and ./src to sys.path, then retry the same imports.
+    ROOT = Path(__file__).resolve().parent
+    SRC = ROOT / "src"
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    if SRC.is_dir() and str(SRC) not in sys.path:
+        sys.path.insert(0, str(SRC))
+
+    from src.state import ensure_defaults
+    from src.styles import (
+        inject_filters_css,
+        inject_header_layout_css,
+        inject_isolated_ui_css,
+        inject_topbar_css,
+        inject_upload_css,
+    )
+    from src.theme import BLUE_FILL
+    from src.utils import ensure_journal_store, load_journal_index
+    from src.views import journal as jr
+    from src.views.account import render_account
+    from src.views.calendar import render as render_calendar
+    from src.views.checklist import render as render_checklist
+    from src.views.journal import render as render_journal
+    from src.views.overview import render_overview
+    from src.views.performance import render as render_performance
 
 # ---- PRIVATE MODE: never use demo data ----
 
