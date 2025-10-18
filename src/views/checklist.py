@@ -1,11 +1,80 @@
 # src/views/checklist.py
 from __future__ import annotations
 
+import base64
+from pathlib import Path
 from typing import Dict, List, Tuple
 
 import plotly.graph_objects as go
 import streamlit as st
-from streamlit.components.v1 import iframe  # kept for your current file’s behavior
+from PIL import Image
+
+# Resolve repo root -> checklist.py is src/views/checklist.py, so parents[2] is repo root
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+PH_EX1 = _REPO_ROOT / "assets" / "chart_example1.png"
+PH_EX2 = _REPO_ROOT / "assets" / "chart_example2.png"
+
+
+def _img_html_from_bytes(b: bytes) -> str:
+    """Return an <img> tag with base64 bytes embedded to avoid first-paint collapse."""
+    b64 = base64.b64encode(b).decode("ascii")
+    return f'<img src="data:image/png;base64,{b64}" style="width:100%;display:block;" />'
+
+
+@st.cache_data(show_spinner=False)
+def _load_local_img_bytes(p: str | Path) -> bytes | None:
+    try:
+        p = Path(p)
+        if p.exists():
+            return p.read_bytes()
+    except Exception:
+        pass
+    return None
+
+
+# Reserve space so the area doesn't collapse before HTML renders (adjust to taste)
+CHART_IMG_MINH = 220
+st.markdown(
+    f"<style>.chart-img-slot{{min-height:{CHART_IMG_MINH}px}}</style>",
+    unsafe_allow_html=True,
+)
+
+
+def _show_local_image(path: Path) -> bool:
+    """Open a local image safely and display it. Returns True if shown."""
+    try:
+        if path and Path(path).exists():
+            img = Image.open(path)  # avoids path-resolution hiccups
+            st.image(img, use_container_width=True)
+            return True
+    except Exception:
+        pass
+    return False
+
+
+# reserve space so the area doesn't collapse before the image paints
+CHART_IMG_MINH = 220  # tweak to taste
+
+st.markdown(
+    f"""
+    <style>
+      .chart-img-slot {{ min-height: {CHART_IMG_MINH}px; }}
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+@st.cache_data(show_spinner=False)
+def _load_local_img_bytes(p: str | Path):
+    try:
+        p = Path(p)
+        if p.exists():
+            return p.read_bytes()
+    except Exception:
+        pass
+    return None
 
 
 # --- modal fallback (unchanged) ---
@@ -43,6 +112,9 @@ RED = "#E06B6B"
 FG = "#E5E7EB"
 FG_MUTED = "#9AA4B2"
 LOCAL_CARD_BG = "#0F1829"
+# Local placeholder images to show for TradingView links (add these files to your repo)
+PLACEHOLDER_EX1 = "assets/placeholder_tv_ex1.png"
+PLACEHOLDER_EX2 = "assets/placeholder_tv_ex2.png"
 
 
 # ==============================
@@ -127,8 +199,12 @@ def _ensure_state():
     st.session_state.setdefault("cl_template_sel", TEMPLATE_NAMES[0])
     st.session_state.setdefault("cl_items", [dict(x) for x in DEFAULT_CHECKLIST])
     st.session_state.setdefault("cl_confs", [dict(x) for x in DEFAULT_CONFS])
-    st.session_state.setdefault("cl_chart_1", {"url": "", "file": None})
-    st.session_state.setdefault("cl_chart_2", {"url": "", "file": None})
+    st.session_state.setdefault(
+        "cl_chart_1", {"url": "https://www.tradingview.com/x/RMJesEwo/", "file": None}
+    )
+    st.session_state.setdefault(
+        "cl_chart_2", {"url": "https://www.tradingview.com/x/fvMNs5k2/", "file": None}
+    )
     st.session_state.setdefault("ex1_menu_open", False)
     st.session_state.setdefault("ex2_menu_open", False)
 
@@ -590,32 +666,24 @@ def render(*_args, **_kwargs):
                     st.session_state.ex1_menu_open = not st.session_state.ex1_menu_open
                 st.markdown("</div>", unsafe_allow_html=True)
 
-            if st.session_state.ex1_menu_open:
-                u1, f1 = st.columns([1.2, 1], gap="small")
-                with u1:
-                    st.session_state.cl_chart_1["url"] = st.text_input(
-                        "Paste image URL",
-                        value=st.session_state.cl_chart_1.get("url", ""),
-                        key="ex1_url",
-                        placeholder="https://example.com/image.png",
-                    )
-                with f1:
-                    st.session_state.cl_chart_1["file"] = st.file_uploader(
-                        "or Upload", key="ex1_file", type=["png", "jpg", "jpeg"]
-                    )
+            # Always show Example 1 image (no click required) — embed bytes to avoid collapsed first paint
+            src1 = (st.session_state.get("cl_chart_1", {}) or {}).get("file")
 
-            if st.session_state.cl_chart_1.get("file") is not None:
-                st.image(st.session_state.cl_chart_1["file"], use_container_width=True)
+            # Get bytes: uploaded file → getvalue(); else load local placeholder
+            if src1 is not None:
+                try:
+                    b = src1.getvalue()
+                except Exception:
+                    b = None
             else:
-                url1 = st.session_state.cl_chart_1.get("url", "").strip()
-                if url1:
-                    is_img = url1.lower().endswith((".png", ".jpg", ".jpeg", ".webp", ".gif"))
-                    if is_img:
-                        st.image(url1, use_container_width=True)
-                    else:
-                        iframe(url1, height=600)
-                else:
-                    st.caption("No image yet.")
+                b = _load_local_img_bytes(PH_EX1)
+
+            st.markdown('<div class="chart-img-slot">', unsafe_allow_html=True)
+            if b:
+                st.markdown(_img_html_from_bytes(b), unsafe_allow_html=True)
+            else:
+                st.caption(f"Add a placeholder at: {PH_EX1}")
+            st.markdown("</div>", unsafe_allow_html=True)
 
         # Example 2
         st.markdown('<div class="chart-card"></div>', unsafe_allow_html=True)
@@ -629,29 +697,20 @@ def render(*_args, **_kwargs):
                     st.session_state.ex2_menu_open = not st.session_state.ex2_menu_open
                 st.markdown("</div>", unsafe_allow_html=True)
 
-            if st.session_state.ex2_menu_open:
-                u2, f2 = st.columns([1.2, 1], gap="small")
-                with u2:
-                    st.session_state.cl_chart_2["url"] = st.text_input(
-                        "Paste image URL ",
-                        value=st.session_state.cl_chart_2.get("url", ""),
-                        key="ex2_url",
-                        placeholder="https://example.com/image.png",
-                    )
-                with f2:
-                    st.session_state.cl_chart_2["file"] = st.file_uploader(
-                        "or Upload ", key="ex2_file", type=["png", "jpg", "jpeg"]
-                    )
+            # Always show Example 2 image (no click required) — embed bytes to avoid collapsed first paint
+            src2 = (st.session_state.get("cl_chart_2", {}) or {}).get("file")
 
-            if st.session_state.cl_chart_2.get("file") is not None:
-                st.image(st.session_state.cl_chart_2["file"], use_container_width=True)
+            if src2 is not None:
+                try:
+                    b2 = src2.getvalue()
+                except Exception:
+                    b2 = None
             else:
-                url2 = st.session_state.cl_chart_2.get("url", "").strip()
-                if url2:
-                    is_img = url2.lower().endswith((".png", ".jpg", ".jpeg", ".webp", ".gif"))
-                    if is_img:
-                        st.image(url2, use_container_width=True)
-                    else:
-                        iframe(url2, height=600)
-                else:
-                    st.caption("No image yet.")
+                b2 = _load_local_img_bytes(PH_EX2)
+
+            st.markdown('<div class="chart-img-slot">', unsafe_allow_html=True)
+            if b2:
+                st.markdown(_img_html_from_bytes(b2), unsafe_allow_html=True)
+            else:
+                st.caption(f"Add a placeholder at: {PH_EX2}")
+            st.markdown("</div>", unsafe_allow_html=True)
