@@ -20,11 +20,6 @@ GREEN = "#61D0A8"
 RED = "#E06B6B"
 TEAL = "#3FA096"
 
-# --- Keep the mid-row charts aligned (Daily PnL & Cumulative R) ---
-CHART_H = 310  # unified figure height
-CHART_TOP_PAD = 10  # unified top padding inside card
-CHART_BOTTOM_PAD = 28  # unified bottom padding inside card
-
 
 def _build_top_assets_donut_and_summary(df, max_assets: int = 5):
     """
@@ -950,7 +945,10 @@ def render_overview(
                 st.markdown('<div class="pnl-root"></div>', unsafe_allow_html=True)
 
                 # ---- Chart ----
-                PNL_HEIGHT = CHART_H
+                PNL_HEIGHT = 310
+                PNL_TOP_PAD = 11
+                PNL_BOTTOM_PAD = 10
+                PNL_VSHIFT = 0
                 mode = "Daily"
 
                 # Build the figure as usual
@@ -960,8 +958,12 @@ def render_overview(
                 fig_pnl.update_layout(
                     paper_bgcolor=CARD_BG,
                     plot_bgcolor=CARD_BG,
-                    height=CHART_H,
-                    margin=dict(l=8, r=8, t=CHART_TOP_PAD, b=CHART_BOTTOM_PAD),
+                    margin=dict(
+                        l=8,
+                        r=8,
+                        t=26 + PNL_TOP_PAD - PNL_VSHIFT,
+                        b=8 + PNL_BOTTOM_PAD + PNL_VSHIFT,
+                    ),
                 )
 
                 # --- Make x truly datetime & clear categorical ticks ---
@@ -976,61 +978,59 @@ def render_overview(
                 # Remove any ticktext/tickvals set by plot_pnl so our formatter applies
                 fig_pnl.update_xaxes(ticktext=None, tickvals=None)
 
-                # --- Decide if we actually have bars to size the x-range ---
-                _has_bars = any(
-                    getattr(tr, "type", None) == "bar" and hasattr(tr, "x") and len(tr.x) > 0
-                    for tr in fig_pnl.data
+            # --- Decide if we actually have bars to size the x-range ---
+            _has_bars = any(
+                getattr(tr, "type", None) == "bar" and hasattr(tr, "x") and len(tr.x) > 0
+                for tr in fig_pnl.data
+            )
+
+            if _has_bars:
+                xs = pd.to_datetime(fig_pnl.data[0].x, errors="coerce")
+                start_range = xs.min() - pd.Timedelta(days=1)
+                end_range = xs.max() - pd.Timedelta(days=1)
+
+                fig_pnl.update_xaxes(
+                    type="date",
+                    tickformat="%b %d",
+                    hoverformat="%b %d, %Y",
+                    tickangle=0,
+                    range=[start_range, end_range],
                 )
-
-                if _has_bars:
-                    xs = pd.to_datetime(fig_pnl.data[0].x, errors="coerce")
-                    start_range = xs.min() - pd.Timedelta(days=1)
-                    end_range = xs.max() - pd.Timedelta(days=1)
-
-                    fig_pnl.update_xaxes(
-                        type="date",
-                        tickformat="%b %d",
-                        hoverformat="%b %d, %Y",
-                        tickangle=0,
-                        range=[start_range, end_range],
-                    )
-                else:
-                    # No data: keep date axis style but don’t set a range
-                    fig_pnl.update_xaxes(
-                        type="date",
-                        tickformat="%b %d",
-                        hoverformat="%b %d, %Y",
-                        tickangle=0,
-                    )
-                    # Friendly placeholder
-                    fig_pnl.add_annotation(
-                        x=0.5,
-                        y=0.5,
-                        xref="paper",
-                        yref="paper",
-                        text="<b>No PnL data in this range</b>",
-                        showarrow=False,
-                        font=dict(size=12, color="#9AA4B2"),
-                    )
-                fig_pnl.update_xaxes(visible=False)
-                fig_pnl.update_yaxes(visible=False)
-
-                # y-axis label
-                fig_pnl.update_yaxes(title_text="PnL")
-
-                # Title inside chart
+            else:
+                # No data: keep date axis style but don’t set a range
+                fig_pnl.update_xaxes(
+                    type="date",
+                    tickformat="%b %d",
+                    hoverformat="%b %d, %Y",
+                    tickangle=0,
+                )
+                # Friendly placeholder
                 fig_pnl.add_annotation(
-                    x=-0.09,
-                    y=1.17,
+                    x=0.5,
+                    y=0.5,
                     xref="paper",
                     yref="paper",
-                    text="<b>Daily PnL</b>",
+                    text="<b>No PnL data in this range</b>",
                     showarrow=False,
-                    align="left",
-                    font=dict(size=14, color="#E5E7EB"),
+                    font=dict(size=12, color="#9AA4B2"),
                 )
 
-                st.plotly_chart(fig_pnl, use_container_width=True)
+            # y-axis label
+            fig_pnl.update_yaxes(title_text="PnL")
+
+            # Title inside chart
+            fig_pnl.add_annotation(
+                x=-0.09,
+                y=1.17,
+                xref="paper",
+                yref="paper",
+                text="<b>Daily PnL</b>",
+                showarrow=False,
+                align="left",
+                font=dict(size=14, color="#E5E7EB"),
+            )
+
+            st.plotly_chart(fig_pnl, use_container_width=True)
 
             # === Long vs Short — Cumulative R (matches Equity Curve card layout) ===
             row_cumr = st.container(border=False)
@@ -1042,11 +1042,11 @@ def render_overview(
                 render_long_short_card(
                     df_view,
                     date_col=(date_col or "date"),
-                    height=CHART_H,
-                    top_pad=CHART_TOP_PAD,
-                    bottom_pad=CHART_BOTTOM_PAD,
+                    height=317,  # same as Equity Curve
+                    top_pad=10,  # tight top (title is in header)
+                    bottom_pad=28,  # safe bottom so ticks never clip
                     vshift=0,
-                    title_text="Long vs Short — Cumulative R",
+                    title_text="Long vs Short — Cumulative R",  # title handled by header row
                 )
 
     with right_top[1]:
