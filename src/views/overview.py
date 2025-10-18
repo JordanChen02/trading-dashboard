@@ -978,14 +978,8 @@ def render_overview(
                 # Remove any ticktext/tickvals set by plot_pnl so our formatter applies
                 fig_pnl.update_xaxes(ticktext=None, tickvals=None)
 
-            # --- Decide if we actually have bars to size the x-range ---
-            _has_bars = any(
-                getattr(tr, "type", None) == "bar" and hasattr(tr, "x") and len(tr.x) > 0
-                for tr in fig_pnl.data
-            )
-
-            if _has_bars:
-                xs = pd.to_datetime(fig_pnl.data[0].x, errors="coerce")
+                # --- Force exact range: start one day before first bar, end one day before last bar ---
+                xs = pd.to_datetime(fig_pnl.data[0].x)
                 start_range = xs.min() - pd.Timedelta(days=1)
                 end_range = xs.max() - pd.Timedelta(days=1)
 
@@ -996,41 +990,23 @@ def render_overview(
                     tickangle=0,
                     range=[start_range, end_range],
                 )
-            else:
-                # No data: keep date axis style but don’t set a range
-                fig_pnl.update_xaxes(
-                    type="date",
-                    tickformat="%b %d",
-                    hoverformat="%b %d, %Y",
-                    tickangle=0,
-                )
-                # Friendly placeholder
+
+                # y-axis label
+                fig_pnl.update_yaxes(title_text="PnL")
+
+                # Title inside chart
                 fig_pnl.add_annotation(
-                    x=0.5,
-                    y=0.5,
+                    x=-0.09,
+                    y=1.17,
                     xref="paper",
                     yref="paper",
-                    text="<b>No PnL data in this range</b>",
+                    text="<b>Daily PnL</b>",
                     showarrow=False,
-                    font=dict(size=12, color="#9AA4B2"),
+                    align="left",
+                    font=dict(size=14, color="#E5E7EB"),
                 )
 
-            # y-axis label
-            fig_pnl.update_yaxes(title_text="PnL")
-
-            # Title inside chart
-            fig_pnl.add_annotation(
-                x=-0.09,
-                y=1.17,
-                xref="paper",
-                yref="paper",
-                text="<b>Daily PnL</b>",
-                showarrow=False,
-                align="left",
-                font=dict(size=14, color="#E5E7EB"),
-            )
-
-            st.plotly_chart(fig_pnl, use_container_width=True)
+                st.plotly_chart(fig_pnl, use_container_width=True)
 
             # === Long vs Short — Cumulative R (matches Equity Curve card layout) ===
             row_cumr = st.container(border=False)
