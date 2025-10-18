@@ -32,8 +32,21 @@ from src.views.journal import render as render_journal
 from src.views.overview import render_overview
 from src.views.performance import render as render_performance
 
-jr.DEMO_MODE = False  # private app = real data
-jr._init_session_state()
+# ---- PRIVATE MODE: never use demo data ----
+
+jr.DEMO_MODE = False  # hard stop demo generation in this app
+
+# --- HARD RESET: never reuse any demo caches in the private app ---
+try:
+    st.cache_data.clear()
+    st.cache_resource.clear()
+except Exception:
+    pass
+
+# If any demo seeds slipped into session from a previous run, drop them
+for _k in ("_demo_seeded", "demo_df", "_fake_df"):
+    if _k in st.session_state:
+        del st.session_state[_k]
 
 
 def require_password():
