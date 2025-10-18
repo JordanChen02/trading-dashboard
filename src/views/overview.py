@@ -20,6 +20,11 @@ GREEN = "#61D0A8"
 RED = "#E06B6B"
 TEAL = "#3FA096"
 
+# --- Keep the mid-row charts aligned (Daily PnL & Cumulative R) ---
+CHART_H = 310  # unified figure height
+CHART_TOP_PAD = 10  # unified top padding inside card
+CHART_BOTTOM_PAD = 28  # unified bottom padding inside card
+
 
 def _build_top_assets_donut_and_summary(df, max_assets: int = 5):
     """
@@ -945,10 +950,7 @@ def render_overview(
                 st.markdown('<div class="pnl-root"></div>', unsafe_allow_html=True)
 
                 # ---- Chart ----
-                PNL_HEIGHT = 310
-                PNL_TOP_PAD = 11
-                PNL_BOTTOM_PAD = 10
-                PNL_VSHIFT = 0
+                PNL_HEIGHT = CHART_H
                 mode = "Daily"
 
                 # Build the figure as usual
@@ -958,12 +960,8 @@ def render_overview(
                 fig_pnl.update_layout(
                     paper_bgcolor=CARD_BG,
                     plot_bgcolor=CARD_BG,
-                    margin=dict(
-                        l=8,
-                        r=8,
-                        t=26 + PNL_TOP_PAD - PNL_VSHIFT,
-                        b=8 + PNL_BOTTOM_PAD + PNL_VSHIFT,
-                    ),
+                    height=CHART_H,
+                    margin=dict(l=8, r=8, t=CHART_TOP_PAD, b=CHART_BOTTOM_PAD),
                 )
 
                 # --- Make x truly datetime & clear categorical ticks ---
@@ -1014,6 +1012,8 @@ def render_overview(
                         showarrow=False,
                         font=dict(size=12, color="#9AA4B2"),
                     )
+                fig_pnl.update_xaxes(visible=False)
+                fig_pnl.update_yaxes(visible=False)
 
                 # y-axis label
                 fig_pnl.update_yaxes(title_text="PnL")
@@ -1042,11 +1042,11 @@ def render_overview(
                 render_long_short_card(
                     df_view,
                     date_col=(date_col or "date"),
-                    height=317,  # same as Equity Curve
-                    top_pad=10,  # tight top (title is in header)
-                    bottom_pad=28,  # safe bottom so ticks never clip
+                    height=CHART_H,
+                    top_pad=CHART_TOP_PAD,
+                    bottom_pad=CHART_BOTTOM_PAD,
                     vshift=0,
-                    title_text="Long vs Short — Cumulative R",  # title handled by header row
+                    title_text="Long vs Short — Cumulative R",
                 )
 
     with right_top[1]:
