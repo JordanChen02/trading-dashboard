@@ -9,6 +9,30 @@ import plotly.graph_objects as go
 import streamlit as st
 from PIL import Image
 
+
+@st.dialog("Create new checklist")
+def _new_checklist_dialog():
+    new_name = st.text_input("Name", key="cl_new_name", placeholder="e.g., London Session Plan")
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("Create", type="primary", key="cl_create_btn"):
+            name = (new_name or "").strip()
+            if not name:
+                st.warning("Enter a name.")
+                return
+            if name in st.session_state.cl_templates:
+                st.info("That name already exists.")
+                return
+            st.session_state.cl_templates.append(name)
+            st.session_state.cl_template_sel = name
+            st.success(f"Created “{name}”.")
+            st.rerun()
+    with c2:
+        if st.button("Cancel", key="cl_create_cancel"):
+            # just close dialog; no state flag needed
+            return
+
+
 # Resolve repo root -> checklist.py is src/views/checklist.py, so parents[2] is repo root
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -521,8 +545,10 @@ def render(*_args, **_kwargs):
                 st.markdown("</div>", unsafe_allow_html=True)
             with btn:
                 st.markdown('<div class="wide-btn">', unsafe_allow_html=True)
-                st.button("New", key="cl_new_template")
+                if st.button("New", key="cl_new_template"):  # styling unchanged
+                    _new_checklist_dialog()  # open once, on click only
                 st.markdown("</div>", unsafe_allow_html=True)
+
             st.markdown("</div>", unsafe_allow_html=True)
     else:
         topL, _ = st.columns([0.3, 0.7], gap="small")
@@ -537,7 +563,8 @@ def render(*_args, **_kwargs):
                     label_visibility="collapsed",
                 )
             with new_col:
-                st.button("New", key="cl_new_template")
+                if st.button("New", key="cl_new_template"):  # styling unchanged
+                    _new_checklist_dialog()  # open once, on click only
 
     # Main split
     laptop = bool(st.session_state.get("laptop_mode", False))
@@ -614,6 +641,33 @@ def render(*_args, **_kwargs):
                         unsafe_allow_html=True,
                     )
 
+        # Save for Journal under the score card (still left side)
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)  # tiny spacer
+        btn_col, _ = st.columns([0.35, 0.65])  # keep it tucked under the card
+        with btn_col:
+            if st.button("Save for Journal", key="cl_save_for_journal"):
+                items = {it["name"]: it["value"] for it in st.session_state.cl_items}
+                lines = [
+                    f"[{items.get('Bias Confidence','')}] Bias",
+                    f"{items.get('Liquidity Sweep','')} Sweep",
+                    f"{items.get('Draw on Liquidity','')} DOL",
+                    f"{items.get('Momentum','')} Momentum",
+                    f"{items.get('iFVG','')} iFVG",
+                    f"{items.get('Point of Interest','')} POI",
+                ]
+                for c in st.session_state.cl_confs:
+                    if c.get("on"):
+                        lines.append(c["name"])
+
+                pct, grade = _score(st.session_state.cl_items, st.session_state.cl_confs)
+                st.session_state["pending_checklist"] = {
+                    "overall_pct": pct,
+                    "overall_grade": grade,
+                    "journal_checklist": lines,
+                    "journal_confirms": lines,
+                }
+                st.toast("Saved to Journal loader ✅")
+
         # Confluences card
         with cR:
             st.markdown('<div class="conf-card"></div>', unsafe_allow_html=True)
@@ -682,14 +736,48 @@ def render(*_args, **_kwargs):
                 if st.button("⋯", key="ex1_kebab"):
                     st.session_state.ex1_menu_open = not st.session_state.ex1_menu_open
                 st.markdown("</div>", unsafe_allow_html=True)
+            # --- Example 1 menu (shown when toggled) ---
+            if st.session_state.ex1_menu_open:
+                with st.container(border=True):
+                    st.caption("Chart Example 1")
+                    # Upload file
+                    f1 = st.file_uploader(
+                        "Upload image", type=["png", "jpg", "jpeg", "webp"], key="ex1_upl"
+                    )
+                    if f1 is not None:
+                        st.session_state.cl_chart_1["file"] = f1
+                        st.session_state.cl_chart_1["url"] = ""
+                        st.success("Loaded from file.")
+                    # Paste URL
+                    url1 = st.text_input(
+                        "Paste image URL", key="ex1_url_input", placeholder="https://…/chart.png"
+                    )
+                    c1, c2 = st.columns([1, 1])
+                    with c1:
+                        if st.button("Load URL", key="ex1_load"):
+                            st.session_state.cl_chart_1["url"] = (url1 or "").strip()
+                            st.session_state.cl_chart_1["file"] = None
+                            st.success("URL set.")
+                    with c2:
+                        if st.button("Delete chart", key="ex1_del"):
+                            st.session_state["cl_chart_1"] = {"url": "", "file": None}
+                            st.info("Chart cleared.")
 
-            src1 = (st.session_state.get("cl_chart_1", {}) or {}).get("file")
-            b = src1.getvalue() if src1 is not None else _load_local_img_bytes(PH_EX1)
+            chart1 = st.session_state.get("cl_chart_1", {})
+            src1 = chart1.get("file")
+            url1 = chart1.get("url", "")
             st.markdown('<div class="chart-img-slot">', unsafe_allow_html=True)
-            if b:
-                st.markdown(_img_html_from_bytes(b), unsafe_allow_html=True)
+            if src1 is not None:
+                st.image(src1, use_container_width=True, caption="Example 1 (file)")
+            elif url1:
+                st.image(url1, use_container_width=True, caption="Example 1 (URL)")
+
             else:
-                st.caption(f"Add a placeholder at: {PH_EX1}")
+                b = _load_local_img_bytes(PH_EX1)
+                if b:
+                    st.markdown(_img_html_from_bytes(b), unsafe_allow_html=True)
+                else:
+                    st.caption(f"Add a placeholder at: {PH_EX1}")
             st.markdown("</div>", unsafe_allow_html=True)
 
         # Example 2
@@ -703,14 +791,47 @@ def render(*_args, **_kwargs):
                 if st.button("⋯", key="ex2_kebab"):
                     st.session_state.ex2_menu_open = not st.session_state.ex2_menu_open
                 st.markdown("</div>", unsafe_allow_html=True)
+            # --- Example 2 menu (shown when toggled) ---
+            if st.session_state.ex2_menu_open:
+                with st.container(border=True):
+                    st.caption("Chart Example 2")
+                    # Upload file
+                    f2 = st.file_uploader(
+                        "Upload image", type=["png", "jpg", "jpeg", "webp"], key="ex2_upl"
+                    )
+                    if f2 is not None:
+                        st.session_state.cl_chart_2["file"] = f2
+                        st.session_state.cl_chart_2["url"] = ""
+                        st.success("Loaded from file.")
+                    # Paste URL
+                    url2 = st.text_input(
+                        "Paste image URL", key="ex2_url_input", placeholder="https://…/chart.png"
+                    )
+                    c1, c2 = st.columns([1, 1])
+                    with c1:
+                        if st.button("Load URL", key="ex2_load"):
+                            st.session_state.cl_chart_2["url"] = (url2 or "").strip()
+                            st.session_state.cl_chart_2["file"] = None
+                            st.success("URL set.")
+                    with c2:
+                        if st.button("Delete chart", key="ex2_del"):
+                            st.session_state["cl_chart_2"] = {"url": "", "file": None}
+                            st.info("Chart cleared.")
 
-            src2 = (st.session_state.get("cl_chart_2", {}) or {}).get("file")
-            b2 = src2.getvalue() if src2 is not None else _load_local_img_bytes(PH_EX2)
+            chart2 = st.session_state.get("cl_chart_2", {})
+            src2 = chart2.get("file")
+            url2 = chart2.get("url", "")
             st.markdown('<div class="chart-img-slot">', unsafe_allow_html=True)
-            if b2:
-                st.markdown(_img_html_from_bytes(b2), unsafe_allow_html=True)
+            if src2 is not None:
+                st.image(src2, use_container_width=True, caption="Example 2 (file)")
+            elif url2:
+                st.image(url2, use_container_width=True, caption="Example 2 (URL)")
             else:
-                st.caption(f"Add a placeholder at: {PH_EX2}")
+                b2 = _load_local_img_bytes(PH_EX2)
+                if b2:
+                    st.markdown(_img_html_from_bytes(b2), unsafe_allow_html=True)
+                else:
+                    st.caption(f"Add a placeholder at: {PH_EX2}")
             st.markdown("</div>", unsafe_allow_html=True)
 
     if not laptop:
