@@ -103,7 +103,11 @@ def _fmt_pnl(x: float) -> str:
 
 
 def render_last_trades(
-    trades: Iterable[Dict], *, title: str = "Last 5 Trades", key_prefix: str = "last5"
+    trades: Iterable[Dict],
+    *,
+    title: str = "Last 5 Trades",
+    key_prefix: str = "last5",
+    laptop_mode: bool = False,
 ) -> None:
     """Render a compact list like your screenshot."""
     trades = list(trades)[:5]
@@ -134,7 +138,10 @@ def render_last_trades(
             pnl_color = POS if pnl >= 0 else NEG
 
             # Row layout
-            left, r_rr, r_pct, r_pnl = st.columns([5, 1.3, 1.2, 1.6], gap="small")
+            if not laptop_mode:
+                left, r_rr, r_pct, r_pnl = st.columns([5, 1.3, 1.2, 1.6], gap="small")
+            else:
+                left, right_stack = st.columns([4, 2.2], gap="small")
 
             with left:
                 st.markdown(
@@ -148,21 +155,34 @@ def render_last_trades(
                 st.caption(f"{_fmt_range(a, b)}")
                 st.markdown("<div style='height:2px'></div>", unsafe_allow_html=True)
 
-            with r_rr:
-                st.markdown(
-                    f"<div style='text-align:right;color:{rr_color};font-weight:700'>{_fmt_rr(rr)}</div>",
-                    unsafe_allow_html=True,
-                )
-            with r_pct:
-                st.markdown(
-                    f"<div style='text-align:right;color:{pct_color};opacity:.9'>{_fmt_pct(pct)}</div>",
-                    unsafe_allow_html=True,
-                )
-            with r_pnl:
-                st.markdown(
-                    f"<div style='text-align:right;color:{pnl_color};font-weight:700'>{_fmt_pnl(pnl)}</div>",
-                    unsafe_allow_html=True,
-                )
+            if not laptop_mode:
+                with r_rr:
+                    st.markdown(
+                        f"<div style='text-align:right;color:{rr_color};font-weight:700'>{_fmt_rr(rr)}</div>",
+                        unsafe_allow_html=True,
+                    )
+                with r_pct:
+                    st.markdown(
+                        f"<div style='text-align:right;color:{pct_color};opacity:.9'>{_fmt_pct(pct)}</div>",
+                        unsafe_allow_html=True,
+                    )
+                with r_pnl:
+                    st.markdown(
+                        f"<div style='text-align:right;color:{pnl_color};font-weight:700'>{_fmt_pnl(pnl)}</div>",
+                        unsafe_allow_html=True,
+                    )
+            else:
+                with right_stack:
+                    st.markdown(
+                        f"""
+                        <div style='display:flex;flex-direction:column;align-items:flex-end;line-height:1.15'>
+                        <div style='color:{rr_color};font-weight:700'>{_fmt_rr(rr)}</div>
+                        <div style='color:{pct_color};opacity:.9'>{_fmt_pct(pct)}</div>
+                        <div style='color:{pnl_color};font-weight:700'>{_fmt_pnl(pnl)}</div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
 
             if i < len(trades) - 1:
                 st.markdown("<hr style='opacity:.12;margin:12px 0'>", unsafe_allow_html=True)

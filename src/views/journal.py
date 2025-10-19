@@ -385,6 +385,14 @@ def _init_session_state() -> None:
                     st.session_state["_seeded_fake_once"] = True  # never reseed again
                 else:
                     st.session_state.journal_df = pd.DataFrame(columns=_EMPTY_SCHEMA)
+    # Ensure the Journal page date filter spans current data
+    try:
+        if not st.session_state.journal_df.empty and "Date" in st.session_state.journal_df.columns:
+            _d = pd.to_datetime(st.session_state.journal_df["Date"], errors="coerce").dropna()
+            if not _d.empty:
+                st.session_state["jr_date_range"] = (_d.min().date(), _d.max().date())
+    except Exception:
+        pass
 
     # baseline sig for autosave
     st.session_state["_journal_sig"] = _df_checksum(st.session_state.journal_df)
@@ -1074,14 +1082,42 @@ def _render_summary(df: pd.DataFrame):
     dur_avg_min = float(dur_series.dropna().mean()) if not dur_series.empty else 0.0
 
     st.markdown("---")
-    s = st.columns([1, 1, 1, 1, 1, 1, 1], gap="large")
-    s[0].metric("Total Trades", f"{total:,}")
-    s[1].metric("Win Rate", f"{win_rate:.1f}%")
-    s[2].metric("Total PnL", f"${pnl_total:,.2f}")
-    s[3].metric("Avg PnL", f"${pnl_avg:,.2f}")
-    s[4].metric("Total R", f"{r_total:.2f}")
-    s[5].metric("Avg Risk", f"${risk_avg:,.2f}")
-    s[6].metric("Avg Duration", _friendly_minutes(dur_avg_min))
+
+    if not st.session_state.get("laptop_mode", False):
+        # desktop: original row of 7
+        s = st.columns([1, 1, 1, 1, 1, 1, 1], gap="large")
+        s[0].metric("Total Trades", f"{total:,}")
+        s[1].metric("Win Rate", f"{win_rate:.1f}%")
+        s[2].metric("Total PnL", f"${pnl_total:,.2f}")
+        s[3].metric("Avg PnL", f"${pnl_avg:,.2f}")
+        s[4].metric("Total R", f"{r_total:.2f}")
+        s[5].metric("Avg Risk", f"${risk_avg:,.2f}")
+        s[6].metric("Avg Duration", _friendly_minutes(dur_avg_min))
+    else:
+        # laptop: one wide card with compact text
+        with st.container(border=False):
+            st.markdown(
+                f"""
+                <style>
+                .jr-kpi-grid{{display:grid;grid-template-columns:repeat(7,1fr);gap:12px}}
+                .jr-kpi {{background:{CARD_BG};border-radius:14px;padding:10px 12px}}
+                .jr-kpi h6{{margin:0 0 6px 0;font-weight:600;color:#A9B4C5;font-size:12px}}
+                .jr-kpi div{{font-size:18px;color:#E8EEF7;white-space:nowrap}}
+                @media (max-width:1300px){{ .jr-kpi-grid{{grid-template-columns:repeat(4,1fr)}} }}
+                @media (max-width:1100px){{ .jr-kpi-grid{{grid-template-columns:repeat(3,1fr)}} }}
+                </style>
+                <div class="jr-kpi-grid">
+                <div class="jr-kpi"><h6>Total Trades</h6><div>{total:,}</div></div>
+                <div class="jr-kpi"><h6>Win Rate</h6><div>{win_rate:.1f}%</div></div>
+                <div class="jr-kpi"><h6>Total PnL</h6><div>${pnl_total:,.2f}</div></div>
+                <div class="jr-kpi"><h6>Avg PnL</h6><div>${pnl_avg:,.2f}</div></div>
+                <div class="jr-kpi"><h6>Total R</h6><div>{r_total:.2f}</div></div>
+                <div class="jr-kpi"><h6>Avg Risk</h6><div>${risk_avg:,.2f}</div></div>
+                <div class="jr-kpi"><h6>Avg Duration</h6><div>{_friendly_minutes(dur_avg_min)}</div></div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
 
 # ----------------------------- main render -----------------------------

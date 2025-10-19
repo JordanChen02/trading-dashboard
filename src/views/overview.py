@@ -358,6 +358,18 @@ def render_overview(
         transform: translateY(-66px);  /* tweak this value as you like */
         }}
 
+        /* ===== KPI GRID: 5 cols on desktop, wrap on laptops ===== */
+        .kpi-grid{{
+        display:grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 12px;
+        align-items: stretch;
+        }}
+        @media (max-width: 1439px){{ .kpi-grid{{ grid-template-columns: repeat(3, 1fr); }} }}  /* laptop */
+        @media (max-width: 1100px){{ .kpi-grid{{ grid-template-columns: repeat(2, 1fr); }} }}  /* small laptop */
+        @media (max-width: 768px) {{ .kpi-grid{{ grid-template-columns: 1fr; }} }}              /* mobile */
+
+
         </style>
         """,
         unsafe_allow_html=True,
@@ -368,7 +380,17 @@ def render_overview(
     PAD_K5 = 10  # Winstreak
 
     # ===== TOP KPI ROW (full width) =====
-    k1, k2, k3, k4, k5 = st.columns([1.2, 1, 1, 1, 1], gap="small")
+    # ---- Layout preview toggle (Desktop vs Laptop) ----
+    _laptop_mode = bool(st.session_state.get("laptop_mode", False))
+
+    if not _laptop_mode:
+        # --- Desktop: one 5-wide row (unchanged) ---
+        k1, k2, k3, k4, k5 = st.columns([1.2, 1, 1, 1, 1], gap="small")
+
+    else:
+        # --- Laptop: two rows (2 + 3 KPIs) ---
+        k1, k2 = st.columns(2, gap="small")  # Row 1
+        k3, k4, k5 = st.columns(3, gap="small")  # Row 2
 
     # -- k1: Balance & Net Profit (side-by-side) --
     with k1:
@@ -627,7 +649,7 @@ def render_overview(
             st.plotly_chart(fig_pf, use_container_width=True)
 
     # -- k4: Long vs Short (ratio pill) --
-    with k4:
+    with k4 if _laptop_mode else k4:
         with st.container(border=False):
             # ---- Long vs Short (title + text + pill move together) ----
 
@@ -723,7 +745,7 @@ def render_overview(
                 )
 
     # -- k5: Winstreak (moved up here) --
-    with k5:
+    with k5 if _laptop_mode else k5:
         with st.container(border=False):
             # compute streaks (copied from your right panel)
             def _streak_stats(win_bool: pd.Series) -> tuple[int, int, int]:
@@ -798,12 +820,18 @@ def render_overview(
                 else:
                     st.caption("No trades to summarize.")
 
-            with right:
-                if summary_df is not None and not summary_df.empty:
-                    # Build a compact HTML legend + table with color swatches
-                    rows_html = []
-                    for _, r in summary_df.iterrows():
-                        swatch = f"<span style='display:inline-block;width:10px;height:10px;border-radius:2px;background:{r.color};margin-right:8px;'></span>"
+        with right:
+            if summary_df is not None and not summary_df.empty:
+                LAPTOP = bool(st.session_state.get("laptop_mode", False))
+
+                rows_html = []
+                for _, r in summary_df.iterrows():
+                    swatch = (
+                        f"<span style='display:inline-block;width:10px;height:10px;"
+                        f"border-radius:2px;background:{r.color};margin-right:8px;'></span>"
+                    )
+                    if not LAPTOP:
+                        # Desktop: Asset + Trades + %
                         rows_html.append(
                             "<tr>"
                             f"<td style='padding:8px 8px;border:none;'>{swatch}"
@@ -812,24 +840,44 @@ def render_overview(
                             f"<td style='padding:8px 8px;text-align:right;color:#9AA4B2;border:none;'>{r.pct:.1f}%</td>"
                             "</tr>"
                         )
+                    else:
+                        # Laptop: legend only (color + asset)
+                        rows_html.append(
+                            "<tr>"
+                            f"<td style='padding:8px 8px;border:none;'>{swatch}"
+                            f"<span style='color:#D5DEED'>{r.asset}</span></td>"
+                            "</tr>"
+                        )
 
-                    table_html = (
-                        "<table style='width:100%;border-collapse:separate;border-spacing:0;"
-                        "border:none;outline:none;box-shadow:none;'>"
-                        "<thead>"
-                        "<tr>"
+                if not LAPTOP:
+                    thead = (
+                        "<thead><tr>"
                         "<th style='text-align:left;padding:6px 8px;color:#9AA4B2;font-weight:600;border:none;'>Asset</th>"
                         "<th style='text-align:right;padding:6px 8px;color:#9AA4B2;font-weight:600;border:none;'>Trades</th>"
                         "<th style='text-align:right;padding:6px 8px;color:#9AA4B2;font-weight:600;border:none;'>%</th>"
-                        "</tr>"
-                        "</thead>"
-                        "<tbody>" + "".join(rows_html) + "</tbody>"
-                        "</table>"
+                        "</tr></thead>"
+                    )
+                else:
+                    # Laptop: single header
+                    thead = (
+                        "<thead><tr>"
+                        "<th style='text-align:left;padding:6px 8px;color:#9AA4B2;font-weight:600;border:none;'>Asset</th>"
+                        "</tr></thead>"
                     )
 
-                    st.markdown(table_html, unsafe_allow_html=True)
-                else:
-                    st.empty()
+                table_html = (
+                    "<table style='width:100%;border-collapse:separate;border-spacing:0;"
+                    "border:none;outline:none;box-shadow:none;'>"
+                    + thead
+                    + "<tbody>"
+                    + "".join(rows_html)
+                    + "</tbody>"
+                    "</table>"
+                )
+
+                st.markdown(table_html, unsafe_allow_html=True)
+            else:
+                st.empty()
 
         # === Equity Curve — title + Streamlit segmented control, height=282 ===
         with st.container(border=False):
@@ -1221,7 +1269,12 @@ def render_overview(
 
             # put this inside the same container as Last 5 Trades
             st.markdown('<div class="last5-title">Last 5 Trades</div>', unsafe_allow_html=True)
-            render_last_trades(last5, title="", key_prefix="ov_last5")
+            render_last_trades(
+                last5,
+                title="",
+                key_prefix="ov_last5",
+                laptop_mode=st.session_state.get("laptop_mode", False),
+            )
             # -------------------------------------------------
 
     CARD_BG_DARK = "#0f1422"

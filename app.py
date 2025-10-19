@@ -19,6 +19,7 @@ from src.styles import (
     inject_filters_css,
     inject_header_layout_css,
     inject_isolated_ui_css,
+    inject_responsive_css,
     inject_topbar_css,
     inject_upload_css,
 )
@@ -138,6 +139,9 @@ def _kpi_net_and_balance(df_view):
     balance = base_eq + net
     return net, balance
 
+
+if "laptop_mode" not in st.session_state:
+    st.session_state["laptop_mode"] = False
 
 # -------------------------------------------------------------------------------
 
@@ -310,6 +314,7 @@ inject_filters_css()
 inject_isolated_ui_css()
 inject_topbar_css()
 inject_upload_css()
+inject_responsive_css()
 
 
 st.markdown(
@@ -413,24 +418,34 @@ st.markdown(
 
 
 st.markdown(
-    f"""
+    """
 <style>
-/* Base: make sidebar transitions smooth */
-[data-testid="stSidebar"] {{ transition: all .18s ease; }}
-    
-/* Expanded look (optional explicit sizing) */
-{'''
+/* Responsive sidebar widths; wider default */
 [data-testid="stSidebar"]{
-  transform: none !important;
-  width: 18rem !important;
-  min-width: 18rem !important;
-  visibility: visible !important;
+  transition: width .18s ease;
+  width: 270px !important;      /* wider default */
+  min-width: 270px !important;
 }
-''' if st.session_state.get('sb_open', True) else '' }
+@media (max-width: 1280px){
+  [data-testid="stSidebar"]{
+    width: 200px !important;    /* medium */
+    min-width: 200px !important;
+  }
+}
+@media (max-width: 1100px){
+  [data-testid="stSidebar"]{
+    width: 84px !important;     /* compact icon rail */
+    min-width: 84px !important;
+  }
+  /* hide radio/text labels in compact */
+  [data-testid="stSidebar"] .stRadio label p{ display:none !important; }
+}
 </style>
 """,
     unsafe_allow_html=True,
 )
+
+
 st.markdown(
     """
 <style>
@@ -564,8 +579,72 @@ st.markdown(
 .topbar .topbar-range .tb-ico, 
 .topbar .topbar-range .tb-ico svg{ color:#3AA4EB !important; fill:#3AA4EB !important; }
 .topbar .topbar-range .tb-text{ color:#e5e7eb; font-weight:500; font-size:16px; letter-spacing:.1px; }
+/* view toggle buttons */
+.topbar button[kind="secondary"]{ padding: 2px 8px; min-height: 28px; }
+
 </style>
 
+""",
+    unsafe_allow_html=True,
+)
+
+st.markdown(
+    """
+    <style>
+      /* sidebar as full-height column */
+      section[data-testid="stSidebar"] div[data-testid="stSidebarContent"]{
+        display:flex; flex-direction:column; min-height:100%;
+      }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+st.markdown(
+    """
+<style>
+/* Replace text with icons for the two options by position */
+section[data-testid="stSidebar"] [data-baseweb="segmented-control"] [data-baseweb="button"]{
+  position: relative;
+}
+
+/* Hide the visible text labels so only icons show */
+section[data-testid="stSidebar"] [data-baseweb="segmented-control"] [data-baseweb="button"] span{
+  font-size: 0 !important;      /* hides "Desktop" / "Laptop" text */
+  line-height: 0 !important;
+}
+
+/* Base icon slot */
+section[data-testid="stSidebar"] [data-baseweb="segmented-control"] [data-baseweb="button"]::before{
+  content:"";
+  display:inline-block;
+  width:16px; height:16px;
+  margin-right: 0;               /* no extra gap since text is hidden */
+  background:#3AA4EB;            /* icon color to match topbar */
+  -webkit-mask-repeat:no-repeat; -webkit-mask-position:center; -webkit-mask-size:16px 16px;
+          mask-repeat:no-repeat;         mask-position:center;         mask-size:16px 16px;
+}
+
+/* Left option = Desktop icon */
+section[data-testid="stSidebar"] [data-baseweb="segmented-control"] [data-baseweb="button"]:nth-of-type(1)::before{
+  -webkit-mask-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='4' width='18' height='12' rx='2'/><line x1='8' y1='20' x2='16' y2='20'/><line x1='12' y1='16' x2='12' y2='20'/></svg>");
+          mask-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='4' width='18' height='12' rx='2'/><line x1='8' y1='20' x2='16' y2='20'/><line x1='12' y1='16' x2='12' y2='20'/></svg>");
+}
+
+/* Right option = Laptop icon */
+section[data-testid="stSidebar"] [data-baseweb="segmented-control"] [data-baseweb="button"]:nth-of-type(2)::before{
+  -webkit-mask-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><rect x='4' y='5' width='16' height='10' rx='2'/><path d='M2 19h20'/></svg>");
+          mask-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><rect x='4' y='5' width='16' height='10' rx='2'/><path d='M2 19h20'/></svg>");
+}
+
+/* Optional: mute inactive icon slightly, keep active bright */
+section[data-testid="stSidebar"] [data-baseweb="segmented-control"] [data-baseweb="button"][aria-checked="false"]::before{
+  background:#7fb7e6;
+}
+section[data-testid="stSidebar"] [data-baseweb="segmented-control"] [data-baseweb="button"][aria-checked="true"]::before{
+  background:#3AA4EB;
+}
+</style>
 """,
     unsafe_allow_html=True,
 )
@@ -893,6 +972,23 @@ with st.sidebar:
 
     st.divider()
 
+    # --- Device view toggle (sidebar, runs before topbar) -----------------
+    # Seed widget state once, then let the widget own its key.
+    if "device_mode_seg" not in st.session_state:
+        st.session_state["device_mode_seg"] = (
+            "Laptop" if st.session_state["laptop_mode"] else "Desktop"
+        )
+
+    def _apply_device_mode():
+        st.session_state["laptop_mode"] = st.session_state["device_mode_seg"] == "Laptop"
+
+    st.segmented_control(
+        label="",
+        options=["Desktop", "Laptop"],  # left = Desktop, right = Laptop
+        key="device_mode_seg",
+        label_visibility="collapsed",
+        on_change=_apply_device_mode,  # updates laptop_mode before topbar renders
+    )
 
 # ===================== MAIN: Journal Session Only =====================
 
@@ -974,15 +1070,18 @@ st.session_state["journal_options"] = new_opts
 if tuple(new_opts) != _prev_opts:
     st.rerun()
 
+
 # ========== TOP TOOLBAR (title spacer | timeframe | account | icons) ==========
 st.markdown('<div class="topbar">', unsafe_allow_html=True)
 
+is_laptop = bool(st.session_state["laptop_mode"])
 t_spacer, t_tf, t_range, t_acct, t_globe, t_bell, t_full, t_theme, t_profile = st.columns(
-    [50, 10, 15, 14, 5, 5, 5, 5, 5], gap="small"
+    [10 if is_laptop else 50, 10, 15, 14, 5, 5, 5, 5, 5], gap="small"
 )
 
 with t_spacer:
     st.empty()
+
 
 # -- Timeframe (compact select) --
 with t_tf:
@@ -1107,29 +1206,6 @@ with t_range:
         key=_RANGE_KEY,
         on_change=_on_range_change,
     )
-
-    # # === Overlay label that visually replaces the input text (keeps clicks working) ===
-    # d1 = st.session_state.get("date_from") or cur_from
-    # d2 = st.session_state.get("date_to") or cur_to
-    # label_txt = f"{d1:%Y-%m-%d}  \u2192  {d2:%Y-%m-%d}"  # note the spaces around the arrow
-
-    # st.markdown(
-    #     f"""
-    #     <div class="tb-overlay" style="width:{RANGE_WIDTH_PX}px">
-    #       <div class="inner">
-    #         <span class="tb-ico">
-    #           <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-    #             <path d="M7 2a1 1 0 0 1 1 1v1h8V3a1 1 0 1 1 2 0v1h1.5A2.5 2.5 0 0 1 22 6.5v13A2.5 2.5 0 0 1 19.5 22h-15A2.5 2.5 0 0 1 2 19.5v-13A2.5 2.5 0 0 1 4.5 4H6V3a1 1 0 1 1 2 0v1Zm12.5 6H4.5a.5.5 0 0 0-.5.5v10a.5.5 0 0 0 .5.5h15a.5.5 0 0 0 .5-.5v-10a.5.5 0 0 0-.5-.5ZM8 7H6v1a1 1 0 0 0 2 0V7Zm10 0h-2v1a1 1 0 1 0 2 0V7Z"/>
-    #           </svg>
-    #         </span>
-    #         <span class="tb-text">{label_txt}</span>
-    #       </div>
-    #     </div>
-    #     """,
-    #     unsafe_allow_html=True,
-    # )
-    # st.markdown("</div>", unsafe_allow_html=True)  # ← add (closes .topbar-range)
-# --- END TOPBAR: Custom Date Range -----------------------------------------
 
 
 # -- Account (NOW after options were built) --

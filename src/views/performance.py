@@ -593,8 +593,20 @@ def render(
         st.markdown(f"<div style='height:{DIVIDER_MARGIN_PX}px'></div>", unsafe_allow_html=True)
 
     # ---- Charts (2×3), each inside a rounded bordered container
-    r1c1, r1c2, r1c3 = st.columns(3, gap="small")
-    with r1c1:
+    LAPTOP = bool(st.session_state.get("laptop_mode", False))
+
+    if not LAPTOP:
+        row1 = st.columns(3, gap="small")
+        row2 = st.columns(3, gap="small")
+        slots = [*row1, *row2]  # 6 slots in reading order
+    else:
+        row1 = st.columns(2, gap="small")
+        row2 = st.columns(2, gap="small")
+        row3 = st.columns(2, gap="small")
+        slots = [*row1, *row2, *row3]  # 6 slots in reading order
+
+    # slots[0]
+    with slots[0]:
         with st.container(border=False):
             st.markdown('<div class="perf-underwater"></div>', unsafe_allow_html=True)
             st.plotly_chart(
@@ -603,25 +615,25 @@ def render(
                 key="perf_underwater_date",
             )
 
-    with r1c2:
+    # slots[1]
+    with slots[1]:
         with st.container(border=False):
-            st.markdown(
-                '<div class="perf-cumr"></div>', unsafe_allow_html=True
-            )  # keep same card chrome
-            from src.charts.tier_wr import figure_tier_wr  # top-level import is fine too
+            st.markdown('<div class="perf-cumr"></div>', unsafe_allow_html=True)
+            from src.charts.tier_wr import figure_tier_wr
 
             fig = figure_tier_wr(df_view, date_col=(date_col or "date"), height=CHART_HEIGHT_PX)
             st.plotly_chart(fig, use_container_width=True, key="perf_tier_wr")
 
-    with r1c3:
+    # slots[2]
+    with slots[2]:
         with st.container(border=False):
             st.markdown('<div class="perf-rolling"></div>', unsafe_allow_html=True)
             st.plotly_chart(
                 _fig_rolling_20d(daily_stats), use_container_width=True, key="perf_roll20d"
             )
 
-    r2c1, r2c2, r2c3 = st.columns(3, gap="small")
-    with r2c1:
+    # slots[3]
+    with slots[3]:
         with st.container(border=False):
             if (dates is not None) and (r_series is not None):
                 st.markdown('<div class="perf-scatter"></div>', unsafe_allow_html=True)
@@ -630,14 +642,14 @@ def render(
                     use_container_width=True,
                     key="perf_trade_scatter",
                 )
-                # ...and in the else branch, right before the fallback chart too
-
             else:
                 st.plotly_chart(
                     _base_layout(go.Figure(), "Trades (R) over Time"), use_container_width=True
                 )
                 st.caption("Requires 'R Ratio' or ('PnL' + 'Dollars Risked') to compute R.")
-    with r2c2:
+
+    # slots[4]
+    with slots[4]:
         with st.container(border=False):
             sym_col = _exists_any(
                 df_view, ["Symbol", "symbol", "Asset", "asset", "Ticker", "ticker", "Pair", "pair"]
@@ -649,15 +661,15 @@ def render(
                     use_container_width=True,
                     key="perf_sym",
                 )
-                # ...and in the else branch before the fallback chart too
-
             else:
                 st.plotly_chart(
                     _base_layout(go.Figure(), "Profit by Symbol (Top 5 + Others)"),
                     use_container_width=True,
                 )
                 st.caption("No symbol/ticker column found.")
-    with r2c3:
+
+    # slots[5]
+    with slots[5]:
         with st.container(border=False):
             st.markdown('<div class="perf-hist"></div>', unsafe_allow_html=True)
             st.plotly_chart(

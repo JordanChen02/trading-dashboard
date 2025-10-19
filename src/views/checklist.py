@@ -268,6 +268,7 @@ def _inject_css():
     offset = int(st.session_state.get("cl_label_offset", 10))
     st.markdown(
         f"""
+
 <style>
 /* Blue outline buttons */
 [data-testid="stButton"] > button,
@@ -327,15 +328,34 @@ div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .
   top: {offset}px;
 }}
 
-/* Wider header buttons */
-.wide-btn .stButton > button {{ padding:8px 16px !important; min-width:120px; }}
+.wide-btn .stButton > button {{ padding:8px 18px !important; min-width:{min_w}px; }}
+
+/* laptop top bar vertical alignment */
+.tb-down {{ margin-top: 8px; }}               /* lowers the selectbox */
+.tb-center .wide-btn .stButton > button {{   /* tiny balance for the button */
+  margin-top: 2px;
+}}
+
 
 /* Grade bigger */
-.grade-pill {{ font-weight:900; font-size:40px; color:{FG}; }}
+.grade-pill {{ font-weight:800; font-size:60px; color:{FG}; }}
 </style>
 """,
         unsafe_allow_html=True,
     )
+
+
+st.markdown(
+    """
+    <style>
+      /* lower the selectbox a hair in laptop top bar */
+      .tb-center [data-baseweb="select"] { margin-top: 6px; }
+      .tb-center [data-testid="stSelectbox"] > div { margin-top: 6px; }
+      .tb-center [data-baseweb="select"] { margin-top: 6px; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 
 def _half_donut_fig(title: str, pct: int) -> go.Figure:
@@ -454,6 +474,10 @@ def _add_item_modal():
     modal_or_inline("Add Checklist Item", _body)
 
 
+# Decide button width depending on mode
+min_w = 180 if bool(st.session_state.get("laptop_mode", False)) else 120
+
+
 # ==============================
 # Main render
 # ==============================
@@ -478,25 +502,48 @@ def render(*_args, **_kwargs):
         st.session_state["add_item_keep_open"] = False
 
     # Top bar
-    topL, _ = st.columns([0.3, 0.7], gap="small")
-    with topL:
-        dd_col, new_col = st.columns([0.82, 0.18])
-        with dd_col:
-            st.selectbox(
-                "Setup Checklist",
-                st.session_state.cl_templates,
-                index=0,
-                key="cl_template_sel",
-                label_visibility="collapsed",
-            )
-        with new_col:
-            st.button("New", key="cl_new_template")
+    _laptop = bool(st.session_state.get("laptop_mode", False))
+
+    if _laptop:
+        padL, mid, padR = st.columns([0.30, 0.40, 0.30], gap="small")  # center row
+        with mid:
+            st.markdown('<div class="tb-center">', unsafe_allow_html=True)
+            sel, btn = st.columns([0.75, 0.25], gap="small")  # button to the right
+            with sel:
+                st.markdown('<div class="tb-down">', unsafe_allow_html=True)
+                st.selectbox(
+                    "Setup Checklist",
+                    st.session_state.cl_templates,
+                    index=0,
+                    key="cl_template_sel",
+                    label_visibility="collapsed",
+                )
+                st.markdown("</div>", unsafe_allow_html=True)
+            with btn:
+                st.markdown('<div class="wide-btn">', unsafe_allow_html=True)
+                st.button("New", key="cl_new_template")
+                st.markdown("</div>", unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+    else:
+        topL, _ = st.columns([0.3, 0.7], gap="small")
+        with topL:
+            dd_col, new_col = st.columns([0.82, 0.18])
+            with dd_col:
+                st.selectbox(
+                    "Setup Checklist",
+                    st.session_state.cl_templates,
+                    index=0,
+                    key="cl_template_sel",
+                    label_visibility="collapsed",
+                )
+            with new_col:
+                st.button("New", key="cl_new_template")
 
     # Main split
-    left, right = st.columns([0.55, 0.5], gap="large")
+    laptop = bool(st.session_state.get("laptop_mode", False))
 
-    # ---------------- LEFT ----------------
-    with left:
+    def _render_left_column():
+        # ----- LEFT (Checklist + Score + Confluences) -----
         cL, cR = st.columns([1, 1], gap="small")
 
         # Checklist card
@@ -524,7 +571,6 @@ def render(*_args, **_kwargs):
                 if st.session_state.get("add_item_force_show_once"):
                     st.session_state["add_item_force_show_once"] = False
 
-                # Render checklist rows
                 for i, it in enumerate(st.session_state.cl_items):
                     ncol, selcol = st.columns([1.2, 3.0], gap="small")
                     with ncol:
@@ -545,7 +591,30 @@ def render(*_args, **_kwargs):
                             label_visibility="collapsed",
                         )
 
-        # Confluences card (unchanged)
+            st.markdown(
+                "<hr style='margin:0.5rem 0; border:0.5px solid rgba(255,255,255,0.1)'>",
+                unsafe_allow_html=True,
+            )
+
+            # Score & Grade (separate card)
+            st.markdown('<div class="score-card"></div>', unsafe_allow_html=True)
+            with st.container(border=False):
+                pct, grade = _score(st.session_state.cl_items, st.session_state.cl_confs)
+                gL, gR = st.columns([2.2, 1], gap="small")
+                with gL:
+                    fig = _half_donut_fig("Overall Score", pct)
+                    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+                with gR:
+                    st.markdown(
+                        "<div class='ui-subtle' style='text-align:center'>Grade</div>",
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown(
+                        f"<div class='grade-pill' style='text-align:center'>{grade}</div>",
+                        unsafe_allow_html=True,
+                    )
+
+        # Confluences card
         with cR:
             st.markdown('<div class="conf-card"></div>', unsafe_allow_html=True)
             with st.container(border=False):
@@ -598,60 +667,8 @@ def render(*_args, **_kwargs):
                         )
                         st.rerun()
 
-        # Score & Grade
-        sc_left, sc_right = st.columns([0.6, 0.4], gap="large")
-        with sc_left:
-            narrow, _ = st.columns([0.8, 0.2])
-            with narrow:
-                st.markdown('<div class="score-card"></div>', unsafe_allow_html=True)
-                with st.container(border=False):
-                    pct, grade = _score(st.session_state.cl_items, st.session_state.cl_confs)
-                    gL, gR = st.columns([2.2, 1], gap="small")
-                    with gL:
-                        fig = _half_donut_fig("Overall Score", pct)
-                        st.plotly_chart(
-                            fig, use_container_width=True, config={"displayModeBar": False}
-                        )
-                    with gR:
-                        st.markdown(
-                            "<div class='ui-subtle' style='text-align:center'>Grade</div>",
-                            unsafe_allow_html=True,
-                        )
-                        st.markdown(
-                            f"<div class='grade-pill' style='text-align:center'>{grade}</div>",
-                            unsafe_allow_html=True,
-                        )
-
-        # Save for Journal (NOW also saves formatted score string)
-        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-        btn_col, _ = st.columns([0.35, 0.65])
-        with btn_col:
-            if st.button("Save for Journal", key="cl_save_for_journal"):
-                items = {it["name"]: it["value"] for it in st.session_state.cl_items}
-                lines = [
-                    f"[{items.get('Bias Confidence','')}] Bias",
-                    f"{items.get('Liquidity Sweep','')} Sweep",
-                    f"{items.get('Draw on Liquidity','')} DOL",
-                    f"{items.get('Momentum','')} Momentum",
-                    f"{items.get('iFVG','')} iFVG",
-                    f"{items.get('Point of Interest','')} POI",
-                ]
-                for c in st.session_state.cl_confs:
-                    if c.get("on"):
-                        lines.append(c["name"])
-
-                pct, grade = _score(st.session_state.cl_items, st.session_state.cl_confs)
-                st.session_state["pending_checklist"] = {
-                    "overall_pct": pct,  # numeric (kept)
-                    "overall_pct_str": f"{pct}%",  # NEW formatted string
-                    "overall_grade": grade,  # e.g., "S"
-                    "journal_checklist": lines,
-                    "journal_confirms": lines,
-                }
-                st.toast("Saved to Journal loader ✅")
-
-    # ---------------- RIGHT: Chart Examples (kept as in your current file) ----------------
-    with right:
+    def _render_right_column():
+        # ----- RIGHT (Chart Examples) -----
         st.markdown('<div class="section-title">Chart Examples</div>', unsafe_allow_html=True)
 
         # Example 1
@@ -666,18 +683,8 @@ def render(*_args, **_kwargs):
                     st.session_state.ex1_menu_open = not st.session_state.ex1_menu_open
                 st.markdown("</div>", unsafe_allow_html=True)
 
-            # Always show Example 1 image (no click required) — embed bytes to avoid collapsed first paint
             src1 = (st.session_state.get("cl_chart_1", {}) or {}).get("file")
-
-            # Get bytes: uploaded file → getvalue(); else load local placeholder
-            if src1 is not None:
-                try:
-                    b = src1.getvalue()
-                except Exception:
-                    b = None
-            else:
-                b = _load_local_img_bytes(PH_EX1)
-
+            b = src1.getvalue() if src1 is not None else _load_local_img_bytes(PH_EX1)
             st.markdown('<div class="chart-img-slot">', unsafe_allow_html=True)
             if b:
                 st.markdown(_img_html_from_bytes(b), unsafe_allow_html=True)
@@ -697,20 +704,29 @@ def render(*_args, **_kwargs):
                     st.session_state.ex2_menu_open = not st.session_state.ex2_menu_open
                 st.markdown("</div>", unsafe_allow_html=True)
 
-            # Always show Example 2 image (no click required) — embed bytes to avoid collapsed first paint
             src2 = (st.session_state.get("cl_chart_2", {}) or {}).get("file")
-
-            if src2 is not None:
-                try:
-                    b2 = src2.getvalue()
-                except Exception:
-                    b2 = None
-            else:
-                b2 = _load_local_img_bytes(PH_EX2)
-
+            b2 = src2.getvalue() if src2 is not None else _load_local_img_bytes(PH_EX2)
             st.markdown('<div class="chart-img-slot">', unsafe_allow_html=True)
             if b2:
                 st.markdown(_img_html_from_bytes(b2), unsafe_allow_html=True)
             else:
                 st.caption(f"Add a placeholder at: {PH_EX2}")
             st.markdown("</div>", unsafe_allow_html=True)
+
+    if not laptop:
+        # Desktop: two columns
+        left, right = st.columns([0.55, 0.5], gap="large")
+        with left:
+            _render_left_column()
+        with right:
+            _render_right_column()
+    else:
+        # Laptop: single centered column, charts stacked underneath left content
+        padL, main, padR = st.columns([0.06, 0.88, 0.06])
+        with main:
+            _render_left_column()
+            st.markdown(
+                "<hr style='margin:1rem 0; border:0.5px solid rgba(255,255,255,0.1)'>",
+                unsafe_allow_html=True,
+            )
+            _render_right_column()

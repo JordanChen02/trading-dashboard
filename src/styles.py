@@ -575,8 +575,8 @@ RESPONSIVE_CSS = """
 <style>
 :root{
   --gap:16px;
-  --card-min:340px;        /* min width for any card */
-  --kpi-min:220px;         /* min width for KPI cards */
+  --card-min:340px;
+  --kpi-min:220px;
   --nav-wide:220px;
   --nav-compact:72px;
 }
@@ -584,7 +584,7 @@ RESPONSIVE_CSS = """
 /* Fluid type */
 html{ font-size: clamp(12px, 0.95vw, 16px); }
 
-/* Generic responsive grids */
+/* Responsive grids */
 .grid-main{
   display:grid;
   grid-template-columns: repeat(auto-fit, minmax(var(--card-min), 1fr));
@@ -602,7 +602,7 @@ html{ font-size: clamp(12px, 0.95vw, 16px); }
 .truncate{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 img, svg{ max-width:100%; height:auto; }
 
-/* Sidebar: built-in Streamlit */
+/* Sidebar responsive widths */
 [data-testid="stSidebar"]{
   width: var(--nav-wide) !important;
   min-width: var(--nav-wide) !important;
@@ -610,22 +610,25 @@ img, svg{ max-width:100%; height:auto; }
 }
 @media (max-width: 1280px){
   :root{ --gap:12px; --card-min:300px; }
-  [data-testid="stSidebar"]{
-    width: 180px !important; min-width:180px !important;
-  }
+  [data-testid="stSidebar"]{ width:180px !important; min-width:180px !important; }
 }
 @media (max-width: 1100px){
   [data-testid="stSidebar"]{
     width: var(--nav-compact) !important;
     min-width: var(--nav-compact) !important;
   }
-  /* If your items render as: <span class="nav-emoji">📊</span><span class="nav-label">Dashboard</span> */
-  .nav-label{ display:none !important; }
-  .nav-emoji{ font-size:18px !important; display:inline-block; text-align:center; width:100%; }
+  /* Hide radio text, keep your mask icons */
+  [data-testid="stSidebar"] .stRadio label p{ display:none !important; }
 }
 
-/* Tighten layout at tablet/phone */
+/* Tablet/phone tightening */
 @media (max-width: 992px){ :root{ --card-min:260px; } }
 @media (max-width: 768px){ :root{ --card-min:100%; } }
 </style>
 """
+
+
+def inject_responsive_css():
+    import streamlit as st
+
+    st.markdown(RESPONSIVE_CSS, unsafe_allow_html=True)
