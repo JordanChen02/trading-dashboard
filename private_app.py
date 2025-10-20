@@ -12,6 +12,12 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+if "laptop_mode" not in st.session_state:
+    st.session_state["laptop_mode"] = False
+import os
+import pathlib
+
+os.environ["EDGEBOARD_DATA_DIR"] = str(pathlib.Path.home() / ".edgeboard")
 # Try normal package imports first (keeps Ruff E402 happy).
 try:
     # state/styles/theme/utils
@@ -61,6 +67,10 @@ except ModuleNotFoundError:
     from src.views.journal import render as render_journal
     from src.views.overview import render_overview
     from src.views.performance import render as render_performance
+
+import src.views.journal as journal
+
+journal.DEMO_MODE = False
 
 # ---- PRIVATE MODE: never use demo data ----
 
@@ -333,6 +343,7 @@ inject_filters_css()
 inject_isolated_ui_css()
 inject_topbar_css()
 inject_upload_css()
+st.info(f"Personal mode — data dir: {os.environ['EDGEBOARD_DATA_DIR']}")
 
 
 st.markdown(
@@ -416,7 +427,7 @@ st.markdown(
   }
 
   /* Micro-lift just the first row without affecting page height (no bottom clipping) */
-  :root { --lift: 8px; }  /* tweak 8–16px to taste */
+  :root { --lift: 10px; }  /* tweak 8–16px to taste */
   [data-testid="stAppViewContainer"] .block-container > *:first-child{
     margin-top: calc(-32 * var(--lift)) !important;  /* ← use negative margin instead of transform */
     transform: none !important;                     /* ← kill the old transform */
@@ -567,17 +578,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# st.markdown(
-#     """
-# <style>
-# /* Hide the native date text completely so it can't ghost-underlap the overlay */
-# .topbar [data-testid="stDateInput"]:has(+ .topbar-range .tb-overlay) input{ color:transparent !important; caret-color:transparent !important; text-shadow:none !important; font-size:0 !important; }
-# .topbar .topbar-range [data-testid="stDateInput"] svg{ display:none !important; }
-# </style>
-
-# """,
-#     unsafe_allow_html=True,
-# )
 
 st.markdown(
     """
@@ -928,7 +928,24 @@ with st.sidebar:
 
     st.divider()
 
+    # Device view toggle
+    if "laptop_mode" not in st.session_state:
+        st.session_state["laptop_mode"] = False
+    if "device_mode_seg" not in st.session_state:
+        st.session_state["device_mode_seg"] = (
+            "Laptop" if st.session_state["laptop_mode"] else "Desktop"
+        )
 
+    def _apply_device_mode():
+        st.session_state["laptop_mode"] = st.session_state["device_mode_seg"] == "Laptop"
+
+    st.segmented_control(
+        label="",
+        options=["Desktop", "Laptop"],
+        key="device_mode_seg",
+        label_visibility="collapsed",
+        on_change=_apply_device_mode,
+    )
 # ===================== MAIN: Journal Session Only =====================
 
 # Pull from in-memory Journal only (no CSV)
@@ -1012,8 +1029,10 @@ if tuple(new_opts) != _prev_opts:
 # ========== TOP TOOLBAR (title spacer | timeframe | account | icons) ==========
 st.markdown('<div class="topbar">', unsafe_allow_html=True)
 
+is_laptop = bool(st.session_state.get("laptop_mode", False))
+
 t_spacer, t_tf, t_range, t_acct, t_globe, t_bell, t_full, t_theme, t_profile = st.columns(
-    [50, 10, 15, 14, 5, 5, 5, 5, 5], gap="small"
+    [10 if is_laptop else 50, 10, 15, 14, 5, 5, 5, 5, 5], gap="small"
 )
 
 with t_spacer:
