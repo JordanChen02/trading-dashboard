@@ -1,0 +1,22 @@
+{
+  "profile": {
+    "username": "",
+    "password_hash": "",
+    "created_at": null,
+    "updated_at": null
+  },
+  "starting_equity": {
+    "__default__": 5000.0
+  },
+  "journal_groups": {
+    "Crypto ALL": [
+      "Crypto (Live)",
+      "Crypto (Prop)"
+    ]
+  },
+  "defaults": {
+    "timeframe": "All Dates",
+    "account": "ALL",
+    "journal_view": "Styled"
+  }
+}

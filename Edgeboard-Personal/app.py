@@ -398,7 +398,7 @@ st.markdown(
   }
 
   /* Micro-lift just the first row without affecting page height (no bottom clipping) */
-  :root { --lift: 9px; }  /* tweak 8–16px to taste */
+  :root { --lift: 10px; }  /* tweak 8–16px to taste */
   [data-testid="stAppViewContainer"] .block-container > *:first-child{
     margin-top: calc(-32 * var(--lift)) !important;  /* ← use negative margin instead of transform */
     transform: none !important;                     /* ← kill the old transform */

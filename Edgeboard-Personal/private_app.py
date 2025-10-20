@@ -2,9 +2,8 @@
 import json  # read/write sidecar metadata for notes/tags
 import json as _json
 import re
+import sys
 from datetime import date, timedelta
-
-# ---- Load saved settings (if any) and mirror into session ----
 from pathlib import Path
 from pathlib import Path as _Path
 
@@ -13,51 +12,84 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-# 👇 our modules
-from src.state import ensure_defaults
-from src.styles import (
-    inject_filters_css,
-    inject_header_layout_css,
-    inject_isolated_ui_css,
-    inject_responsive_css,
-    inject_topbar_css,
-    inject_upload_css,
-)
-from src.theme import BLUE_FILL
-from src.utils import ensure_journal_store, load_journal_index
+if "laptop_mode" not in st.session_state:
+    st.session_state["laptop_mode"] = False
+import os
+import pathlib
 
-# === DEMO: always use generated fake journal entries ===
-from src.views import journal as jr
-from src.views.account import render_account
-from src.views.calendar import render as render_calendar
-from src.views.checklist import render as render_checklist
-from src.views.journal import render as render_journal
-from src.views.overview import render_overview
-from src.views.performance import render as render_performance
-
+os.environ["EDGEBOARD_DATA_DIR"] = str(pathlib.Path.home() / ".edgeboard")
+# Try normal package imports first (keeps Ruff E402 happy).
 try:
-    jr.DEMO_MODE = True  # tell journal to generate fake data
+    # state/styles/theme/utils
+    from src.state import ensure_defaults
+    from src.styles import (
+        inject_filters_css,
+        inject_header_layout_css,
+        inject_isolated_ui_css,
+        inject_topbar_css,
+        inject_upload_css,
+    )
+    from src.theme import BLUE_FILL
+    from src.utils import ensure_journal_store, load_journal_index
+
+    # views
+    from src.views import journal as jr
+    from src.views.account import render_account
+    from src.views.calendar import render as render_calendar
+    from src.views.checklist import render as render_checklist
+    from src.views.journal import render as render_journal
+    from src.views.overview import render_overview
+    from src.views.performance import render as render_performance
+
+except ModuleNotFoundError:
+    # Fallback: add project root and ./src to sys.path, then retry the same imports.
+    ROOT = Path(__file__).resolve().parent
+    SRC = ROOT / "src"
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    if SRC.is_dir() and str(SRC) not in sys.path:
+        sys.path.insert(0, str(SRC))
+
+    from src.state import ensure_defaults
+    from src.styles import (
+        inject_filters_css,
+        inject_header_layout_css,
+        inject_isolated_ui_css,
+        inject_topbar_css,
+        inject_upload_css,
+    )
+    from src.theme import BLUE_FILL
+    from src.utils import ensure_journal_store, load_journal_index
+    from src.views import journal as jr
+    from src.views.account import render_account
+    from src.views.calendar import render as render_calendar
+    from src.views.checklist import render as render_checklist
+    from src.views.journal import render as render_journal
+    from src.views.overview import render_overview
+    from src.views.performance import render as render_performance
+
+import src.views.journal as journal
+
+journal.DEMO_MODE = False
+
+# ---- PRIVATE MODE: never use demo data ----
+
+
+jr.DEMO_MODE = False  # keep private app real (demo uses app.py)
+jr._init_session_state()
+
+
+# --- HARD RESET: never reuse any demo caches in the private app ---
+try:
+    st.cache_data.clear()
+    st.cache_resource.clear()
 except Exception:
     pass
 
-
-from src.views import journal as jr
-
-jr.DEMO_MODE = True
-jr._init_session_state()
-st.session_state["journal_df"] = jr.load_journal_for_page().copy()
-
-
-jr.DEMO_MODE = True  # tell journal.py to use fake data
-jr._init_session_state()  # initialize session keys
-st.session_state["journal_df"] = jr.load_journal_for_page().copy()
-
-# Also set the Journal page date-range to cover all generated rows
-df_demo = st.session_state["journal_df"]
-if not df_demo.empty and "Date" in df_demo.columns:
-    start = pd.to_datetime(df_demo["Date"], errors="coerce").min().date()
-    end = pd.to_datetime(df_demo["Date"], errors="coerce").max().date()
-    st.session_state["jr_date_range"] = (start, end)
+# If any demo seeds slipped into session from a previous run, drop them
+for _k in ("_demo_seeded", "demo_df", "_fake_df"):
+    if _k in st.session_state:
+        del st.session_state[_k]
 
 
 def require_password():
@@ -139,9 +171,6 @@ def _kpi_net_and_balance(df_view):
     balance = base_eq + net
     return net, balance
 
-
-if "laptop_mode" not in st.session_state:
-    st.session_state["laptop_mode"] = False
 
 # -------------------------------------------------------------------------------
 
@@ -314,7 +343,7 @@ inject_filters_css()
 inject_isolated_ui_css()
 inject_topbar_css()
 inject_upload_css()
-inject_responsive_css()
+st.info(f"Personal mode — data dir: {os.environ['EDGEBOARD_DATA_DIR']}")
 
 
 st.markdown(
@@ -398,7 +427,7 @@ st.markdown(
   }
 
   /* Micro-lift just the first row without affecting page height (no bottom clipping) */
-  :root { --lift: 9px; }  /* tweak 8–16px to taste */
+  :root { --lift: 10px; }  /* tweak 8–16px to taste */
   [data-testid="stAppViewContainer"] .block-container > *:first-child{
     margin-top: calc(-32 * var(--lift)) !important;  /* ← use negative margin instead of transform */
     transform: none !important;                     /* ← kill the old transform */
@@ -418,34 +447,24 @@ st.markdown(
 
 
 st.markdown(
-    """
+    f"""
 <style>
-/* Responsive sidebar widths; wider default */
+/* Base: make sidebar transitions smooth */
+[data-testid="stSidebar"] {{ transition: all .18s ease; }}
+    
+/* Expanded look (optional explicit sizing) */
+{'''
 [data-testid="stSidebar"]{
-  transition: width .18s ease;
-  width: 270px !important;      /* wider default */
-  min-width: 270px !important;
+  transform: none !important;
+  width: 18rem !important;
+  min-width: 18rem !important;
+  visibility: visible !important;
 }
-@media (max-width: 1280px){
-  [data-testid="stSidebar"]{
-    width: 200px !important;    /* medium */
-    min-width: 200px !important;
-  }
-}
-@media (max-width: 1100px){
-  [data-testid="stSidebar"]{
-    width: 84px !important;     /* compact icon rail */
-    min-width: 84px !important;
-  }
-  /* hide radio/text labels in compact */
-  [data-testid="stSidebar"] .stRadio label p{ display:none !important; }
-}
+''' if st.session_state.get('sb_open', True) else '' }
 </style>
 """,
     unsafe_allow_html=True,
 )
-
-
 st.markdown(
     """
 <style>
@@ -559,6 +578,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+
 st.markdown(
     """
 <style>
@@ -579,72 +599,8 @@ st.markdown(
 .topbar .topbar-range .tb-ico, 
 .topbar .topbar-range .tb-ico svg{ color:#3AA4EB !important; fill:#3AA4EB !important; }
 .topbar .topbar-range .tb-text{ color:#e5e7eb; font-weight:500; font-size:16px; letter-spacing:.1px; }
-/* view toggle buttons */
-.topbar button[kind="secondary"]{ padding: 2px 8px; min-height: 28px; }
-
 </style>
 
-""",
-    unsafe_allow_html=True,
-)
-
-st.markdown(
-    """
-    <style>
-      /* sidebar as full-height column */
-      section[data-testid="stSidebar"] div[data-testid="stSidebarContent"]{
-        display:flex; flex-direction:column; min-height:100%;
-      }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-st.markdown(
-    """
-<style>
-/* Replace text with icons for the two options by position */
-section[data-testid="stSidebar"] [data-baseweb="segmented-control"] [data-baseweb="button"]{
-  position: relative;
-}
-
-/* Hide the visible text labels so only icons show */
-section[data-testid="stSidebar"] [data-baseweb="segmented-control"] [data-baseweb="button"] span{
-  font-size: 0 !important;      /* hides "Desktop" / "Laptop" text */
-  line-height: 0 !important;
-}
-
-/* Base icon slot */
-section[data-testid="stSidebar"] [data-baseweb="segmented-control"] [data-baseweb="button"]::before{
-  content:"";
-  display:inline-block;
-  width:16px; height:16px;
-  margin-right: 0;               /* no extra gap since text is hidden */
-  background:#3AA4EB;            /* icon color to match topbar */
-  -webkit-mask-repeat:no-repeat; -webkit-mask-position:center; -webkit-mask-size:16px 16px;
-          mask-repeat:no-repeat;         mask-position:center;         mask-size:16px 16px;
-}
-
-/* Left option = Desktop icon */
-section[data-testid="stSidebar"] [data-baseweb="segmented-control"] [data-baseweb="button"]:nth-of-type(1)::before{
-  -webkit-mask-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='4' width='18' height='12' rx='2'/><line x1='8' y1='20' x2='16' y2='20'/><line x1='12' y1='16' x2='12' y2='20'/></svg>");
-          mask-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='4' width='18' height='12' rx='2'/><line x1='8' y1='20' x2='16' y2='20'/><line x1='12' y1='16' x2='12' y2='20'/></svg>");
-}
-
-/* Right option = Laptop icon */
-section[data-testid="stSidebar"] [data-baseweb="segmented-control"] [data-baseweb="button"]:nth-of-type(2)::before{
-  -webkit-mask-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><rect x='4' y='5' width='16' height='10' rx='2'/><path d='M2 19h20'/></svg>");
-          mask-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><rect x='4' y='5' width='16' height='10' rx='2'/><path d='M2 19h20'/></svg>");
-}
-
-/* Optional: mute inactive icon slightly, keep active bright */
-section[data-testid="stSidebar"] [data-baseweb="segmented-control"] [data-baseweb="button"][aria-checked="false"]::before{
-  background:#7fb7e6;
-}
-section[data-testid="stSidebar"] [data-baseweb="segmented-control"] [data-baseweb="button"][aria-checked="true"]::before{
-  background:#3AA4EB;
-}
-</style>
 """,
     unsafe_allow_html=True,
 )
@@ -972,8 +928,9 @@ with st.sidebar:
 
     st.divider()
 
-    # --- Device view toggle (sidebar, runs before topbar) -----------------
-    # Seed widget state once, then let the widget own its key.
+    # Device view toggle
+    if "laptop_mode" not in st.session_state:
+        st.session_state["laptop_mode"] = False
     if "device_mode_seg" not in st.session_state:
         st.session_state["device_mode_seg"] = (
             "Laptop" if st.session_state["laptop_mode"] else "Desktop"
@@ -984,12 +941,11 @@ with st.sidebar:
 
     st.segmented_control(
         label="",
-        options=["Desktop", "Laptop"],  # left = Desktop, right = Laptop
+        options=["Desktop", "Laptop"],
         key="device_mode_seg",
         label_visibility="collapsed",
-        on_change=_apply_device_mode,  # updates laptop_mode before topbar renders
+        on_change=_apply_device_mode,
     )
-
 # ===================== MAIN: Journal Session Only =====================
 
 # Pull from in-memory Journal only (no CSV)
@@ -1070,18 +1026,17 @@ st.session_state["journal_options"] = new_opts
 if tuple(new_opts) != _prev_opts:
     st.rerun()
 
-
 # ========== TOP TOOLBAR (title spacer | timeframe | account | icons) ==========
 st.markdown('<div class="topbar">', unsafe_allow_html=True)
 
-is_laptop = bool(st.session_state["laptop_mode"])
+is_laptop = bool(st.session_state.get("laptop_mode", False))
+
 t_spacer, t_tf, t_range, t_acct, t_globe, t_bell, t_full, t_theme, t_profile = st.columns(
     [10 if is_laptop else 50, 10, 15, 14, 5, 5, 5, 5, 5], gap="small"
 )
 
 with t_spacer:
     st.empty()
-
 
 # -- Timeframe (compact select) --
 with t_tf:
@@ -1206,6 +1161,29 @@ with t_range:
         key=_RANGE_KEY,
         on_change=_on_range_change,
     )
+
+    # # === Overlay label that visually replaces the input text (keeps clicks working) ===
+    # d1 = st.session_state.get("date_from") or cur_from
+    # d2 = st.session_state.get("date_to") or cur_to
+    # label_txt = f"{d1:%Y-%m-%d}  \u2192  {d2:%Y-%m-%d}"  # note the spaces around the arrow
+
+    # st.markdown(
+    #     f"""
+    #     <div class="tb-overlay" style="width:{RANGE_WIDTH_PX}px">
+    #       <div class="inner">
+    #         <span class="tb-ico">
+    #           <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+    #             <path d="M7 2a1 1 0 0 1 1 1v1h8V3a1 1 0 1 1 2 0v1h1.5A2.5 2.5 0 0 1 22 6.5v13A2.5 2.5 0 0 1 19.5 22h-15A2.5 2.5 0 0 1 2 19.5v-13A2.5 2.5 0 0 1 4.5 4H6V3a1 1 0 1 1 2 0v1Zm12.5 6H4.5a.5.5 0 0 0-.5.5v10a.5.5 0 0 0 .5.5h15a.5.5 0 0 0 .5-.5v-10a.5.5 0 0 0-.5-.5ZM8 7H6v1a1 1 0 0 0 2 0V7Zm10 0h-2v1a1 1 0 1 0 2 0V7Z"/>
+    #           </svg>
+    #         </span>
+    #         <span class="tb-text">{label_txt}</span>
+    #       </div>
+    #     </div>
+    #     """,
+    #     unsafe_allow_html=True,
+    # )
+    # st.markdown("</div>", unsafe_allow_html=True)  # ← add (closes .topbar-range)
+# --- END TOPBAR: Custom Date Range -----------------------------------------
 
 
 # -- Account (NOW after options were built) --

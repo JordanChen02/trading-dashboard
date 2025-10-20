@@ -57,6 +57,14 @@ def _build_top_assets_donut_and_summary(df, max_assets: int = 5):
     else:
         counts = g[sym_col].value_counts()
 
+    # --- wins/losses base series for hover ---
+    pnl_num = pd.to_numeric(g.get("pnl", np.nan), errors="coerce")
+    g["_win"] = pnl_num > 0
+    g["_has_pnl"] = pnl_num.notna()
+    wins_series = g.groupby(sym_col)["_win"].sum().astype(int)
+    totals_series = g.groupby(sym_col)["_has_pnl"].sum().astype(int)
+    losses_series = (totals_series - wins_series).astype(int)
+
     if counts.empty:
         return None, None, None
 
@@ -65,6 +73,41 @@ def _build_top_assets_donut_and_summary(df, max_assets: int = 5):
     others = counts.iloc[max_assets:].sum()
     labels = top.index.tolist() + (["Others"] if others > 0 else [])
     values = top.values.tolist() + ([int(others)] if others > 0 else [])
+
+    # --- align W/L/WR to labels (handle 'Others') ---
+    wins_list, losses_list, wr_list = [], [], []
+    if labels:
+        top_syms = labels[:-1] if labels[-1] == "Others" else labels
+
+        for s in top_syms:
+            w = int(wins_series.get(s, 0))
+            losses = int(losses_series.get(s, 0))
+            t = max(1, w + losses)
+            wins_list.append(w)
+            losses_list.append(losses)
+            wr_list.append(round(100.0 * w / t, 1))
+
+        if labels[-1] == "Others":
+            others_syms = counts.index.tolist()[max_assets:]
+            w = int(wins_series.reindex(others_syms).sum())
+            losses = int(losses_series.reindex(others_syms).sum())
+            t = max(1, w + losses)
+            wins_list.append(w)
+            losses_list.append(losses)
+            wr_list.append(round(100.0 * w / t, 1))
+
+    # --- Build per-slice hover HTML (uses the aligned lists) ---
+    customtext = []
+    for i, lab in enumerate(labels):
+        w = wins_list[i]
+        losses = losses_list[i]
+        wr = wr_list[i]
+        v = values[i]
+        customtext.append(
+            f"<b>{lab}</b><br>"
+            f"<span style='color:#9AA4B2'>Trades</span>: {v}<br>"
+            f"<span style='color:#9AA4B2'>Win rate</span>: {wr}% (W {w} / L {losses})"
+        )
 
     # Muted palette (last reserved for Others)
     palette = [
@@ -97,17 +140,23 @@ def _build_top_assets_donut_and_summary(df, max_assets: int = 5):
         go.Pie(
             labels=labels,
             values=values,
-            hole=0.76,  # thinner ring
+            hole=0.76,
             rotation=315,
             direction="clockwise",
             textinfo="none",
             sort=False,
-            hovertemplate="%{label}: %{value} trades (%{percent})<extra></extra>",
-            hoverlabel=dict(bgcolor="rgba(17,24,39,0.9)", font=dict(size=12, color="#E5E7EB")),
+            hovertext=customtext,  # structured hover
+            hovertemplate="%{hovertext}<extra></extra>",
+            hoverlabel=dict(
+                bgcolor="rgba(17,24,39,0.92)",
+                bordercolor="#223045",
+                font=dict(size=15, color="#E5E7EB"),
+            ),
             marker=dict(colors=colors, line=dict(color="rgba(0,0,0,0.35)", width=1)),
-            showlegend=False,  # legend handled by our table
+            showlegend=False,
         )
     )
+
     fig.update_layout(
         height=260,
         margin=dict(l=0, r=0, t=0, b=0),
