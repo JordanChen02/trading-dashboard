@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import base64
+import json
+import os
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -10,27 +12,59 @@ import streamlit as st
 from PIL import Image
 
 
-@st.dialog("Create new checklist")
 def _new_checklist_dialog():
-    new_name = st.text_input("Name", key="cl_new_name", placeholder="e.g., London Session Plan")
-    c1, c2 = st.columns(2)
-    with c1:
-        if st.button("Create", type="primary", key="cl_create_btn"):
-            name = (new_name or "").strip()
-            if not name:
-                st.warning("Enter a name.")
+    def _body():
+        new_name = st.text_input("Name", key="cl_new_name", placeholder="e.g., London Session Plan")
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("Create", type="primary", key="cl_create_btn"):
+                name = (new_name or "").strip()
+                if not name:
+                    st.warning("Enter a name.")
+                    return
+                if name in st.session_state.cl_templates:
+                    st.info("That name already exists.")
+                    return
+                st.session_state.cl_templates.append(name)
+                st.session_state.cl_template_sel = name
+                _save_checklist_state()
+                st.success(f"Created “{name}”.")
+                st.rerun()
+        with c2:
+            if st.button("Cancel", key="cl_create_cancel"):
+                # just close dialog; no state flag needed
                 return
-            if name in st.session_state.cl_templates:
-                st.info("That name already exists.")
-                return
-            st.session_state.cl_templates.append(name)
-            st.session_state.cl_template_sel = name
-            st.success(f"Created “{name}”.")
-            st.rerun()
-    with c2:
-        if st.button("Cancel", key="cl_create_cancel"):
-            # just close dialog; no state flag needed
-            return
+
+    # Use dialog/modal if available, else inline fallback
+    dlg = getattr(st, "dialog", None) or getattr(st, "modal", None)
+    if callable(dlg):
+        decorator = dlg("Create new checklist")
+
+        @decorator
+        def _show():
+            _body()
+
+        _show()
+    else:
+        modal_or_inline("Create new checklist", _body)
+
+
+def _delete_current_template():
+    cur = st.session_state.get("cl_template_sel", "")
+    lst = st.session_state.get("cl_templates", [])
+    if not cur or cur not in lst:
+        return
+    if len(lst) <= 1:
+        st.warning("Keep at least one template.")
+        return
+    # remove and pick next
+    idx = lst.index(cur)
+    lst.pop(idx)
+    st.session_state.cl_templates = lst
+    next_sel = lst[min(idx, len(lst) - 1)]
+    st.session_state["cl_template_sel_pending"] = next_sel  # <-- set pending
+    _save_checklist_state()
+    st.rerun()  # <-- rerun so we can apply before widget renders
 
 
 # Resolve repo root -> checklist.py is src/views/checklist.py, so parents[2] is repo root
@@ -101,6 +135,21 @@ def _load_local_img_bytes(p: str | Path):
     return None
 
 
+def _ensure_none_for_targets():
+    targets = {"point of interest", "poi", "liquidity sweep", "draw on liquidity"}
+    for it in st.session_state.get("cl_items", []):
+        nm = str(it.get("name", "")).strip().lower()
+        if nm in targets:
+            opts = list(it.get("options", []))
+            pts = dict(it.get("options_points", {}) or {})
+            if "None" not in opts:
+                opts.append("None")
+            if "None" not in pts:
+                pts["None"] = 6.0
+            it["options"] = opts
+            it["options_points"] = pts
+
+
 # --- modal fallback (unchanged) ---
 def modal_or_inline(title: str, render_body):
     dlg = getattr(st, "modal", None) or getattr(st, "dialog", None)
@@ -140,6 +189,34 @@ LOCAL_CARD_BG = "#0F1829"
 PLACEHOLDER_EX1 = "assets/placeholder_tv_ex1.png"
 PLACEHOLDER_EX2 = "assets/placeholder_tv_ex2.png"
 
+DATA_DIR = Path(os.environ.get("EDGEBOARD_DATA_DIR", Path.home() / ".edgeboard"))
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+CHECKLIST_PATH = DATA_DIR / "checklist.json"
+
+
+def _load_checklist_state() -> dict:
+    if CHECKLIST_PATH.exists():
+        try:
+            with open(CHECKLIST_PATH, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+
+def _save_checklist_state() -> None:
+    payload = {
+        "cl_templates": st.session_state.get("cl_templates", []),
+        "cl_template_sel": st.session_state.get("cl_template_sel", ""),
+        "cl_items": st.session_state.get("cl_items", []),
+        "cl_confs": st.session_state.get("cl_confs", []),
+        "cl_chart_1": st.session_state.get("cl_chart_1", {"url": "", "file": None}),
+        "cl_chart_2": st.session_state.get("cl_chart_2", {"url": "", "file": None}),
+        "cl_label_offset": int(st.session_state.get("cl_label_offset", 10)),
+    }
+    with open(CHECKLIST_PATH, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
+
 
 # ==============================
 # Session init & data defaults
@@ -153,10 +230,19 @@ SWEEP_DOL_POINTS = {
     "ITH/ITL": 9.5,
     "LRLR >3": 10.0,
     "LRLR <3": 9.2,
+    "None": 6.0,
+    "Unfilled FVG": 9.0,
 }
 MOMENTUM_POINTS = {"Low": 8.0, "Medium": 8.8, "High": 9.5, "Very High": 10.0}
 IFVG_POINTS = {"Small": 8.8, "Medium": 9.6, "Large": 10.0}
-POI_POINTS = {"Daily FVG": 10.0, "H4 FVG": 10.0, "H1 FVG": 9.8, "M15 FVG": 9.5}
+POI_POINTS = {
+    "Daily FVG": 10.0,
+    "H4 FVG": 10.0,
+    "H1 FVG": 9.8,
+    "M15 FVG": 9.5,
+    "M5 FVG >": 9.0,
+    "None": 6.0,
+}
 
 DEFAULT_CHECKLIST: List[Dict] = [
     {
@@ -204,43 +290,76 @@ DEFAULT_CHECKLIST: List[Dict] = [
 ]
 
 DEFAULT_CONFS: List[Dict] = [
-    {"name": "12 EMA (1H)", "on": False, "pts": 1},
-    {"name": "12 EMA (4H)", "on": False, "pts": 2},
+    {"name": "12 EMA (1H)", "on": False, "pts": 2},
+    {"name": "12 EMA (4H)", "on": False, "pts": 3},
     {"name": "12 EMA (15m)", "on": False, "pts": 1},
     {"name": "12 EMA (Daily)", "on": False, "pts": 2},
-    {"name": "Fundamentals", "on": False, "pts": 3},
+    {"name": "Fundamentals", "on": False, "pts": 2},
     {"name": "CVD", "on": False, "pts": 1},
-    {"name": "TSO, TDO", "on": False, "pts": 2},
-    {"name": "Key levels", "on": False, "pts": 2},
+    {"name": "TSO, TDO", "on": False, "pts": 1},
+    {"name": "Key levels", "on": False, "pts": 1},
     {"name": "Stairstep", "on": False, "pts": 2},
 ]
 
 TEMPLATE_NAMES = ["A+ iFVG Setup", "Custom Template 1"]
 
 
+def _sync_item_options_to_latest():
+    """Ensure session items include any newly added options from constants."""
+    name_map = {
+        "Liquidity sweep": ("Unfilled FVG", 9.0),
+        "draw on liquidity": ("Unfilled FVG", 9.0),
+        "point of interest": ("M5 FVG>", 9.0),
+        "poi": ("M5 FVG>", 9.0),
+    }
+    changed = False
+    for it in st.session_state.get("cl_items", []):
+        nm = str(it.get("name", "")).strip().lower()
+        if nm in name_map:
+            opt, pts = name_map[nm]
+            opts = list(it.get("options", []))
+            opp = dict(it.get("options_points", {}) or {})
+            if opt not in opts:
+                opts.append(opt)
+                changed = True
+            if opt not in opp:
+                opp[opt] = float(pts)
+                changed = True
+            it["options"] = opts
+            it["options_points"] = opp
+    if changed:
+        _save_checklist_state()
+
+
 def _ensure_state():
-    st.session_state.setdefault("cl_templates", TEMPLATE_NAMES[:])
-    st.session_state.setdefault("cl_template_sel", TEMPLATE_NAMES[0])
-    st.session_state.setdefault("cl_items", [dict(x) for x in DEFAULT_CHECKLIST])
-    st.session_state.setdefault("cl_confs", [dict(x) for x in DEFAULT_CONFS])
+    saved = _load_checklist_state()
+
+    st.session_state.setdefault("cl_templates", saved.get("cl_templates", TEMPLATE_NAMES[:]))
+    st.session_state.setdefault("cl_template_sel", saved.get("cl_template_sel", TEMPLATE_NAMES[0]))
     st.session_state.setdefault(
-        "cl_chart_1", {"url": "https://www.tradingview.com/x/RMJesEwo/", "file": None}
+        "cl_items", saved.get("cl_items", [dict(x) for x in DEFAULT_CHECKLIST])
+    )
+    _ensure_none_for_targets()
+    _sync_item_options_to_latest()
+
+    st.session_state.setdefault("cl_confs", saved.get("cl_confs", [dict(x) for x in DEFAULT_CONFS]))
+    st.session_state.setdefault(
+        "cl_chart_1",
+        saved.get("cl_chart_1", {"url": "https://www.tradingview.com/x/RMJesEwo/", "file": None}),
     )
     st.session_state.setdefault(
-        "cl_chart_2", {"url": "https://www.tradingview.com/x/fvMNs5k2/", "file": None}
+        "cl_chart_2",
+        saved.get("cl_chart_2", {"url": "https://www.tradingview.com/x/fvMNs5k2/", "file": None}),
     )
     st.session_state.setdefault("ex1_menu_open", False)
     st.session_state.setdefault("ex2_menu_open", False)
 
-    # Add-item modal state
     st.session_state.setdefault("add_item_open", False)
     st.session_state.setdefault("add_item_title", "")
     st.session_state.setdefault("add_item_rows", [{"opt": "", "pts": 0.0}])
 
-    # Label offset (NEW adjustable knob); default a bit lower for your request
-    st.session_state.setdefault("cl_label_offset", 10)
+    st.session_state.setdefault("cl_label_offset", int(saved.get("cl_label_offset", 10)))
 
-    # Lifecycle flags (unchanged)
     st.session_state.setdefault("add_item_force_show_once", False)
     st.session_state.setdefault("add_item_should_reset", False)
     st.session_state.setdefault("add_item_keep_open", False)
@@ -259,26 +378,35 @@ def _score(items: List[Dict], confs: List[Dict]) -> Tuple[int, str]:
         if not opts_pts:
             continue
         max_pts = max(opts_pts.values())
-        sel_pts = float(opts_pts.get(str(it.get("value", "")), 0.0))
+        sel_key = str(it.get("value", ""))
+        sel_pts = float(opts_pts.get(sel_key, 0.0))
         part = 0.0 if max_pts <= 0 else (sel_pts / max_pts) * per_item_weight
         base_pct += part
 
-    conf_bonus = sum(float(c.get("pts", 0)) for c in confs if c.get("on"))
+    # clamp confluence points to >= 0 and numeric
+    conf_bonus = 0.0
+    for c in confs:
+        if c.get("on"):
+            try:
+                conf_bonus += max(0.0, float(c.get("pts", 0)))
+            except Exception:
+                pass
+
     pct = int(round(min(100.0, base_pct + conf_bonus)))
 
     if pct >= 96:
         grade = "S"
-    elif pct >= 90:
+    elif pct >= 94:
         grade = "A+"
-    elif pct >= 85:
+    elif pct >= 91:
         grade = "A"
-    elif pct >= 80:
+    elif pct >= 89:
         grade = "A-"
-    elif pct >= 75:
+    elif pct >= 86:
         grade = "B+"
-    elif pct >= 70:
+    elif pct >= 82:
         grade = "B"
-    elif pct >= 65:
+    elif pct >= 79:
         grade = "B-"
     else:
         grade = "C"
@@ -493,13 +621,14 @@ def _add_item_modal():
                     )
                     st.session_state.add_item_open = False
                     st.session_state.add_item_should_reset = True
+                    _save_checklist_state()
                     st.rerun()
 
     modal_or_inline("Add Checklist Item", _body)
 
 
-# Decide button width depending on mode
-min_w = 180 if bool(st.session_state.get("laptop_mode", False)) else 120
+# Fixed button width
+min_w = 140
 
 
 # ==============================
@@ -525,329 +654,225 @@ def render(*_args, **_kwargs):
         st.session_state["add_item_force_show_once"] = True
         st.session_state["add_item_keep_open"] = False
 
-    # Top bar
-    _laptop = bool(st.session_state.get("laptop_mode", False))
+    # apply pending selection before rendering the widget
+    pend = st.session_state.pop("cl_template_sel_pending", None)
+    if pend:
+        st.session_state["cl_template_sel"] = pend
 
-    if _laptop:
-        padL, mid, padR = st.columns([0.30, 0.40, 0.30], gap="small")  # center row
-        with mid:
-            st.markdown('<div class="tb-center">', unsafe_allow_html=True)
-            sel, btn = st.columns([0.75, 0.25], gap="small")  # button to the right
-            with sel:
-                st.markdown('<div class="tb-down">', unsafe_allow_html=True)
-                st.selectbox(
-                    "Setup Checklist",
-                    st.session_state.cl_templates,
-                    index=0,
-                    key="cl_template_sel",
-                    label_visibility="collapsed",
-                )
-                st.markdown("</div>", unsafe_allow_html=True)
-            with btn:
-                st.markdown('<div class="wide-btn">', unsafe_allow_html=True)
-                if st.button("New", key="cl_new_template"):  # styling unchanged
-                    _new_checklist_dialog()  # open once, on click only
-                st.markdown("</div>", unsafe_allow_html=True)
+    # --- Layout mode
+    LAPTOP = bool(st.session_state.get("laptop_mode", False))
 
-            st.markdown("</div>", unsafe_allow_html=True)
-    else:
-        topL, _ = st.columns([0.3, 0.7], gap="small")
-        with topL:
-            dd_col, new_col = st.columns([0.82, 0.18])
-            with dd_col:
-                st.selectbox(
-                    "Setup Checklist",
-                    st.session_state.cl_templates,
-                    index=0,
-                    key="cl_template_sel",
-                    label_visibility="collapsed",
-                )
-            with new_col:
-                if st.button("New", key="cl_new_template"):  # styling unchanged
-                    _new_checklist_dialog()  # open once, on click only
+    # Top bar (centered); laptop removes side gutters
+    padL, mid, padR = (
+        st.columns([0.01, 0.98, 0.01], gap="small")  # laptop: almost full-bleed
+        if LAPTOP
+        else st.columns([0.3, 0.6, 0.3], gap="small")  # desktop: centered with gutters
+    )
+    with mid:
+        st.markdown('<div class="tb-center">', unsafe_allow_html=True)
 
-    # Main split
-    laptop = bool(st.session_state.get("laptop_mode", False))
+        # two zones: selector (wide) + actions (tight)
+        sel_col, actions_col = st.columns([0.84, 0.16], gap="small")
 
-    def _render_left_column():
-        # ----- LEFT (Checklist + Score + Confluences) -----
-        cL, cR = st.columns([1, 1], gap="small")
-
-        # Checklist card
-        with cL:
-            st.markdown('<div class="chk-card"></div>', unsafe_allow_html=True)
-            with st.container(border=False):
-                header_row = st.columns([2.7, 1, 1.2], gap="small")
-                with header_row[0]:
-                    st.markdown('<div class="card-title">Checklist</div>', unsafe_allow_html=True)
-                with header_row[1]:
-                    st.markdown('<div class="wide-btn">', unsafe_allow_html=True)
-                    if st.button("+ Add item", key="cl_add_item"):
-                        st.session_state.add_item_open = True
-                        st.session_state.add_item_force_show_once = True
-                    st.markdown("</div>", unsafe_allow_html=True)
-                with header_row[2]:
-                    st.markdown('<div class="wide-btn">', unsafe_allow_html=True)
-                    if st.button("🗑 Delete last", key="cl_del_item", help="danger"):
-                        if st.session_state.cl_items:
-                            st.session_state.cl_items.pop()
-                    st.markdown("</div>", unsafe_allow_html=True)
-
-                if st.session_state.add_item_open:
-                    _add_item_modal()
-                if st.session_state.get("add_item_force_show_once"):
-                    st.session_state["add_item_force_show_once"] = False
-
-                for i, it in enumerate(st.session_state.cl_items):
-                    ncol, selcol = st.columns([1.2, 3.0], gap="small")
-                    with ncol:
-                        st.markdown(
-                            f"<div class='item-name'>{it['name']}</div>", unsafe_allow_html=True
-                        )
-                    with selcol:
-                        idx = (
-                            it["options"].index(it["value"])
-                            if it.get("value") in it["options"]
-                            else 0
-                        )
-                        it["value"] = st.selectbox(
-                            f"{it['name']}_sel",
-                            it["options"],
-                            index=idx,
-                            key=f"cl_sel_{i}",
-                            label_visibility="collapsed",
-                        )
-
-            st.markdown(
-                "<hr style='margin:0.5rem 0; border:0.5px solid rgba(255,255,255,0.1)'>",
-                unsafe_allow_html=True,
+        with sel_col:
+            st.selectbox(
+                "Setup Checklist",
+                st.session_state.cl_templates,
+                index=0,
+                key="cl_template_sel",
+                label_visibility="collapsed",
             )
 
-            # Score & Grade (separate card)
-            st.markdown('<div class="score-card"></div>', unsafe_allow_html=True)
-            with st.container(border=False):
-                pct, grade = _score(st.session_state.cl_items, st.session_state.cl_confs)
-                gL, gR = st.columns([2.2, 1], gap="small")
-                with gL:
-                    fig = _half_donut_fig("Overall Score", pct)
-                    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-                with gR:
+        with actions_col:
+            a1, a2 = st.columns([0.5, 0.6], gap="small")
+            with a1:
+                if st.button("New", key="cl_new_template"):
+                    _new_checklist_dialog()
+                st.markdown("</div>", unsafe_allow_html=True)
+            with a2:
+                if st.button("🗑", key="cl_del_template", help="danger"):
+                    _delete_current_template()
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    pend = st.session_state.pop("cl_template_sel_pending", None)
+    if pend:
+        st.session_state["cl_template_sel"] = pend
+
+    # --- Checklist & Confluences side-by-side ---
+    if LAPTOP:
+        # full width: remove outer gutters, keep a tight inner gap
+        padL, checklist_col, confluence_col, padR = st.columns(
+            [0.01, 0.495, 0.495, 0.01], gap="small"
+        )
+    else:
+        # centered layout with gutters
+        padL, checklist_col, confluence_col, padR = st.columns([0.3, 0.4, 0.4, 0.3], gap="small")
+
+    with checklist_col:
+        # === BEGIN: Checklist card (moved out of _render_left_column) ===
+        st.markdown('<div class="chk-card"></div>', unsafe_allow_html=True)
+        with st.container(border=False):
+            header_row = st.columns([2.7, 1, 1.2], gap="small")
+            with header_row[0]:
+                st.markdown('<div class="card-title">Checklist</div>', unsafe_allow_html=True)
+            with header_row[1]:
+                st.markdown('<div class="wide-btn">', unsafe_allow_html=True)
+                if st.button("+ Add item", key="cl_add_item"):
+                    st.session_state.add_item_open = True
+                    st.session_state.add_item_force_show_once = True
+                st.markdown("</div>", unsafe_allow_html=True)
+            with header_row[2]:
+                st.markdown('<div class="wide-btn">', unsafe_allow_html=True)
+                if st.button("🗑 Delete last", key="cl_del_item", help="danger"):
+                    if st.session_state.cl_items:
+                        st.session_state.cl_items.pop()
+                        _save_checklist_state()
+                st.markdown("</div>", unsafe_allow_html=True)
+
+            if st.session_state.add_item_open:
+                _add_item_modal()
+            if st.session_state.get("add_item_force_show_once"):
+                st.session_state["add_item_force_show_once"] = False
+
+            for i, it in enumerate(st.session_state.cl_items):
+                ncol, selcol = st.columns([1.2, 3.0], gap="small")
+                with ncol:
                     st.markdown(
-                        "<div class='ui-subtle' style='text-align:center'>Grade</div>",
-                        unsafe_allow_html=True,
+                        f"<div class='item-name'>{it['name']}</div>", unsafe_allow_html=True
                     )
-                    st.markdown(
-                        f"<div class='grade-pill' style='text-align:center'>{grade}</div>",
-                        unsafe_allow_html=True,
+                with selcol:
+                    idx = (
+                        it["options"].index(it["value"]) if it.get("value") in it["options"] else 0
                     )
+                    it["value"] = st.selectbox(
+                        f"{it['name']}_sel",
+                        it["options"],
+                        index=idx,
+                        key=f"cl_sel_{i}",
+                        label_visibility="collapsed",
+                    )
+        st.markdown(
+            "<hr style='margin:0.5rem 0; border:0.5px solid rgba(255,255,255,0.1)'>",
+            unsafe_allow_html=True,
+        )
+        # === END: Checklist card ===
 
-        # Save for Journal under the score card (still left side)
-        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)  # tiny spacer
-        btn_col, _ = st.columns([0.35, 0.65])  # keep it tucked under the card
-        with btn_col:
-            if st.button("Save for Journal", key="cl_save_for_journal"):
-                items = {it["name"]: it["value"] for it in st.session_state.cl_items}
-                lines = [
-                    f"[{items.get('Bias Confidence','')}] Bias",
-                    f"{items.get('Liquidity Sweep','')} Sweep",
-                    f"{items.get('Draw on Liquidity','')} DOL",
-                    f"{items.get('Momentum','')} Momentum",
-                    f"{items.get('iFVG','')} iFVG",
-                    f"{items.get('Point of Interest','')} POI",
-                ]
-                for c in st.session_state.cl_confs:
-                    if c.get("on"):
-                        lines.append(c["name"])
-
-                pct, grade = _score(st.session_state.cl_items, st.session_state.cl_confs)
-                st.session_state["pending_checklist"] = {
-                    "overall_pct": pct,
-                    "overall_grade": grade,
-                    "journal_checklist": lines,
-                    "journal_confirms": lines,
-                }
-                st.toast("Saved to Journal loader ✅")
-
-        # Confluences card
-        with cR:
-            st.markdown('<div class="conf-card"></div>', unsafe_allow_html=True)
-            with st.container(border=False):
-                hL, hR = st.columns([1, 0.1])
-                with hL:
-                    st.markdown('<div class="card-title">Confluences</div>', unsafe_allow_html=True)
-                    st.caption("Optional boosts. Each adds a small bonus; total bonus is capped.")
-                with hR:
-                    st.markdown('<div class="kebab">', unsafe_allow_html=True)
-                    st.button("⋯", key="cl_conf_kebab")
-                    st.markdown("</div>", unsafe_allow_html=True)
-
-                st.markdown('<div class="conf-scroll">', unsafe_allow_html=True)
-                remove_idx = None
-                for i, c in enumerate(st.session_state.cl_confs):
-                    r1, r2, r3, r4 = st.columns([0.12, 1.5, 0.35, 0.23], gap="small")
-                    with r1:
-                        c["on"] = bool(
-                            st.checkbox("", value=bool(c.get("on", False)), key=f"conf_on_{i}")
-                        )
-                    with r2:
-                        c["name"] = st.text_input(
-                            "", value=c["name"], key=f"conf_name_{i}", label_visibility="collapsed"
-                        )
-                    with r3:
-                        c["pts"] = int(
-                            st.number_input(
-                                "pts",
-                                value=int(c.get("pts", 1)),
-                                min_value=0,
-                                max_value=5,
-                                step=1,
-                                key=f"conf_pts_{i}",
-                                label_visibility="collapsed",
-                            )
-                        )
-                    with r4:
-                        if st.button("🗑", key=f"conf_del_{i}", help="danger"):
-                            remove_idx = i
-                if remove_idx is not None:
-                    st.session_state.cl_confs.pop(remove_idx)
+    with confluence_col:
+        # === BEGIN: Confluences card (moved out of _render_left_column) ===
+        st.markdown('<div class="conf-card"></div>', unsafe_allow_html=True)
+        with st.container(border=False):
+            hL, hR = st.columns([1, 0.18])
+            with hL:
+                st.markdown('<div class="card-title">Confluences</div>', unsafe_allow_html=True)
+                st.caption("Optional boosts. Each adds a small bonus; total bonus is capped.")
+            with hR:
+                st.markdown('<div class="wide-btn">', unsafe_allow_html=True)
+                if st.button("+ Add", key="cl_conf_add"):
+                    st.session_state.cl_confs.append(
+                        {"name": "New Confluence", "on": False, "pts": 1}
+                    )
+                    _save_checklist_state()
                     st.rerun()
                 st.markdown("</div>", unsafe_allow_html=True)
 
-                aL, _ = st.columns([1, 1])
-                with aL:
-                    if st.button("Add", key="cl_conf_add"):
-                        st.session_state.cl_confs.append(
-                            {"name": "New Confluence", "on": False, "pts": 1}
-                        )
-                        st.rerun()
+            st.markdown('<div class="conf-scroll">', unsafe_allow_html=True)
+            _changed = False
+            remove_idx = None
 
-    def _render_right_column():
-        # ----- RIGHT (Chart Examples) -----
-        st.markdown('<div class="section-title">Chart Examples</div>', unsafe_allow_html=True)
+            for i, c in enumerate(st.session_state.cl_confs):
+                old_on = bool(c.get("on", False))
+                old_nm = str(c.get("name", ""))
+                old_pts = int(c.get("pts", 1))
 
-        # Example 1
-        st.markdown('<div class="chart-card"></div>', unsafe_allow_html=True)
+                r1, r2, r3, r4 = st.columns([0.12, 1.5, 0.35, 0.23], gap="small")
+                with r1:
+                    new_on = st.checkbox("", value=old_on, key=f"conf_on_{i}")
+                with r2:
+                    new_nm = st.text_input(
+                        "", value=old_nm, key=f"conf_name_{i}", label_visibility="collapsed"
+                    )
+                with r3:
+                    new_pts = st.number_input(
+                        "pts",
+                        value=old_pts,
+                        min_value=0,
+                        max_value=5,
+                        step=1,
+                        key=f"conf_pts_{i}",
+                        label_visibility="collapsed",
+                    )
+                    new_pts = int(new_pts)
+
+                c["on"], c["name"], c["pts"] = bool(new_on), new_nm, int(new_pts)
+
+                if (c["on"] != old_on) or (c["name"] != old_nm) or (c["pts"] != old_pts):
+                    _changed = True
+
+                with r4:
+                    if st.button("🗑", key=f"conf_del_{i}", help="danger"):
+                        remove_idx = i
+
+            if remove_idx is not None:
+                st.session_state.cl_confs.pop(remove_idx)
+                _save_checklist_state()
+                st.rerun()
+
+            if _changed:
+                _save_checklist_state()
+        # === END: Confluences card ===
+
+    # --- Score row below both cards ---
+    padL2, center, padR2 = (
+        st.columns([0.01, 0.98, 0.01], gap="small")  # laptop: full width
+        if LAPTOP
+        else st.columns([0.35, 0.30, 0.35], gap="small")  # desktop: centered
+    )
+    with center:
+        st.markdown('<div class="score-card"></div>', unsafe_allow_html=True)
         with st.container(border=False):
-            h1, k1 = st.columns([1, 0.06])
-            with h1:
-                st.markdown("<div class='card-title'>Example 1</div>", unsafe_allow_html=True)
-            with k1:
-                st.markdown('<div class="kebab">', unsafe_allow_html=True)
-                if st.button("⋯", key="ex1_kebab"):
-                    st.session_state.ex1_menu_open = not st.session_state.ex1_menu_open
-                st.markdown("</div>", unsafe_allow_html=True)
-            # --- Example 1 menu (shown when toggled) ---
-            if st.session_state.ex1_menu_open:
-                with st.container(border=True):
-                    st.caption("Chart Example 1")
-                    # Upload file
-                    f1 = st.file_uploader(
-                        "Upload image", type=["png", "jpg", "jpeg", "webp"], key="ex1_upl"
-                    )
-                    if f1 is not None:
-                        st.session_state.cl_chart_1["file"] = f1
-                        st.session_state.cl_chart_1["url"] = ""
-                        st.success("Loaded from file.")
-                    # Paste URL
-                    url1 = st.text_input(
-                        "Paste image URL", key="ex1_url_input", placeholder="https://…/chart.png"
-                    )
-                    c1, c2 = st.columns([1, 1])
-                    with c1:
-                        if st.button("Load URL", key="ex1_load"):
-                            st.session_state.cl_chart_1["url"] = (url1 or "").strip()
-                            st.session_state.cl_chart_1["file"] = None
-                            st.success("URL set.")
-                    with c2:
-                        if st.button("Delete chart", key="ex1_del"):
-                            st.session_state["cl_chart_1"] = {"url": "", "file": None}
-                            st.info("Chart cleared.")
-
-            chart1 = st.session_state.get("cl_chart_1", {})
-            src1 = chart1.get("file")
-            url1 = chart1.get("url", "")
-            st.markdown('<div class="chart-img-slot">', unsafe_allow_html=True)
-            if src1 is not None:
-                st.image(src1, use_container_width=True, caption="Example 1 (file)")
-            elif url1:
-                st.image(url1, use_container_width=True, caption="Example 1 (URL)")
-
-            else:
-                b = _load_local_img_bytes(PH_EX1)
-                if b:
-                    st.markdown(_img_html_from_bytes(b), unsafe_allow_html=True)
-                else:
-                    st.caption(f"Add a placeholder at: {PH_EX1}")
-            st.markdown("</div>", unsafe_allow_html=True)
-
-        # Example 2
-        st.markdown('<div class="chart-card"></div>', unsafe_allow_html=True)
-        with st.container(border=False):
-            h2, k2 = st.columns([1, 0.06])
-            with h2:
-                st.markdown("<div class='card-title'>Example 2</div>", unsafe_allow_html=True)
-            with k2:
-                st.markdown('<div class="kebab">', unsafe_allow_html=True)
-                if st.button("⋯", key="ex2_kebab"):
-                    st.session_state.ex2_menu_open = not st.session_state.ex2_menu_open
-                st.markdown("</div>", unsafe_allow_html=True)
-            # --- Example 2 menu (shown when toggled) ---
-            if st.session_state.ex2_menu_open:
-                with st.container(border=True):
-                    st.caption("Chart Example 2")
-                    # Upload file
-                    f2 = st.file_uploader(
-                        "Upload image", type=["png", "jpg", "jpeg", "webp"], key="ex2_upl"
-                    )
-                    if f2 is not None:
-                        st.session_state.cl_chart_2["file"] = f2
-                        st.session_state.cl_chart_2["url"] = ""
-                        st.success("Loaded from file.")
-                    # Paste URL
-                    url2 = st.text_input(
-                        "Paste image URL", key="ex2_url_input", placeholder="https://…/chart.png"
-                    )
-                    c1, c2 = st.columns([1, 1])
-                    with c1:
-                        if st.button("Load URL", key="ex2_load"):
-                            st.session_state.cl_chart_2["url"] = (url2 or "").strip()
-                            st.session_state.cl_chart_2["file"] = None
-                            st.success("URL set.")
-                    with c2:
-                        if st.button("Delete chart", key="ex2_del"):
-                            st.session_state["cl_chart_2"] = {"url": "", "file": None}
-                            st.info("Chart cleared.")
-
-            chart2 = st.session_state.get("cl_chart_2", {})
-            src2 = chart2.get("file")
-            url2 = chart2.get("url", "")
-            st.markdown('<div class="chart-img-slot">', unsafe_allow_html=True)
-            if src2 is not None:
-                st.image(src2, use_container_width=True, caption="Example 2 (file)")
-            elif url2:
-                st.image(url2, use_container_width=True, caption="Example 2 (URL)")
-            else:
-                b2 = _load_local_img_bytes(PH_EX2)
-                if b2:
-                    st.markdown(_img_html_from_bytes(b2), unsafe_allow_html=True)
-                else:
-                    st.caption(f"Add a placeholder at: {PH_EX2}")
-            st.markdown("</div>", unsafe_allow_html=True)
-
-    if not laptop:
-        # Desktop: two columns
-        left, right = st.columns([0.55, 0.5], gap="large")
-        with left:
-            _render_left_column()
-        with right:
-            _render_right_column()
-    else:
-        # Laptop: single centered column, charts stacked underneath left content
-        padL, main, padR = st.columns([0.06, 0.88, 0.06])
-        with main:
-            _render_left_column()
+            pct, grade = _score(st.session_state.cl_items, st.session_state.cl_confs)
+            gL, gR = st.columns([2.2, 1], gap="small")
+        with gL:
+            fig = _half_donut_fig("Overall Score", pct)
+            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+        with gR:
             st.markdown(
-                "<hr style='margin:1rem 0; border:0.5px solid rgba(255,255,255,0.1)'>",
+                "<div class='ui-subtle' style='text-align:center'>Grade</div>",
                 unsafe_allow_html=True,
             )
-            _render_right_column()
+            st.markdown(
+                f"<div class='grade-pill' style='text-align:center'>{grade}</div>",
+                unsafe_allow_html=True,
+            )
+
+    # ↓↓↓ OUTSIDE the score card, directly below it ↓↓↓
+    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+    padL3, save_col, padR3 = (
+        st.columns([0.01, 0.98, 0.01], gap="small")  # laptop
+        if LAPTOP
+        else st.columns([0.35, 0.30, 0.35], gap="small")  # desktop
+    )
+    with save_col:
+        if st.button("Save for Journal", key="cl_save_for_journal"):
+            items = {it["name"]: it["value"] for it in st.session_state.cl_items}
+            lines = [
+                f"[{items.get('Bias Confidence','')}] Bias",
+                f"{items.get('Liquidity Sweep','')} Sweep",
+                f"{items.get('Draw on Liquidity','')} DOL",
+                f"{items.get('Momentum','')} Momentum",
+                f"{items.get('iFVG','')} iFVG",
+                f"{items.get('Point of Interest','')} POI",
+            ]
+            for c in st.session_state.cl_confs:
+                if c.get("on"):
+                    lines.append(c["name"])
+
+            pct, grade = _score(st.session_state.cl_items, st.session_state.cl_confs)
+            st.session_state["pending_checklist"] = {
+                "overall_pct": pct,
+                "overall_grade": grade,
+                "journal_checklist": lines,
+                "journal_confirms": lines,
+            }
+            st.toast("Saved to Journal ✅")
