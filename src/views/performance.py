@@ -17,7 +17,7 @@ PAGE_TOP_PADDING_PX = 20  # pushes the whole Performance page down a bit
 KPI_TOP_PADDING_PX = 16  # space above the KPI block (below page padding)
 KPI_VRULE_HEIGHT_PX = 190  # height of vertical dividers between KPI columns
 DIVIDER_MARGIN_PX = 12  # extra space above & below the horizontal divider
-CHART_HEIGHT_PX = 370  # overall height for each chart
+CHART_HEIGHT_PX = 365  # overall height for each chart
 TITLE_TOP_MARGIN = 52  # inside-figure space reserved for the title
 TITLE_BOTTOM_GAP_PX = 18  # extra space *below* the chart title (adjust to taste)
 TITLE_X = 0.04  # try 0.03–0.06; 0 = hard left, 0.5 = center
@@ -491,6 +491,16 @@ def render(
         avg_loss_v
     )
     recovery = (net_profit / abs(max_dd_abs)) if max_dd_abs != 0 else float("inf")
+    # Quant ratios (Sharpe, Sortino, Calmar)
+    ret = pnl / (start_equity if start_equity != 0 else 1)
+    sharpe = (np.mean(ret) / np.std(ret)) * np.sqrt(252) if np.std(ret) != 0 else 0.0
+    downside = np.std(ret[ret < 0]) if np.any(ret < 0) else np.nan
+    sortino = (
+        (np.mean(ret) / downside) * np.sqrt(252)
+        if not np.isnan(downside) and downside != 0
+        else 0.0
+    )
+    calmar = (net_profit / abs(max_dd_abs)) if max_dd_abs != 0 else np.nan
 
     # Streaks & ratios
     longest_loser = _longest_losing_streak(pnl)
@@ -500,7 +510,7 @@ def render(
     # Hold times (if available) for Activity
     entry_col = _exists_any(df_view, ["entry_time", "Entry Time"])
     exit_col = _exists_any(df_view, ["exit_time", "Exit Time"])
-    avg_hold_min = total_hold_min = None
+
     if entry_col and exit_col:
         _mins = (
             (
@@ -512,7 +522,6 @@ def render(
         )
         if _mins.notna().any():
             avg_hold_min = float(_mins.mean(skipna=True))
-            total_hold_min = float(_mins.sum(skipna=True))
 
     # ---- padding above KPI row
     if KPI_TOP_PADDING_PX > 0:
@@ -535,11 +544,25 @@ def render(
             f"<span style='color:{_colorize(expectancy)}'>{_money(expectancy)}</span>",
         )
         _line(
-            "Gross Profit",
-            f"<span style='color:{_colorize(gross_profit)}'>{_money(gross_profit)}</span>",
+            "Gross Profit / Gross Loss",
+            f"<span style='color:{_colorize(gross_profit)}'>{_money(gross_profit)}</span> / "
+            f"<span style='color:{_colorize(gross_loss)}'>{_money(gross_loss)}</span>",
         )
-        _line(
-            "Gross Loss", f"<span style='color:{_colorize(gross_loss)}'>{_money(gross_loss)}</span>"
+
+        st.markdown("<hr style='opacity:0.08;margin:6px 0;'>", unsafe_allow_html=True)
+
+        # Sharpe ratio with tooltip
+        st.markdown(
+            f"""
+            <div style='display:flex;justify-content:space-between;margin:2px 0;'>
+              <span style='color:{FG_MUTED};'>
+                Sharpe
+                <span title='Measures return per unit of total volatility. Higher means more consistent risk-adjusted performance.' style='opacity:0.6;margin-left:4px;cursor:help;'>?</span>
+              </span>
+              <span style='font-weight:700'>{sharpe:.2f}</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
 
     with vr1:
@@ -551,9 +574,11 @@ def render(
     with k2:
         st.markdown("**Risk & Consistency**")
         _line(
-            "Max DD ($)", f"<span style='color:{_colorize(-1,'risk')}'>{_money(max_dd_abs)}</span>"
+            "Max DD ($ / %)",
+            f"<span style='color:{_colorize(-1,'risk')}'>{_money(max_dd_abs)}</span> "
+            f"/ <span style='color:{_colorize(-1,'risk')}'>{max_dd_pct:.2f}%</span>",
         )
-        _line("Max DD (%)", f"<span style='color:{_colorize(-1,'risk')}'>{max_dd_pct:.2f}%</span>")
+
         _line(
             "Win/Loss Ratio",
             f"<span style='color:{_colorize(wl_ratio,'ratio')}'>{'∞' if np.isinf(wl_ratio) else f'{wl_ratio:.2f}'}</span>",
@@ -565,6 +590,22 @@ def render(
         _line(
             "Longest Losing Streak",
             f"<span style='color:{_colorize(-1,'risk')}'>{_int(longest_loser)} trades</span>",
+        )
+
+        st.markdown("<hr style='opacity:0.08;margin:6px 0;'>", unsafe_allow_html=True)
+
+        # Sortino ratio with tooltip
+        st.markdown(
+            f"""
+            <div style='display:flex;justify-content:space-between;margin:2px 0;'>
+              <span style='color:{FG_MUTED};'>
+                Sortino
+                <span title='Similar to Sharpe but only penalizes downside volatility (losses). Higher is better.' style='opacity:0.6;margin-left:4px;cursor:help;'>?</span>
+              </span>
+              <span style='font-weight:700'>{sortino:.2f}</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
 
     with vr2:
@@ -582,8 +623,22 @@ def render(
             _line("Trades / Day", f"{(len(df_view)/max(1,trading_days)):.2f}")
         if avg_hold_min is not None:
             _line("Avg Hold Time", _fmt_duration_minutes(avg_hold_min))
-        if total_hold_min is not None:
-            _line("Total Hold Time", _fmt_duration_minutes(total_hold_min))
+
+        st.markdown("<hr style='opacity:0.08;margin:6px 0;'>", unsafe_allow_html=True)
+
+        # Calmar ratio with tooltip
+        st.markdown(
+            f"""
+            <div style='display:flex;justify-content:space-between;margin:2px 0;'>
+              <span style='color:{FG_MUTED};'>
+                Calmar
+                <span title='Compares annualized return to maximum drawdown. Reflects return per unit of drawdown risk.' style='opacity:0.6;margin-left:4px;cursor:help;'>?</span>
+              </span>
+              <span style='font-weight:700'>{calmar:.2f}</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
     # ---- roomy divider between KPIs and charts
     if DIVIDER_MARGIN_PX > 0:
