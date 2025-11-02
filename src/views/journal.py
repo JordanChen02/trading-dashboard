@@ -367,13 +367,63 @@ def _compute_derived(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _shift_demo_to_today(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Simple: shift all Date / Entry Time / Exit Time forward so the last date becomes today.
+    - Keeps the same number of trades and relative spacing.
+    - No-op if df empty or already up-to-date.
+    """
+    if df is None or df.empty:
+        return df
+
+    out = df.copy()
+
+    # normalize Date column (may be date or datetime)
+    if "Date" in out.columns:
+        out["Date"] = pd.to_datetime(out["Date"], errors="coerce")
+    else:
+        return out
+
+    max_date = out["Date"].max()
+    if pd.isna(max_date):
+        return out
+
+    # compute offset to move max_date to today
+    today = pd.Timestamp.today().normalize()
+    max_date_norm = pd.to_datetime(max_date).normalize()
+    offset = today - max_date_norm
+
+    if offset <= pd.Timedelta(0):
+        # already up-to-date (or in future) — nothing to do
+        return out
+
+    # shift date/datetime columns
+    out["Date"] = (out["Date"] + offset).dt.date
+
+    # If Entry Time / Exit Time present, shift datetimes preserving time-of-day
+    for col in ("Entry Time", "Exit Time"):
+        if col in out.columns:
+            # coerce to datetime, add offset
+            out[col] = pd.to_datetime(out[col], errors="coerce") + offset
+
+    # Recompute any derived fields (optional: call your existing helper)
+    try:
+        out = _compute_derived(out)
+    except Exception:
+        # safe fallback if derived helper expects other things
+        pass
+
+    return out
+
+
 def _init_session_state() -> None:
     """Initialize journal session keys."""
     # --- Journal dataframe: DEMO vs PRIVATE ---
     if "journal_df" not in st.session_state or st.session_state.get("journal_df") is None:
         if DEMO_MODE:
-            # DEMO: generate once per session
-            st.session_state.journal_df = _generate_fake_journal(300)
+            # DEMO: generate once per session and shift so latest date == today
+            df_demo = _generate_fake_journal(300)
+            st.session_state.journal_df = _shift_demo_to_today(df_demo)
         else:
             # PRIVATE: try load from disk; if missing, start EMPTY
             _loaded = _load_persisted_journal()

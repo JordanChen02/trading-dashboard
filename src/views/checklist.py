@@ -218,6 +218,28 @@ def _save_checklist_state() -> None:
         json.dump(payload, f, indent=2)
 
 
+def _snapshot_state() -> dict:
+    """Lightweight snapshot of the persistent pieces for change-detection."""
+    return {
+        "cl_templates": list(st.session_state.get("cl_templates", [])),
+        "cl_template_sel": st.session_state.get("cl_template_sel", ""),
+        "cl_items": list(st.session_state.get("cl_items", [])),
+        "cl_confs": list(st.session_state.get("cl_confs", [])),
+        "cl_label_offset": int(st.session_state.get("cl_label_offset", 10)),
+        "cl_chart_1": dict(st.session_state.get("cl_chart_1", {"url": "", "file": None})),
+        "cl_chart_2": dict(st.session_state.get("cl_chart_2", {"url": "", "file": None})),
+    }
+
+
+def _autosave_if_changed(before: dict):
+    """Persist to JSON only if something actually changed."""
+    after = _snapshot_state()
+    if json.dumps(before, sort_keys=True, default=str) != json.dumps(
+        after, sort_keys=True, default=str
+    ):
+        _save_checklist_state()
+
+
 # ==============================
 # Session init & data defaults
 # ==============================
@@ -638,6 +660,9 @@ def render(*_args, **_kwargs):
     _ensure_state()
     _inject_css()
 
+    # Snapshot state for end-of-run autosave
+    _state_before = _snapshot_state()
+
     # Prevent auto-open
     if st.session_state.get("add_item_open") and not st.session_state.get(
         "add_item_force_show_once", False
@@ -674,14 +699,24 @@ def render(*_args, **_kwargs):
         # two zones: selector (wide) + actions (tight)
         sel_col, actions_col = st.columns([0.84, 0.16], gap="small")
 
-        with sel_col:
-            st.selectbox(
-                "Setup Checklist",
-                st.session_state.cl_templates,
-                index=0,
-                key="cl_template_sel",
-                label_visibility="collapsed",
-            )
+    with sel_col:
+        # Make sure current selection is valid before rendering the widget
+        templates = st.session_state.get("cl_templates", [])
+        if not templates:
+            templates = TEMPLATE_NAMES[:]
+            st.session_state["cl_templates"] = templates
+
+        cur_sel = st.session_state.get("cl_template_sel")
+        if cur_sel not in templates:
+            st.session_state["cl_template_sel"] = templates[0] if templates else ""
+
+        # IMPORTANT: no `index=` when using a `key` bound to session_state
+        st.selectbox(
+            "Setup Checklist",
+            templates,
+            key="cl_template_sel",
+            label_visibility="collapsed",
+        )
 
         with actions_col:
             a1, a2 = st.columns([0.5, 0.6], gap="small")
@@ -876,3 +911,6 @@ def render(*_args, **_kwargs):
                 "journal_confirms": lines,
             }
             st.toast("Saved to Journal ✅")
+
+    # Autosave if anything changed during this run
+    _autosave_if_changed(_state_before)
