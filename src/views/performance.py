@@ -712,18 +712,13 @@ def render(
 
         st.markdown("<hr style='opacity:0.36;margin:6px 0;'>", unsafe_allow_html=True)
 
-        # Calmar ratio with tooltip
+        # Calmar ratio with concise tooltip
         kpi_with_tip(
             "Calmar",
             f"{calmar:.2f}",
-            "Total return relative to maximum drawdown.",
-            [
-                ("<0", "Underwater overall"),
-                ("0–0.5", "Fragile vs drawdowns"),
-                ("0.5–1.0", "OK / improving"),
-                ("1–3", "Good risk-adjusted trend"),
-                ("3+", "Great trend; small DDs"),
-            ],
+            "Measures total return versus max drawdown. "
+            "Higher = smoother growth; may keep increasing as equity compounds.",
+            [],
         )
 
     # ---- roomy divider between KPIs and charts
