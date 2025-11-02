@@ -15,9 +15,9 @@ from src.theme import AXIS_WEAK, BLUE, BLUE_FILL, BLUE_LIGHT, CARD_BG, FG, FG_MU
 # ========= Adjustable UI tokens =========
 PAGE_TOP_PADDING_PX = 20  # pushes the whole Performance page down a bit
 KPI_TOP_PADDING_PX = 16  # space above the KPI block (below page padding)
-KPI_VRULE_HEIGHT_PX = 190  # height of vertical dividers between KPI columns
+KPI_VRULE_HEIGHT_PX = 210  # height of vertical dividers between KPI columns
 DIVIDER_MARGIN_PX = 12  # extra space above & below the horizontal divider
-CHART_HEIGHT_PX = 365  # overall height for each chart
+CHART_HEIGHT_PX = 335  # overall height for each chart
 TITLE_TOP_MARGIN = 52  # inside-figure space reserved for the title
 TITLE_BOTTOM_GAP_PX = 18  # extra space *below* the chart title (adjust to taste)
 TITLE_X = 0.04  # try 0.03–0.06; 0 = hard left, 0.5 = center
@@ -456,6 +456,77 @@ def render(
         unsafe_allow_html=True,
     )
 
+    st.markdown(
+        f"""
+        <style>
+        .kpi-row {{
+            display:flex; justify-content:space-between;
+            align-items:center; margin:4px 0;
+        }}
+        .kpi-label {{
+            display:flex; align-items:center;
+            gap:4px; color:{FG_MUTED};
+        }}
+        .kpi-value {{ font-weight:700; }}
+        .tip {{
+            position:relative; display:inline-block;
+            width:20px; height:20px; border-radius:50%;
+            background:rgba(255,255,255,0.04); color:{FG};
+            color:rgba(255,255,255,0.35);  
+            text-align:center; line-height:20px;
+            font-size:13px; font-weight:600;
+            cursor:help; transition:all 0.2s ease;
+        }}
+        .tip:hover {{ background:rgba(255,255,255,0.08);
+        color:rgba(255,255,255,0.7);
+        }}
+        .tip-card {{
+            display:none; position:absolute; top:26px; left:0;
+            background:{CARD_BG}; color:{FG};
+            border:1px solid rgba(255,255,255,0.12);
+            border-radius:10px; padding:10px 12px;
+            width:270px;
+            box-shadow:0 10px 30px rgba(0,0,0,0.5);
+            font-size:13px; line-height:1.4;
+            z-index:9999;
+            transform-origin: top left;
+            animation: fadeIn 0.15s ease;
+        }}
+        .tip:hover .tip-card {{ display:block; }}
+        .tip-card table {{ width:100%; border-collapse:collapse; }}
+        .tip-card td {{ padding:4px 6px; }}
+        .tip-card tr:nth-child(odd) td {{ background:rgba(255,255,255,0.03); }}
+        .tip-card tr td:first-child {{ width:70px; color:{FG_MUTED}; }}
+        .tip-title {{ color:{FG_MUTED}; margin-bottom:6px; font-size:13px; }}
+        @keyframes fadeIn {{
+            from {{ opacity:0; transform:translateY(-2px); }}
+            to   {{ opacity:1; transform:translateY(0); }}
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    def kpi_with_tip(label, value, title, rows):
+        table_rows = "".join(f"<tr><td>{rng}</td><td>{desc}</td></tr>" for rng, desc in rows)
+        tip_html = f"""
+        <div class="tip">?
+            <div class="tip-card">
+            <div class="tip-title">{title}</div>
+            <table>{table_rows}</table>
+            </div>
+        </div>
+        """
+        st.markdown(
+            f"""
+            <div class="kpi-row">
+            <div class="kpi-label">{label}{tip_html}</div>
+            <div class="kpi-value">{value}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
     # Core series
     pnl = pd.to_numeric(df_view.get("pnl", 0.0), errors="coerce").fillna(0.0)
 
@@ -491,16 +562,31 @@ def render(
         avg_loss_v
     )
     recovery = (net_profit / abs(max_dd_abs)) if max_dd_abs != 0 else float("inf")
-    # Quant ratios (Sharpe, Sortino, Calmar)
-    ret = pnl / (start_equity if start_equity != 0 else 1)
-    sharpe = (np.mean(ret) / np.std(ret)) * np.sqrt(252) if np.std(ret) != 0 else 0.0
-    downside = np.std(ret[ret < 0]) if np.any(ret < 0) else np.nan
-    sortino = (
-        (np.mean(ret) / downside) * np.sqrt(252)
-        if not np.isnan(downside) and downside != 0
-        else 0.0
-    )
-    calmar = (net_profit / abs(max_dd_abs)) if max_dd_abs != 0 else np.nan
+    # ---- Quant ratios (Sharpe, Sortino, Calmar) from the SAME equity curve ----
+    # equity is already: start_equity + pnl.cumsum()
+
+    returns = equity.pct_change().replace([np.inf, -np.inf], np.nan).dropna()
+    if len(returns) >= 2:
+        # Per-trade Sharpe (no annualization to match your Sharpe choice)
+        mean_r = float(returns.mean())
+        std_r = float(returns.std())
+        sharpe = (mean_r / std_r) if std_r > 0 else 0.0
+
+        # Per-trade Sortino (same scale as Sharpe; no √252)
+        neg = returns[returns < 0]
+        down_std = float(neg.std()) if len(neg) > 0 else 0.0
+        sortino = (mean_r / down_std) if down_std > 0 else 0.0
+
+        # Calmar using % terms from the equity curve (not dollars)
+        # total_return = (end/start) - 1
+        total_return = float(equity.iloc[-1] / equity.iloc[0] - 1.0)
+
+        # max drawdown fraction = abs(min(equity/roll_max - 1))
+        roll_max = equity.cummax()
+        max_dd_frac = abs(float((equity / roll_max - 1.0).min()))
+        calmar = (total_return / max(max_dd_frac, 1e-12)) if max_dd_frac > 0 else 0.0
+    else:
+        sharpe = sortino = calmar = 0.0
 
     # Streaks & ratios
     longest_loser = _longest_losing_streak(pnl)
@@ -549,20 +635,20 @@ def render(
             f"<span style='color:{_colorize(gross_loss)}'>{_money(gross_loss)}</span>",
         )
 
-        st.markdown("<hr style='opacity:0.08;margin:6px 0;'>", unsafe_allow_html=True)
+        st.markdown("<hr style='opacity:0.36;margin:6px 0;'>", unsafe_allow_html=True)
 
         # Sharpe ratio with tooltip
-        st.markdown(
-            f"""
-            <div style='display:flex;justify-content:space-between;margin:2px 0;'>
-              <span style='color:{FG_MUTED};'>
-                Sharpe
-                <span title='Measures return per unit of total volatility. Higher means more consistent risk-adjusted performance.' style='opacity:0.6;margin-left:4px;cursor:help;'>?</span>
-              </span>
-              <span style='font-weight:700'>{sharpe:.2f}</span>
-            </div>
-            """,
-            unsafe_allow_html=True,
+        kpi_with_tip(
+            "Sharpe",
+            f"{sharpe:.2f}",
+            "Return per unit of total volatility.",
+            [
+                ("<0", "Losing / unstable"),
+                ("0–0.5", "Noisy / weak edge"),
+                ("0.5–1.0", "Mild edge"),
+                ("1–2", "Good consistency"),
+                ("2–3+", "Excellent consistency"),
+            ],
         )
 
     with vr1:
@@ -592,20 +678,20 @@ def render(
             f"<span style='color:{_colorize(-1,'risk')}'>{_int(longest_loser)} trades</span>",
         )
 
-        st.markdown("<hr style='opacity:0.08;margin:6px 0;'>", unsafe_allow_html=True)
+        st.markdown("<hr style='opacity:0.36;margin:6px 0;'>", unsafe_allow_html=True)
 
         # Sortino ratio with tooltip
-        st.markdown(
-            f"""
-            <div style='display:flex;justify-content:space-between;margin:2px 0;'>
-              <span style='color:{FG_MUTED};'>
-                Sortino
-                <span title='Similar to Sharpe but only penalizes downside volatility (losses). Higher is better.' style='opacity:0.6;margin-left:4px;cursor:help;'>?</span>
-              </span>
-              <span style='font-weight:700'>{sortino:.2f}</span>
-            </div>
-            """,
-            unsafe_allow_html=True,
+        kpi_with_tip(
+            "Sortino",
+            f"{sortino:.2f}",
+            "Return per unit of downside volatility (losses only).",
+            [
+                ("<0", "Losing / unstable"),
+                ("0–0.5", "Noisy downside"),
+                ("0.5–1.0", "Mild edge"),
+                ("1–2", "Good downside control"),
+                ("2–3+", "Excellent downside control"),
+            ],
         )
 
     with vr2:
@@ -624,20 +710,20 @@ def render(
         if avg_hold_min is not None:
             _line("Avg Hold Time", _fmt_duration_minutes(avg_hold_min))
 
-        st.markdown("<hr style='opacity:0.08;margin:6px 0;'>", unsafe_allow_html=True)
+        st.markdown("<hr style='opacity:0.36;margin:6px 0;'>", unsafe_allow_html=True)
 
         # Calmar ratio with tooltip
-        st.markdown(
-            f"""
-            <div style='display:flex;justify-content:space-between;margin:2px 0;'>
-              <span style='color:{FG_MUTED};'>
-                Calmar
-                <span title='Compares annualized return to maximum drawdown. Reflects return per unit of drawdown risk.' style='opacity:0.6;margin-left:4px;cursor:help;'>?</span>
-              </span>
-              <span style='font-weight:700'>{calmar:.2f}</span>
-            </div>
-            """,
-            unsafe_allow_html=True,
+        kpi_with_tip(
+            "Calmar",
+            f"{calmar:.2f}",
+            "Total return relative to maximum drawdown.",
+            [
+                ("<0", "Underwater overall"),
+                ("0–0.5", "Fragile vs drawdowns"),
+                ("0.5–1.0", "OK / improving"),
+                ("1–3", "Good risk-adjusted trend"),
+                ("3+", "Great trend; small DDs"),
+            ],
         )
 
     # ---- roomy divider between KPIs and charts
