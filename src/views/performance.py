@@ -686,10 +686,11 @@ def render(
             "Return per unit of downside volatility (losses only).",
             [
                 ("<0", "Losing / unstable"),
-                ("0–0.5", "Noisy downside"),
+                ("0–0.5", "Weak / noisy consistency"),
                 ("0.5–1.0", "Mild edge"),
                 ("1–2", "Good downside control"),
-                ("2–3+", "Excellent downside control"),
+                ("2–5", "Strong downside control"),
+                ("5+", "Excellent control or limited sample size"),
             ],
         )
 
