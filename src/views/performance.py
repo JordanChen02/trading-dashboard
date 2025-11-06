@@ -562,29 +562,28 @@ def render(
         avg_loss_v
     )
     recovery = (net_profit / abs(max_dd_abs)) if max_dd_abs != 0 else float("inf")
-    # ---- Quant ratios (Sharpe, Sortino, Calmar) from the SAME equity curve ----
-    # equity is already: start_equity + pnl.cumsum()
 
-    returns = equity.pct_change().replace([np.inf, -np.inf], np.nan).dropna()
-    if len(returns) >= 2:
-        # Per-trade Sharpe (no annualization to match your Sharpe choice)
-        mean_r = float(returns.mean())
-        std_r = float(returns.std())
-        sharpe = (mean_r / std_r) if std_r > 0 else 0.0
+    # ---- Quant ratios (Sharpe, Sortino, Calmar) using daily equity curve ----
+    daily = _daily_pnl(dates, pnl) if dates is not None else pd.DataFrame(columns=["date", "pnl"])
+    if not daily.empty:
+        eq = start_equity + daily["pnl"].cumsum()
+        daily_ret = eq.pct_change().dropna()
 
-        # Per-trade Sortino (same scale as Sharpe; no √252)
-        neg = returns[returns < 0]
-        down_std = float(neg.std()) if len(neg) > 0 else 0.0
-        sortino = (mean_r / down_std) if down_std > 0 else 0.0
+        if len(daily_ret) >= 2:
+            rf = 0.0
+            mean_r = daily_ret.mean()
+            std_r = daily_ret.std()
+            sharpe = ((mean_r - rf) / std_r * np.sqrt(252)) if std_r > 0 else 0.0
 
-        # Calmar using % terms from the equity curve (not dollars)
-        # total_return = (end/start) - 1
-        total_return = float(equity.iloc[-1] / equity.iloc[0] - 1.0)
+            neg = daily_ret[daily_ret < 0]
+            down_std = neg.std() if len(neg) > 0 else 0.0
+            sortino = ((mean_r - rf) / down_std * np.sqrt(252)) if down_std > 0 else 0.0
 
-        # max drawdown fraction = abs(min(equity/roll_max - 1))
-        roll_max = equity.cummax()
-        max_dd_frac = abs(float((equity / roll_max - 1.0).min()))
-        calmar = (total_return / max(max_dd_frac, 1e-12)) if max_dd_frac > 0 else 0.0
+            total_ret = eq.iloc[-1] / eq.iloc[0] - 1.0
+            max_dd = (eq.cummax() - eq).max()
+            calmar = (total_ret / (max_dd / eq.cummax().max())) if max_dd > 0 else 0.0
+        else:
+            sharpe = sortino = calmar = 0.0
     else:
         sharpe = sortino = calmar = 0.0
 

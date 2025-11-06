@@ -1531,6 +1531,35 @@ def render(*_args, **_kwargs) -> None:
     else:
         st.session_state["_view_orig_index"] = []
 
+    # # --- TEMP: export (filtered) CSV ---
+    # exp_col, _ = st.columns([1, 6])
+    # with exp_col:
+    #     if not df_view.empty:
+    #         _exp = df_view.copy()
+
+    #         # Clean, portable formatting for dates/times
+    #         if "Date" in _exp.columns:
+    #             _exp["Date"] = pd.to_datetime(_exp["Date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    #         for tcol in ("Entry Time", "Exit Time"):
+    #             if tcol in _exp.columns:
+    #                 _exp[tcol] = pd.to_datetime(_exp[tcol], errors="coerce").dt.strftime("%Y-%m-%d %H:%M:%S")
+
+    #         # Flatten Confirmations lists so the CSV is readable
+    #         if "Confirmations" in _exp.columns:
+    #             _exp["Confirmations"] = _exp["Confirmations"].apply(
+    #                 lambda v: ", ".join(v) if isinstance(v, list)
+    #                 else ("" if pd.isna(v) else str(v))
+    #             )
+
+    #         st.download_button(
+    #             "⬇️ Export (filtered) CSV",
+    #             data=_exp.to_csv(index=False).encode("utf-8"),
+    #             file_name=f"journal_filtered_{datetime.now():%Y-%m-%d}.csv",
+    #             mime="text/csv",
+    #             use_container_width=True,
+    #             help="Download the current filtered journal view as CSV (temporary).",
+    #         )
+
     # --- Journal table (styled read-only view vs editable) ---
     view_col, _ = st.columns([1, 4])
     show_styled = view_col.toggle(
